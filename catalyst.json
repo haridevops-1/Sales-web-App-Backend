@@ -1,0 +1,27 @@
+{
+  "functions": {
+    "targets": [
+      "spikra_document_upload",
+      "spikra_document_process",
+      "spikra_ai_analysis",
+      "spikra_experience_generate",
+      "spikra_experience_deploy",
+      "spikra_process_status",
+      "spikra_experience_list"
+    ],
+    "ignore": [
+      "**/*.log"
+    ],
+    "source": "functions"
+  },
+  "apig": {
+    "rules": "catalyst-user-rules.json",
+    "enabled": true
+  },
+  "slate": [
+    {
+      "name": "spikra-experience",
+      "source": "slate/spikra-experience"
+    }
+  ]
+}

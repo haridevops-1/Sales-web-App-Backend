@@ -1,0 +1,112 @@
+[
+  {
+    "name": "spikra-document-upload-api",
+    "source_endpoint": "/spikra/document/upload",
+    "target_endpoint": "/server/spikra_document_upload/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-document-process-api",
+    "source_endpoint": "/spikra/document/process",
+    "target_endpoint": "/server/spikra_document_process/execute",
+    "target": "basicio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-document-analyze-api",
+    "source_endpoint": "/spikra/document/analyze",
+    "target_endpoint": "/server/spikra_ai_analysis/execute",
+    "target": "basicio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-experience-generate-api",
+    "source_endpoint": "/spikra/experience/generate",
+    "target_endpoint": "/server/spikra_experience_generate/execute",
+    "target": "basicio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-experience-deploy-post-api",
+    "source_endpoint": "/spikra/experience/deploy",
+    "target_endpoint": "/server/spikra_experience_deploy/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-experience-deploy-get-api",
+    "source_endpoint": "/spikra/experience/deploy",
+    "target_endpoint": "/server/spikra_experience_deploy/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-process-status-get-api",
+    "source_endpoint": "/spikra/process/status",
+    "target_endpoint": "/server/spikra_process_status/execute",
+    "target": "basicio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-process-status-post-api",
+    "source_endpoint": "/spikra/process/status",
+    "target_endpoint": "/server/spikra_process_status/execute",
+    "target": "basicio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-experience-list-post-api",
+    "source_endpoint": "/spikra/experience/list",
+    "target_endpoint": "/server/spikra_experience_list/execute",
+    "target": "basicio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-experience-list-get-api",
+    "source_endpoint": "/spikra/experience/list",
+    "target_endpoint": "/server/spikra_experience_list/execute",
+    "target": "basicio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  }
+]

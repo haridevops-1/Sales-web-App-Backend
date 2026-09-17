@@ -1,0 +1,17 @@
+{
+  "name": "spikra-catalyst-backend",
+  "version": "1.0.0",
+  "description": "Spikra Customer Experience Engine — Node.js 22 Zoho Catalyst Backend Services",
+  "private": true,
+  "scripts": {
+    "test": "node scripts/verify_flow.js",
+    "verify": "node scripts/verify_flow.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "zcatalyst-cli": "^1.27.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

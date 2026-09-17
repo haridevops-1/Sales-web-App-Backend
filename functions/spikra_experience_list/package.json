@@ -1,0 +1,9 @@
+{
+	"name": "spikra_experience_list",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "hariharan@spikra.com",
+	"dependencies": {
+		"zcatalyst-sdk-node": "latest"
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"deployment": {
+		"name": "spikra_experience_deploy",
+		"stack": "node22",
+		"type": "advancedio",
+		"env_variables": {
+			"SLATE_APP_URL": "https://spikra-ai-proposal.onslate.com"
+		}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}
