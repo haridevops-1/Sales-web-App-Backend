@@ -7,6 +7,7 @@ const path = require("path");
 const {
 	ZiaAgentClient,
 	ConfigurationError,
+	SchemaValidationError,
 	DEFAULT_ENDPOINT_PLACEHOLDER
 } = require("../shared/agent");
 const {
@@ -21,7 +22,6 @@ console.log("==================================================");
 console.log("RUNNING TARGETED ZIA AGENT PIPELINE UNIT TESTS");
 console.log("==================================================\n");
 
-// 1. Test unconfigured endpoint behavior
 console.log("Test 1: Unconfigured placeholder behavior...");
 const unconfiguredProvider = new ZiaAgentClient({ endpoint: DEFAULT_ENDPOINT_PLACEHOLDER });
 assert.strictEqual(unconfiguredProvider.isConfigured(), false);
@@ -35,7 +35,33 @@ unconfiguredProvider.analyzeDocument("Sample BRD document content", { businessNa
 		console.log("  [PASS] Gracefully rejects unconfigured placeholder with clear error message.");
 	})
 	.then(() => {
-		// 2. Test normalization of Zia Agent response
+		console.log("\nTest 1B: Invalid/empty Agent response is rejected, not fabricated...");
+		const guardProvider = new ZiaAgentClient({ endpoint: "https://mock-agent.zoho.com/api/v1/run" });
+
+		assert.strictEqual(guardProvider.hasMeaningfulShowcaseContent({}), false, "Empty object must be rejected");
+		assert.strictEqual(guardProvider.hasMeaningfulShowcaseContent(null), false, "Null must be rejected");
+		assert.strictEqual(
+			guardProvider.hasMeaningfulShowcaseContent({ foo: "bar", status: "ok" }),
+			false,
+			"Off-schema response must be rejected"
+		);
+		assert.strictEqual(
+			guardProvider.hasMeaningfulShowcaseContent({ proposal_title: "Only a title, nothing else" }),
+			false,
+			"Title alone without real content arrays must be rejected"
+		);
+		assert.strictEqual(
+			guardProvider.hasMeaningfulShowcaseContent({
+				proposal_title: "Real Showcase",
+				deliverable_cards: [{ label: "Platform", value: "CRM", note: "..." }],
+				capabilities: [{ title: "X", subtitle: "Y", teaser: "Z", description: "..." }]
+			}),
+			true,
+			"A response with a title and real content arrays must be accepted"
+		);
+		assert.strictEqual(typeof SchemaValidationError, "function", "SchemaValidationError must be exported for callers to detect this failure mode");
+		console.log("  [PASS] hasMeaningfulShowcaseContent correctly gates fabricated/empty Agent output.");
+
 		console.log("\nTest 2: Zia Agent output normalization...");
 		const sampleZiaAgentOutput = {
 			proposal_title: "Omnichannel Customer Experience & Field Operations",
@@ -142,7 +168,6 @@ unconfiguredProvider.analyzeDocument("Sample BRD document content", { businessNa
 		assert.strictEqual(normalized.de_risk_summary.length, 2);
 		console.log("  [PASS] Zia Agent output normalization verified.");
 
-		// 3. Test Function 4 pure rendering
 		console.log("\nTest 3: Function 4 pure template hydration...");
 		const customerContent = prepareCustomerContent({
 			analysisJson: normalized,

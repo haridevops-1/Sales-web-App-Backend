@@ -4,8 +4,9 @@
 		"stack": "node22",
 		"type": "basicio",
 		"env_variables": {
-			"ZIA_AGENT_ENDPOINT": "[PASTE ZIA AGENT URL HERE]",
-			"ZIA_AGENT_AUTH_TOKEN": ""
+			"ZIA_AGENT_ENDPOINT": "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000141003/trigger",
+			"ZIA_AGENT_AUTH_TOKEN": "",
+			"ZIA_AGENT_ID": ""
 		}
 	},
 	"execution": {

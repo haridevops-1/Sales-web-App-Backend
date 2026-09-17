@@ -1,17 +1,11 @@
 "use strict";
 
-/**
- * Shared datastore module enforcing strictly targeted, single-row queries.
- * No bulk reads or unindexed scans are allowed.
- */
+// Strictly single-row targeted queries only — no bulk reads or unindexed scans.
 
 function escapeQueryValue(value) {
 	return String(value || "").replace(/'/g, "''");
 }
 
-/**
- * Retrieves a single DOCUMENT row by its ROWID.
- */
 async function getDocument(datastore, documentId) {
 	if (!datastore || !documentId) return null;
 	const table = datastore.table("DOCUMENTS");
@@ -22,9 +16,6 @@ async function getDocument(datastore, documentId) {
 	}
 }
 
-/**
- * Retrieves a single PROJECT row by its ROWID.
- */
 async function getProject(datastore, projectId) {
 	if (!datastore || !projectId) return null;
 	const table = datastore.table("PROJECTS");
@@ -35,9 +26,6 @@ async function getProject(datastore, projectId) {
 	}
 }
 
-/**
- * Finds the latest PROCESSING_JOBS row for a given document and job_type using targeted query with LIMIT 1.
- */
 async function findProcessingJob(app, documentId, jobType) {
 	if (!app || typeof app.zcql !== "function" || !documentId) {
 		return null;
@@ -71,9 +59,6 @@ async function findProcessingJob(app, documentId, jobType) {
 	return null;
 }
 
-/**
- * Finds the latest EXPERIENCES row for a given document and project using targeted query with LIMIT 1.
- */
 async function findExperience(app, documentId, projectId) {
 	if (!app || typeof app.zcql !== "function" || !documentId) {
 		return null;
@@ -107,9 +92,6 @@ async function findExperience(app, documentId, projectId) {
 	return null;
 }
 
-/**
- * Safely extracts ROWID from a Catalyst row object.
- */
 function getRowId(row) {
 	if (!row) return "";
 	const unwrapped = row.PROCESSING_JOBS || row.EXPERIENCES || row.PROJECTS || row.DOCUMENTS || row;

@@ -8,24 +8,15 @@ const DEFAULT_ENDPOINT_PLACEHOLDER = "[PASTE ZIA AGENT URL HERE]";
 const DEFAULT_TIMEOUT_MS = 120000;
 
 class ZiaAgentClient {
-	/**
-	 * @param {Object} [config]
-	 * @param {string} [config.endpoint] - Zia Agent URL (defaults to process.env.ZIA_AGENT_ENDPOINT or placeholder)
-	 * @param {string} [config.authToken] - Optional auth token / API key
-	 * @param {number} [config.timeoutMs] - Request timeout in milliseconds
-	 */
 	constructor(config = {}) {
 		const rawEndpoint = config.endpoint || process.env.ZIA_AGENT_ENDPOINT || process.env.ZIA_AGENT_URL || DEFAULT_ENDPOINT_PLACEHOLDER;
 		this.endpoint = String(rawEndpoint).trim();
 		this.authToken = String(config.authToken || process.env.ZIA_AGENT_AUTH_TOKEN || process.env.ZIA_AGENT_API_KEY || "").trim();
+		this.agentId = String(config.agentId || process.env.ZIA_AGENT_ID || "").trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.ZIA_AGENT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.agentType = "ZIA_AGENT";
 	}
 
-	/**
-	 * Checks whether the Zia Agent endpoint is properly configured.
-	 * @returns {boolean}
-	 */
 	isConfigured() {
 		if (!this.endpoint) return false;
 		if (this.endpoint.toUpperCase() === DEFAULT_ENDPOINT_PLACEHOLDER.toUpperCase()) return false;
@@ -33,17 +24,6 @@ class ZiaAgentClient {
 		return true;
 	}
 
-	/**
-	 * Analyzes raw document text via the deployed Zia Agent and returns structured Showcase data.
-	 *
-	 * @param {string} text - Extracted document text
-	 * @param {Object} [options]
-	 * @param {string} [options.businessName] - Target business name
-	 * @param {string} [options.projectName] - Project title/filename
-	 * @param {string} [options.documentId] - Document record ID
-	 * @param {string} [options.projectId] - Project record ID
-	 * @returns {Promise<Object>} Validated and normalized structured Showcase data
-	 */
 	async analyzeDocument(text, options = {}) {
 		if (!text || typeof text !== "string" || text.trim().length === 0) {
 			throw new Error("Document text is empty or invalid for Zia Agent analysis.");
@@ -74,15 +54,43 @@ class ZiaAgentClient {
 			}
 		};
 
+		if (this.agentId) {
+			requestPayload.agent_id = this.agentId;
+		}
+
 		const responseData = await this._callAgentEndpoint(requestPayload);
 		const structuredOutput = this._extractStructuredData(responseData, { businessName, projectName, text });
+
+		if (!this.hasMeaningfulShowcaseContent(structuredOutput)) {
+			throw new SchemaValidationError(
+				"Zia Agent response did not contain a recognizable Customer Showcase structure " +
+				"(missing proposal_title/project_summary and insufficient deliverable_cards/capabilities/customer_benefits/timeline_phases). " +
+				"Refusing to substitute generic fabricated customer content."
+			);
+		}
+
 		return this.normalizeShowcaseContent(structuredOutput, { businessName, projectName, text });
 	}
 
-	/**
-	 * Dispatches HTTP POST request to the Zia Agent endpoint.
-	 * @private
-	 */
+	// Guards against accepting an empty/malformed Agent response and papering over it with fabricated defaults.
+	hasMeaningfulShowcaseContent(data) {
+		if (!data || typeof data !== "object") return false;
+
+		const isNonEmptyString = (val) => typeof val === "string" && val.trim().length > 0;
+		const isNonEmptyArray = (val) => Array.isArray(val) && val.length > 0;
+
+		const hasTitleOrSummary = isNonEmptyString(data.proposal_title) || isNonEmptyString(data.project_summary);
+
+		const contentArrayCount = [
+			data.deliverable_cards,
+			data.capabilities,
+			data.customer_benefits,
+			data.timeline_phases
+		].filter(isNonEmptyArray).length;
+
+		return hasTitleOrSummary && contentArrayCount >= 2;
+	}
+
 	async _callAgentEndpoint(payload) {
 		const urlObj = new URL(this.endpoint);
 		const payloadString = JSON.stringify(payload);
@@ -163,10 +171,6 @@ class ZiaAgentClient {
 		});
 	}
 
-	/**
-	 * Unwraps and extracts structured data from varying Zia Agent response envelopes.
-	 * @private
-	 */
 	_extractStructuredData(response, { businessName, projectName, text }) {
 		if (!response || typeof response !== "object") {
 			throw new AgentAPIError("Zia Agent returned invalid response structure.");
@@ -229,9 +233,6 @@ class ZiaAgentClient {
 		return response;
 	}
 
-	/**
-	 * Validates and normalizes structured content against the V1 Customer Showcase schema.
-	 */
 	normalizeShowcaseContent(data = {}, { businessName = "Spikra", projectName = "Customer Proposal", text = "" }) {
 		const cleanStr = (val, def = "") => {
 			if (typeof val !== "string" || !val.trim() || val.trim().toLowerCase() === "not specified in the source document") {
@@ -490,6 +491,13 @@ class AgentAPIError extends Error {
 	}
 }
 
+class SchemaValidationError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = "SchemaValidationError";
+	}
+}
+
 function getZiaAgentClient(options = {}) {
 	return new ZiaAgentClient(options);
 }
@@ -497,8 +505,9 @@ function getZiaAgentClient(options = {}) {
 module.exports = {
 	ZiaAgentClient,
 	getZiaAgentClient,
-	getAIProvider: getZiaAgentClient, // Backward-compatibility alias
+	getAIProvider: getZiaAgentClient,
 	ConfigurationError,
 	AgentAPIError,
+	SchemaValidationError,
 	DEFAULT_ENDPOINT_PLACEHOLDER
 };

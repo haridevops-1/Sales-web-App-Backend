@@ -39,12 +39,6 @@ const REQUIRED_EXPERIENCE_FILES = [
 
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024; // 1 MB
 
-/**
- * Advanced I/O Entry Point for Function 5 (spikra_experience_deploy).
- *
- * @param {import("http").IncomingMessage} req
- * @param {import("http").ServerResponse} res
- */
 module.exports = async (req, res) => {
 	let app = null;
 	let experienceId = "";
@@ -100,7 +94,7 @@ module.exports = async (req, res) => {
 					console.log("Project experience query notice:", e.message);
 				}
 			}
-			
+
 			if (!experienceRow) {
 				if (requestedAsset === "json") {
 					sendJson(res, 404, { success: false, message: "Experience record not found" });
@@ -158,10 +152,8 @@ module.exports = async (req, res) => {
 				return;
 			}
 
-			// Raw pass-through of the actual generated per-experience assets built by
-			// Function 4 and stored in Stratus. These are what let the customer-facing
-			// link show the real business name, logo, and content cards instead of a
-			// static placeholder.
+			// Proxies Function 4's generated per-experience styles.css/script.js through this GET route
+			// so the customer-facing link shows the real business content, not a static placeholder.
 			if (requestedAsset === "styles.css" || requestedAsset === "script.js") {
 				if (!contentObjectKey) {
 					sendJson(res, 404, { success: false, message: "Experience content was not found" });
@@ -190,8 +182,6 @@ module.exports = async (req, res) => {
 				return;
 			}
 
-			// Explicit opt-in for the old structured-metadata response (used by
-			// internal tooling); everything else below renders the real HTML page.
 			if (requestedAsset === "json") {
 				const hasLogo = Boolean(
 					experienceRow.business_logo_object_key ||
@@ -250,9 +240,6 @@ module.exports = async (req, res) => {
 			return;
 		}
 
-		/*
-		 * 1. Read and parse request payload.
-		 */
 		const rawBody = await readRequestBody(req, MAX_REQUEST_BODY_SIZE);
 		const requestData = parseJsonBody(rawBody);
 
@@ -279,9 +266,6 @@ module.exports = async (req, res) => {
 			throw new ValidationError("experience_id is required.");
 		}
 
-		/*
-		 * 2. Initialize Catalyst SDK.
-		 */
 		app = catalyst.initialize(req);
 		const datastore = app.datastore();
 		const stratus = app.stratus();
@@ -291,9 +275,6 @@ module.exports = async (req, res) => {
 		const documentsTable = datastore.table(DOCUMENTS_TABLE);
 		const processingJobsTable = datastore.table(PROCESSING_JOBS_TABLE);
 
-		/*
-		 * 3. Retrieve and validate the EXPERIENCES record.
-		 */
 		const experienceRow = await findRowById(app, experiencesTable, EXPERIENCES_TABLE, experienceId, { document_id: documentId });
 		if (!experienceRow) {
 			throw new NotFoundError(`Experience record was not found for experience_id: ${experienceId}`);
@@ -322,9 +303,6 @@ module.exports = async (req, res) => {
 			throw new ValidationError("document_id could not be resolved from request or experience record.");
 		}
 
-		/*
-		 * 4. Retrieve and validate the PROJECTS record for business_name source of truth.
-		 */
 		const projectRow = await findRowById(app, projectsTable, PROJECTS_TABLE, projectId);
 		if (!projectRow) {
 			throw new NotFoundError(`Project record was not found for project_id: ${projectId}`);
@@ -343,9 +321,6 @@ module.exports = async (req, res) => {
 			throw new ValidationError("business_name is missing from the project record.");
 		}
 
-		/*
-		 * 5. Verify the DOCUMENTS record exists.
-		 */
 		const documentRow = await findRowById(app, documentsTable, DOCUMENTS_TABLE, documentId);
 		if (!documentRow) {
 			throw new NotFoundError(`Document record was not found for document_id: ${documentId}`);
@@ -356,18 +331,13 @@ module.exports = async (req, res) => {
 			throw new ValidationError("Document does not belong to the specified project.");
 		}
 
-		/*
-		 * 6. Idempotency & Current Status Validation.
-		 */
 		const currentStatus = String(experienceRow.status || "").trim().toUpperCase();
 		const existingGeneratedUrl = String(experienceRow.generated_url || "").trim();
 
-		// Check if existingGeneratedUrl is already a clean, friendly URL without internal query params
 		const isFriendlyUrl = existingGeneratedUrl.includes("spikra-ai-proposal.onslate.com") &&
 			!existingGeneratedUrl.includes("?") &&
 			existingGeneratedUrl.endsWith("_proposal");
 
-		// If already PUBLISHED with a valid friendly URL that is accessible, return idempotent response
 		if (currentStatus === "PUBLISHED" && existingGeneratedUrl && isValidHttpUrl(existingGeneratedUrl) && isFriendlyUrl) {
 			const isLive = await verifyUrlAccessible(existingGeneratedUrl, 2);
 			if (isLive) {
@@ -387,7 +357,6 @@ module.exports = async (req, res) => {
 			console.log(`Experience ${experienceId} was PUBLISHED but stored URL (${existingGeneratedUrl}) is not accessible. Republishing.`);
 		}
 
-		// If currently DEPLOYING, do not trigger a duplicate deployment
 		if (currentStatus === "DEPLOYING") {
 			console.log(`Deployment already in progress for experience ${experienceId}`);
 			sendJson(res, 200, {
@@ -402,16 +371,12 @@ module.exports = async (req, res) => {
 			return;
 		}
 
-		// Allowed retryable statuses: GENERATED, FAILED, or PUBLISHED (for repair/redeploy)
 		if (currentStatus !== "GENERATED" && currentStatus !== "FAILED" && currentStatus !== "PUBLISHED") {
 			throw new ValidationError(
 				`Experience status must be GENERATED or FAILED to initiate deployment. Current status: ${currentStatus || "UNKNOWN"}`
 			);
 		}
 
-		/*
-		 * 7. Validate source files in Stratus (spikra-generated-experiences-698386704).
-		 */
 		let contentObjectKey = String(experienceRow.content_object_key || "").trim();
 		if (!contentObjectKey) {
 			contentObjectKey = `projects/${projectId}/experiences/${experienceId}/version-1/`;
@@ -453,9 +418,6 @@ module.exports = async (req, res) => {
 
 		console.log(`All required files verified in Stratus for experience ${experienceId}.`);
 
-		/*
-		 * 8. Locate or initialize the DEPLOY processing job.
-		 */
 		deployJob = await findProcessingJob(app, documentId, "DEPLOY");
 		if (deployJob) {
 			deployJobId = getRowId(deployJob);
@@ -491,9 +453,6 @@ module.exports = async (req, res) => {
 			}
 		}
 
-		/*
-		 * 9. Set EXPERIENCES.status = DEPLOYING before initiating deployment.
-		 */
 		await experiencesTable.updateRow({
 			ROWID: experienceId,
 			status: "DEPLOYING",
@@ -501,12 +460,6 @@ module.exports = async (req, res) => {
 		});
 		console.log(`EXPERIENCES record ${experienceId} updated to DEPLOYING`);
 
-		/*
-		 * 10. Publish: verify the generated files exist in Stratus, then build the
-		 * customer link into the single shared Slate app (slate/spikra-experience).
-		 * That app is deployed once via `catalyst deploy --only slate`; every
-		 * business gets a unique link via query params, not a dedicated app.
-		 */
 		const projectName = String(projectRow.project_name || experienceRow.experience_title || "").trim();
 		const nowFormatted = new Date().toISOString().replace("T", " ").substring(0, 19);
 
@@ -558,7 +511,6 @@ module.exports = async (req, res) => {
 
 		const userErrorMessage = getSafeErrorMessage(error);
 
-		// Record failure in Data Store
 		if (app) {
 			if (experienceId) {
 				try {
@@ -615,12 +567,6 @@ module.exports = async (req, res) => {
 	}
 };
 
-
-
-
-/**
- * Validates whether a URL is an absolute HTTP/HTTPS URL.
- */
 function isValidHttpUrl(string) {
 	try {
 		const url = new URL(string);
@@ -630,14 +576,10 @@ function isValidHttpUrl(string) {
 	}
 }
 
-/**
- * Finds a row by ROWID in a Catalyst Data Store table.
- */
 async function findRowById(app, table, tableName, rowId, fallbackFilter) {
 	if (!rowId && !fallbackFilter) return null;
 	const diagnostics = [];
 
-	// Attempt 1: table.getRow
 	if (rowId) {
 		try {
 			const row = await table.getRow(rowId);
@@ -649,9 +591,7 @@ async function findRowById(app, table, tableName, rowId, fallbackFilter) {
 		}
 	}
 
-	// Attempt 2: app.zcql().executeZCQLQuery
 	if (app && typeof app.zcql === "function") {
-		// 2a. ZCQL by numeric ROWID
 		if (rowId) {
 			const cleanId = String(rowId).replace(/[^0-9]/g, "");
 			if (cleanId) {
@@ -667,7 +607,6 @@ async function findRowById(app, table, tableName, rowId, fallbackFilter) {
 				}
 			}
 
-			// 2b. ZCQL by quoted ROWID
 			try {
 				const queryStr = `SELECT * FROM ${tableName} WHERE ROWID = '${escapeQueryValue(rowId)}' LIMIT 1`;
 				const resultStr = await app.zcql().executeZCQLQuery(queryStr);
@@ -680,7 +619,6 @@ async function findRowById(app, table, tableName, rowId, fallbackFilter) {
 			}
 		}
 
-		// 2c. Fallback: by document_id or project_id if supplied
 		if (fallbackFilter && fallbackFilter.document_id) {
 			try {
 				const docQuery = `SELECT * FROM ${tableName} WHERE document_id = '${escapeQueryValue(fallbackFilter.document_id)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
@@ -700,9 +638,6 @@ async function findRowById(app, table, tableName, rowId, fallbackFilter) {
 	return null;
 }
 
-/**
- * Finds a processing job matching document_id and job_type.
- */
 async function findProcessingJob(app, documentId, jobType) {
 	if (!app || typeof app.zcql !== "function" || !documentId) return null;
 
@@ -735,9 +670,6 @@ async function findProcessingJob(app, documentId, jobType) {
 	return null;
 }
 
-/**
- * Reads the request body from a Node.js IncomingMessage stream.
- */
 function readRequestBody(req, maxSizeBytes) {
 	if (req.body && Buffer.isBuffer(req.body)) {
 		return Promise.resolve(req.body.toString("utf8"));
@@ -800,9 +732,6 @@ function readRequestBody(req, maxSizeBytes) {
 	});
 }
 
-/**
- * Parses JSON request body safely.
- */
 function parseJsonBody(bodyString) {
 	if (!bodyString || !bodyString.trim()) {
 		return {};
@@ -810,7 +739,6 @@ function parseJsonBody(bodyString) {
 	try {
 		return JSON.parse(bodyString);
 	} catch {
-		// Could be URL encoded
 		try {
 			const parsed = new URLSearchParams(bodyString);
 			const obj = {};
@@ -824,9 +752,6 @@ function parseJsonBody(bodyString) {
 	}
 }
 
-/**
- * Converts a readable stream to a Buffer.
- */
 function streamToBuffer(stream) {
 	return new Promise((resolve, reject) => {
 		const chunks = [];
@@ -840,27 +765,18 @@ function streamToBuffer(stream) {
 	});
 }
 
-/**
- * Extracts ROWID across casing conventions.
- */
 function getRowId(row) {
 	if (!row) return "";
 	const target = row.EXPERIENCES || row.PROCESSING_JOBS || row.DOCUMENTS || row.PROJECTS || row;
 	return String(target.ROWID || target.rowid || target.ROW_ID || target.id || "").trim();
 }
 
-/**
- * Escapes characters for Data Store SQL queries.
- */
 function escapeQueryValue(value) {
 	return String(value || "")
 		.replace(/'/g, "''")
 		.replace(/\\/g, "\\\\");
 }
 
-/**
- * Sets standard CORS headers.
- */
 function setCorsHeaders(res) {
 	res.setHeader("Access-Control-Allow-Origin", "*");
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -880,19 +796,12 @@ function getContentTypeByKey(key) {
 	return contentTypes[extension] || "application/octet-stream";
 }
 
-/**
- * Sends a JSON response.
- */
 function sendJson(res, statusCode, payload) {
 	res.statusCode = statusCode;
 	res.setHeader("Content-Type", "application/json; charset=utf-8");
 	res.end(JSON.stringify(payload));
 }
 
-/**
- * Sends a minimal, on-brand 404 page for a browser/iframe hitting this
- * endpoint directly (as opposed to an API client that would want JSON).
- */
 function sendNotFoundHtml(res, message) {
 	res.statusCode = 404;
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -919,10 +828,6 @@ function escapeHtmlText(str) {
 
 const DEPLOY_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com/spikra/experience/deploy";
 
-/**
- * Rewrites the generated index.html's relative "styles.css", "script.js",
- * and business logo references into absolute URLs pointing to Function 5.
- */
 function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
 	let baseQs = `experience_id=${encodeURIComponent(expId)}&project_id=${encodeURIComponent(projId)}`;
 	if (slug) {
@@ -934,12 +839,10 @@ function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
 	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
 
 	let out = String(html || "")
-		// 1. Eradicate literal $1 produced by legacy template replacements and restore Google Fonts link
 		.replace(/\$1\s*(<link rel="stylesheet")/gi, `${googleFontsLink}\n$1`)
 		.replace(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>\s*\$1/gi, `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n${googleFontsLink}`)
 		.replace(/^\s*\$1\s*$/gm, "")
 		.replace(/>\s*\$1\s*</g, "><")
-		// 2. Rewrite asset links to absolute URLs
 		.replace(/href=["']styles\.css["']/g, `href="${cssUrl}"`)
 		.replace(/src=["']script\.js["']/g, `src="${jsUrl}"`)
 		.replace(/src=["']assets\/business-logo\.[a-zA-Z0-9]+["']/gi, `src="${logoUrl}"`)
@@ -948,17 +851,6 @@ function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
 	return out;
 }
 
-/**
- * Performs targeted Data Store queries to resolve an experience from a business slug.
- * Strictly adheres to:
- * - NO bulk reads of the EXPERIENCES table.
- * - NO in-memory scanning of experiences.
- * - All queries use WHERE clause and LIMIT 1.
- *
- * @param {object} app - Initialized Catalyst SDK app
- * @param {string} slug - The business proposal slug (e.g. "monin-pvt-ltd_proposal")
- * @returns {Promise<object|null>} The matched experience row or null
- */
 async function findExperienceBySlug(app, slug) {
 	if (!slug) return null;
 	const cleanSlug = String(slug).replace(/^\/+|\/+$/g, "").toLowerCase().trim();
@@ -971,7 +863,6 @@ async function findExperienceBySlug(app, slug) {
 		`https://spikra-experience-kspwbmax.onslate.com/${cleanSlug}/`
 	];
 
-	// 1. Exact match on generated_url in EXPERIENCES table (single equality per query)
 	for (const targetUrl of targetUrls) {
 		try {
 			const query = `SELECT * FROM ${EXPERIENCES_TABLE} WHERE generated_url = '${escapeQueryValue(targetUrl)}' LIMIT 1`;
@@ -984,7 +875,6 @@ async function findExperienceBySlug(app, slug) {
 		}
 	}
 
-	// 2. Exact match on generated_url in PROJECTS table -> then get experience by project_id
 	for (const targetUrl of targetUrls) {
 		try {
 			const projQuery = `SELECT * FROM ${PROJECTS_TABLE} WHERE generated_url = '${escapeQueryValue(targetUrl)}' LIMIT 1`;
@@ -1005,7 +895,6 @@ async function findExperienceBySlug(app, slug) {
 		}
 	}
 
-	// 3. Derive business_name candidates from slug (e.g. "monin-pvt-ltd_proposal" -> "monin pvt ltd")
 	const stripped = cleanSlug.replace(/_proposal$/i, "").trim();
 	const nameCandidates = [
 		stripped.replace(/-/g, " "),
@@ -1047,9 +936,6 @@ async function findExperienceBySlug(app, slug) {
 	return null;
 }
 
-/**
- * Returns user-friendly error messages without leaking technical stacks.
- */
 function getSafeErrorMessage(error) {
 	if (
 		error instanceof ValidationError ||

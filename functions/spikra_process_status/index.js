@@ -7,10 +7,6 @@ const DOCUMENTS_TABLE = 'DOCUMENTS';
 const EXPERIENCES_TABLE = 'EXPERIENCES';
 const PROCESSING_JOBS_TABLE = 'PROCESSING_JOBS';
 
-/**
- * Basic I/O Entry Point for Function 6 (spikra_process_status).
- * Read-only status API for Spikra Customer Experience Engine.
- */
 module.exports = async (context, basicIO) => {
 	let projectId = '';
 	let documentId = '';
@@ -19,7 +15,6 @@ module.exports = async (context, basicIO) => {
 	try {
 		const app = catalyst.initialize(context);
 
-		// Read input parameters from basicIO arguments
 		projectId = String(
 			basicIO.getArgument('project_id') ||
 			basicIO.getArgument('projectId') ||
@@ -38,7 +33,6 @@ module.exports = async (context, basicIO) => {
 			''
 		).trim();
 
-		// 1. Validate project_id
 		if (!projectId) {
 			basicIO.setStatus(400);
 			basicIO.write(
@@ -51,7 +45,6 @@ module.exports = async (context, basicIO) => {
 			return;
 		}
 
-		// 2. Query PROJECTS record
 		const projectQuery = `SELECT * FROM ${PROJECTS_TABLE} WHERE ROWID = '${escapeValue(projectId)}'`;
 		const projectResult = await app.zcql().executeZCQLQuery(projectQuery);
 		const projectRow = getRowData(projectResult, PROJECTS_TABLE);
@@ -69,7 +62,6 @@ module.exports = async (context, basicIO) => {
 			return;
 		}
 
-		// 3. Retrieve or Validate DOCUMENTS record
 		let documentRow = null;
 		if (documentId) {
 			const documentQuery = `SELECT * FROM ${DOCUMENTS_TABLE} WHERE ROWID = '${escapeValue(documentId)}'`;
@@ -89,7 +81,6 @@ module.exports = async (context, basicIO) => {
 				return;
 			}
 
-			// Validate document ownership
 			const docProjectId = String(documentRow.project_id || '').trim();
 			if (docProjectId && docProjectId !== projectId) {
 				basicIO.setStatus(400);
@@ -103,7 +94,6 @@ module.exports = async (context, basicIO) => {
 				return;
 			}
 		} else {
-			// Find latest document for the project
 			const docQuery = `SELECT * FROM ${DOCUMENTS_TABLE} WHERE project_id = '${escapeValue(projectId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
 			const docResult = await app.zcql().executeZCQLQuery(docQuery);
 			documentRow = getRowData(docResult, DOCUMENTS_TABLE);
@@ -112,7 +102,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		// 4. Retrieve or Validate EXPERIENCES record
 		let experienceRow = null;
 		if (experienceId) {
 			const experienceQuery = `SELECT * FROM ${EXPERIENCES_TABLE} WHERE ROWID = '${escapeValue(experienceId)}'`;
@@ -132,7 +121,6 @@ module.exports = async (context, basicIO) => {
 				return;
 			}
 
-			// Validate experience ownership
 			const expProjectId = String(experienceRow.project_id || '').trim();
 			if (expProjectId && expProjectId !== projectId) {
 				basicIO.setStatus(400);
@@ -159,7 +147,6 @@ module.exports = async (context, basicIO) => {
 				return;
 			}
 		} else {
-			// Find latest experience for project / document
 			let expQuery = `SELECT * FROM ${EXPERIENCES_TABLE} WHERE project_id = '${escapeValue(projectId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
 			if (documentId) {
 				expQuery = `SELECT * FROM ${EXPERIENCES_TABLE} WHERE project_id = '${escapeValue(projectId)}' AND document_id = '${escapeValue(documentId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
@@ -171,16 +158,13 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		// 5. Query PROCESSING_JOBS records
 		const jobQuery = `SELECT * FROM ${PROCESSING_JOBS_TABLE} WHERE project_id = '${escapeValue(projectId)}' ORDER BY CREATEDTIME DESC`;
 		const jobResult = await app.zcql().executeZCQLQuery(jobQuery);
 		const jobRows = (jobResult || []).map((item) => item[PROCESSING_JOBS_TABLE] || item);
 
-		// 6. Calculate current_stage and error_message
 		const currentStage = determineCurrentStage(projectRow, documentRow, experienceRow, jobRows);
 		const errorMessage = getPrioritizedErrorMessage(experienceRow, documentRow, jobRows);
 
-		// 7. Format jobs list
 		const jobsList = jobRows.map((job) => ({
 			job_id: getRowId(job),
 			job_type: job.job_type || 'UNKNOWN',
@@ -191,7 +175,6 @@ module.exports = async (context, basicIO) => {
 			error_message: job.error_message || null
 		}));
 
-		// 8. Build project response section
 		const projectSection = {
 			project_id: getRowId(projectRow) || projectId,
 			business_name: projectRow.business_name || '',
@@ -199,14 +182,12 @@ module.exports = async (context, basicIO) => {
 			status: projectRow.status || 'UNKNOWN'
 		};
 
-		// 9. Build document response section
 		const documentSection = documentRow ? {
 			document_id: getRowId(documentRow) || documentId,
 			file_name: documentRow.file_name || '',
 			processing_status: documentRow.processing_status || 'UNKNOWN'
 		} : null;
 
-		// 10. Build experience response section
 		const isPublished = (experienceRow?.status || '').toUpperCase() === 'PUBLISHED';
 		const safeGeneratedUrl = isPublished ? (experienceRow.generated_url || null) : null;
 		const experienceSection = experienceRow ? {
@@ -218,7 +199,6 @@ module.exports = async (context, basicIO) => {
 			published_time: experienceRow.published_time || experienceRow.CREATEDTIME || null
 		} : null;
 
-		// 11. Structured Response Payload adhering to Salesperson Interface Boundary
 		const responsePayload = {
 			success: true,
 			business_name: projectRow.business_name || '',
@@ -236,7 +216,6 @@ module.exports = async (context, basicIO) => {
 			jobs: jobsList
 		};
 
-		// Clean logging (no content, credentials, or tokens)
 		context.log(`spikra_process_status: project_id=${projectId}, document_id=${documentId}, experience_id=${experienceId}, jobs_count=${jobsList.length}, current_stage=${currentStage}, final_status=${projectSection.status}`);
 
 		basicIO.setStatus(200);
@@ -257,11 +236,8 @@ module.exports = async (context, basicIO) => {
 	context.close();
 };
 
-/**
- * Calculates current stage with FAILED taking priority if any active failure exists.
- */
+// FAILED takes priority over every other stage if any active failure exists anywhere in the chain.
 function determineCurrentStage(projectRow, documentRow, experienceRow, jobRows) {
-	// Active Failure Priority Check
 	const expStatus = String(experienceRow?.status || '').toUpperCase();
 	const docStatus = String(documentRow?.processing_status || '').toUpperCase();
 	const projStatus = String(projectRow?.status || '').toUpperCase();
@@ -271,7 +247,6 @@ function determineCurrentStage(projectRow, documentRow, experienceRow, jobRows) 
 		return 'FAILED';
 	}
 
-	// Active Stage Priority
 	if (expStatus === 'PUBLISHED') return 'PUBLISHED';
 	if (expStatus === 'DEPLOYING') return 'DEPLOYING';
 	if (expStatus === 'GENERATED') return 'GENERATED';
@@ -285,12 +260,6 @@ function determineCurrentStage(projectRow, documentRow, experienceRow, jobRows) 
 	return projStatus || 'UNKNOWN';
 }
 
-/**
- * Retrieves error message according to strict priority order:
- * 1. Experience error
- * 2. Document error
- * 3. Latest failed job error
- */
 function getPrioritizedErrorMessage(experienceRow, documentRow, jobRows) {
 	if (experienceRow && experienceRow.error_message) {
 		return experienceRow.error_message;
@@ -307,9 +276,6 @@ function getPrioritizedErrorMessage(experienceRow, documentRow, jobRows) {
 	return null;
 }
 
-/**
- * Extracts single row data from ZCQL query result.
- */
 function getRowData(result, tableName) {
 	if (!result) return null;
 	if (Array.isArray(result) && result.length > 0) {
@@ -319,18 +285,12 @@ function getRowData(result, tableName) {
 	return null;
 }
 
-/**
- * Extracts ROWID safely across Catalyst casing variations.
- */
 function getRowId(row) {
 	if (!row) return '';
 	const target = row.PROJECTS || row.DOCUMENTS || row.EXPERIENCES || row.PROCESSING_JOBS || row;
 	return String(target.ROWID || target.rowid || target.ROW_ID || target.id || '').trim();
 }
 
-/**
- * Escapes single quotes for ZCQL queries.
- */
 function escapeValue(value) {
 	return String(value || '').replace(/'/g, "''");
 }

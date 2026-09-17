@@ -21,9 +21,6 @@ module.exports = async (context, basicIO) => {
 	let processingJob = null;
 
 	try {
-		/*
-		 * 1. Read document_id from basicIO argument.
-		 */
 		let rawDocumentId = basicIO.getArgument("document_id");
 		if (!rawDocumentId) {
 			rawDocumentId = basicIO.getArgument("documentId");
@@ -35,9 +32,6 @@ module.exports = async (context, basicIO) => {
 			throw new ValidationError("document_id is required");
 		}
 
-		/*
-		 * 2. Initialize Catalyst SDK.
-		 */
 		app = catalyst.initialize(context);
 		const datastore = app.datastore();
 		const stratus = app.stratus();
@@ -46,9 +40,6 @@ module.exports = async (context, basicIO) => {
 		const processingJobsTable = datastore.table(PROCESSING_JOBS_TABLE);
 		const projectsTable = datastore.table(PROJECTS_TABLE);
 
-		/*
-		 * 3. Retrieve document record.
-		 */
 		let documentRow;
 		try {
 			documentRow = await documentsTable.getRow(documentId);
@@ -71,20 +62,10 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("Original document storage key is missing");
 		}
 
-		/*
-		 * 4. Determine Stratus bucket name.
-		 */
 		const bucketName = getBucketName(documentRow);
 
-		/*
-		 * 5. Find extraction job associated with this document.
-		 */
 		processingJob = await findExtractionJob(app, documentId);
 
-		/*
-		 * 6. Idempotency Check:
-		 * If document is already EXTRACTED and content_object_key exists, return existing status.
-		 */
 		if (
 			documentRow.processing_status === "EXTRACTED" &&
 			documentRow.content_object_key
@@ -110,14 +91,9 @@ module.exports = async (context, basicIO) => {
 					);
 					return;
 				}
-			} catch (idempotencyError) {
-				// Object not found in Stratus, continue re-processing document safely
-			}
+			} catch (idempotencyError) {}
 		}
 
-		/*
-		 * 7. Mark document as EXTRACTING and job as RUNNING.
-		 */
 		await documentsTable.updateRow({
 			ROWID: documentId,
 			processing_status: "EXTRACTING",
@@ -137,9 +113,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		/*
-		 * 8. Download original document from Stratus.
-		 */
 		let pdfResponse;
 		try {
 			const sourceBucket = stratus.bucket(bucketName);
@@ -158,9 +131,6 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError(`The document exceeds the ${MAX_SOURCE_FILE_SIZE / (1024 * 1024)} MB processing limit`);
 		}
 
-		/*
-		 * 9. Extract text from the source document (PDF or Word).
-		 */
 		const documentKind = getDocumentKind(documentRow, storageObjectKey);
 
 		let extractedText = "";
@@ -190,9 +160,6 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("The extracted text is too large to store");
 		}
 
-		/*
-		 * 10. Upload extracted text to Stratus.
-		 */
 		const contentObjectKey = `projects/${projectId}/documents/${documentId}/extracted-content.txt`;
 
 		try {
@@ -213,9 +180,6 @@ module.exports = async (context, basicIO) => {
 
 		const contentObjectPath = `${bucketName}/${contentObjectKey}`;
 
-		/*
-		 * 11. Update DOCUMENTS record.
-		 */
 		try {
 			const updateDocData = {
 				ROWID: documentId,
@@ -232,9 +196,6 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("Failed to update document processing status");
 		}
 
-		/*
-		 * 12. Update PROCESSING_JOBS record.
-		 */
 		const jobId = processingJob
 			? String(processingJob.ROWID || processingJob.rowid || processingJob.ROW_ID || processingJob.id || "")
 			: "";
@@ -247,17 +208,11 @@ module.exports = async (context, basicIO) => {
 			});
 		}
 
-		/*
-		 * 13. Update PROJECTS status.
-		 */
 		await projectsTable.updateRow({
 			ROWID: projectId,
 			status: "PROCESSING"
 		});
 
-		/*
-		 * 14. Return success response.
-		 */
 		basicIO.setStatus(200);
 		basicIO.write(
 			JSON.stringify({
@@ -376,22 +331,8 @@ function streamToBuffer(stream) {
 	});
 }
 
-/*
- * Text extraction uses three engines, tried in order of reliability:
- *
- * 1. pdfjs-dist (Mozilla's actively maintained PDF.js): correctly handles
- *    modern PDF structures such as compressed cross-reference tables and
- *    object streams (PDF 1.5+), which are the default output of most
- *    current PDF writers (PowerPoint, Google Slides, Word, Chrome
- *    "Print to PDF", etc).
- * 2. pdf-parse: a much older, pinned build of pdf.js. Kept as a fallback
- *    for the rare document pdfjs-dist itself cannot open.
- * 3. pdf2json: independent parser, last-resort fallback.
- *
- * pdf-parse and pdf2json both fail outright (not just "no text found")
- * on PDFs that use compressed xref/object streams, which is why
- * pdfjs-dist must run first rather than as a fallback.
- */
+// pdfjs-dist must run first: pdf-parse and pdf2json both fail outright (not just "no text found")
+// on PDFs using compressed xref/object streams, which is the default output of most modern PDF writers.
 async function extractPdfText(pdfBuffer) {
 	const attempts = [];
 
@@ -431,12 +372,6 @@ async function extractPdfText(pdfBuffer) {
 	throw buildPdfExtractionError(attempts);
 }
 
-/*
- * Every engine failing (or returning nothing) used to collapse into the same
- * generic "no extractable text" message, regardless of whether the PDF was
- * genuinely image-only, password-protected, or corrupted. Surface the real
- * cause instead so it's diagnosable from the stored error_message alone.
- */
 function buildPdfExtractionError(attempts) {
 	const pdfjsAttempt = attempts.find((a) => a.engine === "pdfjs-dist");
 	const pdfjsError = pdfjsAttempt && pdfjsAttempt.error;
@@ -462,7 +397,6 @@ function buildPdfExtractionError(attempts) {
 
 async function extractTextWithPdfJs(pdfBuffer) {
 	if (typeof Promise.withResolvers !== "function") {
-		// Polyfill for Node runtimes older than 22 (pdfjs-dist 6.x requires it).
 		Promise.withResolvers = function withResolvers() {
 			let resolve;
 			let reject;

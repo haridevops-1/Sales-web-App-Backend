@@ -14,13 +14,11 @@ const builderPath = path.join(catalystDir, "scripts/build_slate_index.js");
 
 let templateContent = fs.readFileSync(templatePath, "utf8");
 
-// 1. Replace title in template
 templateContent = templateContent.replace(
   /<title>[\s\S]*?<\/title>/i,
   '<title id="spikra-page-title">Proposal Experience</title>'
 );
 
-// 2. Head router script
 const headScript = [
   '<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">',
   '<meta http-equiv="Pragma" content="no-cache">',
@@ -109,7 +107,6 @@ const beforeBody = templateContent.substring(0, bodyOpenIdx + 6);
 const innerBody = templateContent.substring(bodyOpenIdx + 6, bodyCloseIdx);
 const afterBody = templateContent.substring(bodyCloseIdx);
 
-// Top orbital loader
 const topOrbitalLoader = [
   '<!-- Spikra Orbital Loading Screen (Rendered immediately on first frame for proposal routes) -->',
   '<div id="spikra-loader-screen" style="position:fixed;inset:0;background:#f8fafc;display:none;flex-direction:column;align-items:center;justify-content:center;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;color:#0c2c3e;padding:24px;">',
@@ -130,7 +127,6 @@ const topOrbitalLoader = [
   '</div>'
 ].join("\n");
 
-// Bottom router script
 const bottomScript = [
   '<script>',
   '(function() {',

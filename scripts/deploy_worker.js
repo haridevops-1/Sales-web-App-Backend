@@ -13,33 +13,10 @@ const REQUIRED_EXPERIENCE_FILES = [
 	"experience.json"
 ];
 
-/**
- * Spikra publishes a single shared Slate app (slate/spikra-experience), deployed once
- * via `catalyst deploy --only slate`.
- * The customer URL domain must ALWAYS be https://spikra-ai-proposal.onslate.com.
- */
+// Spikra publishes a single shared Slate app (deployed once via `catalyst deploy --only slate`);
+// every business gets a unique link via query params/slug, never a dedicated app per customer.
 const SLATE_APP_URL = process.env.SLATE_APP_URL || "https://spikra-ai-proposal.onslate.com";
 
-/**
- * Generates a clean, deterministic, friendly URL slug from a business name.
- * Rules:
- * 1. Convert to lowercase
- * 2. Trim leading/trailing whitespace
- * 3. Replace unsupported characters with hyphen (-)
- * 4. Replace whitespace with hyphen (-)
- * 5. Collapse consecutive hyphens into one
- * 6. Remove leading/trailing hyphens
- * 7. Append _proposal
- *
- * Examples:
- * "Monin Pvt Ltd" -> "monin-pvt-ltd_proposal"
- * "ABC Manufacturing" -> "abc-manufacturing_proposal"
- * "ABC Manufacturing & Foods" -> "abc-manufacturing-foods_proposal"
- * "XYZ Logistics" -> "xyz-logistics_proposal"
- *
- * @param {string} businessName
- * @returns {string}
- */
 function generateBusinessSlug(businessName) {
 	if (!businessName || typeof businessName !== "string") {
 		return "customer_proposal";
@@ -54,19 +31,6 @@ function generateBusinessSlug(businessName) {
 	return `${sanitized || "customer"}_proposal`;
 }
 
-/**
- * Verifies the generated experience files exist and are non-empty in Stratus,
- * then returns the shared Slate app's friendly customer URL.
- *
- * Format: https://spikra-ai-proposal.onslate.com/{business-name}_proposal
- *
- * @param {object} params
- * @param {object} params.app - Initialized Catalyst SDK app
- * @param {string} params.projectId
- * @param {string} params.experienceId
- * @param {string} params.businessName
- * @returns {Promise<{ success: boolean, slug: string, generated_url: string }>}
- */
 async function verifyAndBuildExperienceUrl({ app, projectId, experienceId, businessName }) {
 	const stratus = app.stratus();
 	const genBucket = stratus.bucket(GENERATED_BUCKET_NAME);
@@ -81,7 +45,6 @@ async function verifyAndBuildExperienceUrl({ app, projectId, experienceId, busin
 		}
 	}
 
-	// Resolve businessName if not provided directly
 	let resolvedBizName = String(businessName || "").trim();
 	if (!resolvedBizName && app) {
 		try {
@@ -115,9 +78,6 @@ async function verifyAndBuildExperienceUrl({ app, projectId, experienceId, busin
 	};
 }
 
-/**
- * Checks whether a deployed URL returns HTTP 200 (retries for DNS propagation).
- */
 async function verifyUrlAccessible(testUrl, maxAttempts = 3) {
 	for (let i = 1; i <= maxAttempts; i++) {
 		try {
@@ -135,9 +95,7 @@ async function verifyUrlAccessible(testUrl, maxAttempts = 3) {
 			if (res && res.statusCode >= 200 && res.statusCode < 400) {
 				return true;
 			}
-		} catch {
-			// ignore and retry
-		}
+		} catch {}
 		if (i < maxAttempts) {
 			await new Promise((r) => setTimeout(r, 2000));
 		}

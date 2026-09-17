@@ -121,9 +121,6 @@ module.exports = async (req, res) => {
 		const processingJobsTable = datastore.table("PROCESSING_JOBS");
 		const experiencesTable = datastore.table("EXPERIENCES");
 
-		/*
-		 * 1. Create the project record.
-		 */
 		const projectInsertData = {
 			business_name: businessName,
 			project_name: projectName,
@@ -134,9 +131,6 @@ module.exports = async (req, res) => {
 		projectRow = await projectsTable.insertRow(projectInsertData);
 		const projectId = String(projectRow.ROWID);
 
-		/*
-		 * 2. If business logo is present, upload to spikra-process-documents-698386704.
-		 */
 		if (uploadedLogo) {
 			const logoExt = path.extname(uploadedLogo.fileName).toLowerCase();
 			safeLogoFileName = createSafeFileName(uploadedLogo.fileName);
@@ -155,11 +149,6 @@ module.exports = async (req, res) => {
 
 				console.log(`Logo uploaded to Stratus successfully at: ${logoObjectKey}`);
 
-				/*
-				 * Persist the logo object key on the PROJECTS row so downstream
-				 * functions (AI analysis, experience generation) can resolve the
-				 * business logo - it lives alongside business_name there.
-				 */
 				try {
 					await projectsTable.updateRow({
 						ROWID: projectId,
@@ -174,9 +163,6 @@ module.exports = async (req, res) => {
 			}
 		}
 
-		/*
-		 * 3. Create initial DOCUMENTS record to establish document identity.
-		 */
 		const documentExtension = path.extname(uploadedDocument.fileName).toLowerCase();
 		const documentFileType = documentExtension === ".pdf" ? "PDF" : "DOCX";
 
@@ -197,9 +183,6 @@ module.exports = async (req, res) => {
 
 		const documentId = String(documentRow.ROWID);
 
-		/*
-		 * 4. Deterministic Stratus object key: projects/{project_id}/documents/{document_id}/source{ext}
-		 */
 		sourceObjectKey = `projects/${projectId}/documents/${documentId}/source${documentExtension}`;
 
 		const sourceBucket = stratus.bucket(SOURCE_BUCKET_NAME);
@@ -218,9 +201,6 @@ module.exports = async (req, res) => {
 			storage_object_path: `${SOURCE_BUCKET_NAME}/${sourceObjectKey}`
 		});
 
-		/*
-		 * 5. Create initial EXPERIENCES record.
-		 */
 		const expInsertPayload = {
 			project_id: projectId,
 			document_id: documentId,
@@ -238,9 +218,6 @@ module.exports = async (req, res) => {
 		const experienceRow = await experiencesTable.insertRow(expInsertPayload);
 		const experienceId = String(experienceRow.ROWID);
 
-		/*
-		 * 6. Create initial PROCESSING_JOBS record: job_type = EXTRACT, status = QUEUED.
-		 */
 		const processingJobRow = await processingJobsTable.insertRow({
 			project_id: projectId,
 			document_id: documentId,
@@ -253,9 +230,6 @@ module.exports = async (req, res) => {
 			error_message: ""
 		});
 
-		/*
-		 * 7. Return only information required by salesperson & frontend.
-		 */
 		return sendJson(res, 201, {
 			success: true,
 			project_id: projectId,
@@ -270,10 +244,6 @@ module.exports = async (req, res) => {
 	} catch (error) {
 		console.error("spikra_document_upload failed:", error);
 
-		/*
-		 * If the project was created but a later operation failed,
-		 * mark the project as FAILED.
-		 */
 		try {
 			if (app && projectRow && projectRow.ROWID) {
 				const datastore = app.datastore();
@@ -308,12 +278,6 @@ module.exports = async (req, res) => {
 	}
 };
 
-/**
- * Adds the CORS headers required by the React frontend.
- *
- * During development, this allows the local Vite application.
- * For production, replace the origin with the deployed frontend URL.
- */
 function setCorsHeaders(res) {
 	res.setHeader("Access-Control-Allow-Origin", "*");
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -323,9 +287,6 @@ function setCorsHeaders(res) {
 	);
 }
 
-/**
- * Reads a request header safely.
- */
 function getHeader(req, headerName) {
 	if (!req.headers) {
 		return "";
@@ -334,9 +295,6 @@ function getHeader(req, headerName) {
 	return req.headers[headerName] || req.headers[headerName.toLowerCase()] || "";
 }
 
-/**
- * Extracts the multipart boundary from the Content-Type header.
- */
 function extractMultipartBoundary(contentType) {
 	const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
 
@@ -347,9 +305,6 @@ function extractMultipartBoundary(contentType) {
 	return boundaryMatch[1];
 }
 
-/**
- * Reads the native Node.js request stream.
- */
 function readRequestBody(req, maximumSize) {
 	if (req.body && Buffer.isBuffer(req.body)) {
 		return Promise.resolve(req.body);
@@ -429,13 +384,6 @@ function readRequestBody(req, maximumSize) {
 	});
 }
 
-/**
- * Parses multipart/form-data without Express or Multer.
- *
- * This parser is intentionally limited to the fields required by
- * this function:
- * business_name, project_name, description, and document.
- */
 function parseMultipartFormData(bodyBuffer, boundary) {
 	const boundaryBuffer = Buffer.from(`--${boundary}`);
 	const result = {
@@ -532,9 +480,6 @@ function parseMultipartFormData(bodyBuffer, boundary) {
 	return result;
 }
 
-/**
- * Parses individual multipart headers.
- */
 function parsePartHeaders(headersText) {
 	const headers = {};
 
@@ -607,10 +552,6 @@ function validateUploadedDocument(file) {
 	}
 
 	if (extension === ".pdf") {
-		/*
-		 * Basic PDF signature validation.
-		 * A valid PDF normally begins with %PDF-.
-		 */
 		const pdfSignature = file.data.subarray(0, 5).toString("ascii");
 
 		if (pdfSignature !== "%PDF-") {
@@ -619,10 +560,6 @@ function validateUploadedDocument(file) {
 			);
 		}
 	} else if (extension === ".docx") {
-		/*
-		 * .docx files are ZIP archives (Office Open XML). A valid ZIP
-		 * begins with the "PK" local file header signature.
-		 */
 		const zipSignature = file.data.subarray(0, 2).toString("ascii");
 
 		if (zipSignature !== "PK") {
@@ -652,13 +589,11 @@ function validateUploadedLogo(file) {
 		throw new ValidationError(`Unsupported logo MIME type: '${contentType}'. Allowed types: image/png, image/jpeg, image/webp, image/svg+xml.`);
 	}
 
-	// Security check: reject executable or HTML script files disguised as images
 	const sample = file.data.subarray(0, 100).toString("utf8").toLowerCase();
 	if (sample.includes("<script") || sample.includes("<?php") || sample.includes("<!doctype html") || sample.includes("<html")) {
 		throw new ValidationError("Invalid logo file: Scripts or HTML files are not permitted as logos.");
 	}
 
-	// Magic byte signatures for raster formats
 	if (extension === ".png") {
 		const pngSig = file.data.subarray(0, 8);
 		if (pngSig.length < 8 || pngSig[0] !== 0x89 || pngSig[1] !== 0x50 || pngSig[2] !== 0x4E || pngSig[3] !== 0x47) {

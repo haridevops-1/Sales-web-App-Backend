@@ -2,7 +2,6 @@
 
 const catalyst = require("zcatalyst-sdk-node");
 
-// Dynamic resolver for shared modules supporting both local and packaged execution
 let getZiaAgentClient;
 let getDocument;
 let getProject;
@@ -52,9 +51,6 @@ module.exports = async (context, basicIO) => {
 	let jobId = "";
 
 	try {
-		/*
-		 * 1. Read and validate document_id from the request.
-		 */
 		let rawDocumentId = basicIO.getArgument("document_id");
 		if (!rawDocumentId) {
 			rawDocumentId = basicIO.getArgument("documentId");
@@ -66,9 +62,6 @@ module.exports = async (context, basicIO) => {
 			throw new ValidationError("document_id is required");
 		}
 
-		/*
-		 * 2. Initialize Zoho Catalyst application.
-		 */
 		app = catalyst.initialize(context);
 		const datastore = app.datastore();
 		const stratus = app.stratus();
@@ -77,9 +70,6 @@ module.exports = async (context, basicIO) => {
 		const processingJobsTable = datastore.table(PROCESSING_JOBS_TABLE);
 		const projectsTable = datastore.table(PROJECTS_TABLE);
 
-		/*
-		 * 3. Retrieve document record via targeted query.
-		 */
 		let documentRow;
 		try {
 			documentRow = await documentsTable.getRow(documentId);
@@ -107,9 +97,6 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Function 3 (Zia Agent Orchestration) processing document_id: ${documentId}, project_id: ${projectId}, content_key: ${contentObjectKey}`);
 
-		/*
-		 * 4. Retrieve project metadata for context and branding.
-		 */
 		let projectRow = null;
 		try {
 			projectRow = await projectsTable.getRow(projectId);
@@ -135,14 +122,8 @@ module.exports = async (context, basicIO) => {
 			logoAvailable = true;
 		}
 
-		/*
-		 * 5. Target analysis object path in Stratus.
-		 */
 		const analysisObjectKey = `projects/${projectId}/analysis/document-${documentId}-analysis.json`;
 
-		/*
-		 * 6. Find or initialize AI_ANALYSIS job.
-		 */
 		aiAnalysisJob = await findProcessingJob(app, documentId, "AI_ANALYSIS");
 
 		if (!aiAnalysisJob) {
@@ -166,11 +147,7 @@ module.exports = async (context, basicIO) => {
 
 		jobId = getRowId(aiAnalysisJob);
 
-		/*
-		 * 7. Strict Idempotency Check:
-		 * If analysis already exists in Stratus, return existing result immediately.
-		 * Guarantees Zia Agent is executed at most once per document and never recurring.
-		 */
+		// Idempotent: skip the Zia Agent call if analysis already exists in Stratus, so it never re-runs per document.
 		try {
 			const genBucket = stratus.bucket(GENERATED_BUCKET_NAME);
 			const existingObj = await genBucket.getObject(analysisObjectKey);
@@ -193,13 +170,8 @@ module.exports = async (context, basicIO) => {
 				);
 				return;
 			}
-		} catch {
-			// Analysis object not in bucket, continue with one-time analysis
-		}
+		} catch {}
 
-		/*
-		 * 8. Mark document as PROCESSING and job as RUNNING.
-		 */
 		await documentsTable.updateRow({
 			ROWID: documentId,
 			processing_status: "PROCESSING",
@@ -216,16 +188,11 @@ module.exports = async (context, basicIO) => {
 			});
 		}
 
-		/*
-		 * 9. Download extracted text from Stratus.
-		 */
 		let extractedTextResponse = null;
 		try {
 			const b = stratus.bucket(PROCESS_BUCKET_NAME);
 			extractedTextResponse = await b.getObject(contentObjectKey);
-		} catch {
-			// not found
-		}
+		} catch {}
 
 		if (!extractedTextResponse) {
 			throw new NotFoundError("Extracted text object not found in Stratus");
@@ -249,9 +216,6 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Extracted text read successfully: ${documentText.length} characters`);
 
-		/*
-		 * 10. Execute Document Analysis using Deployed Zia Agent.
-		 */
 		const agentClient = getZiaAgentClient();
 		context.log(
 			"Executing document analysis using Zia Agent client, endpoint_configured:",
@@ -269,9 +233,6 @@ module.exports = async (context, basicIO) => {
 			`Zia Agent analysis complete: ${structuredShowcase.capabilities ? structuredShowcase.capabilities.length : 0} capabilities, ${structuredShowcase.deliverable_cards ? structuredShowcase.deliverable_cards.length : 0} deliverable cards`
 		);
 
-		/*
-		 * 11. Build structured analysis JSON.
-		 */
 		const analysisObject = {
 			document_id: documentId,
 			project_id: projectId,
@@ -288,9 +249,6 @@ module.exports = async (context, basicIO) => {
 
 		const analysisJsonBuffer = Buffer.from(JSON.stringify(analysisObject, null, 2), "utf8");
 
-		/*
-		 * 12. Store analysis JSON in Stratus (spikra-generated-experiences-698386704).
-		 */
 		const generatedBucket = stratus.bucket(GENERATED_BUCKET_NAME);
 
 		try {
@@ -310,9 +268,6 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("Failed to store analysis JSON in Stratus");
 		}
 
-		/*
-		 * 13. Update DOCUMENTS table.
-		 */
 		try {
 			const updateDocData = {
 				ROWID: documentId,
@@ -329,9 +284,6 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("Failed to update document status in Data Store");
 		}
 
-		/*
-		 * 14. Update PROCESSING_JOBS table.
-		 */
 		if (aiAnalysisJob && jobId) {
 			try {
 				await processingJobsTable.updateRow({
@@ -346,9 +298,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		/*
-		 * 15. Update PROJECTS status.
-		 */
 		try {
 			await projectsTable.updateRow({
 				ROWID: projectId,
@@ -358,9 +307,6 @@ module.exports = async (context, basicIO) => {
 			context.log("PROJECTS status update notice:", projUpdateError.message);
 		}
 
-		/*
-		 * 16. Return success response.
-		 */
 		basicIO.setStatus(200);
 		basicIO.write(
 			JSON.stringify({
@@ -399,9 +345,6 @@ module.exports = async (context, basicIO) => {
 	}
 };
 
-/*
- * Helper: Resolves experience_id for this document.
- */
 async function resolveExperienceId(app, documentId, projectId) {
 	if (!app || typeof app.zcql !== "function" || !documentId) {
 		return "";
@@ -432,9 +375,7 @@ async function resolveExperienceId(app, documentId, projectId) {
 			const exp = row.EXPERIENCES || row;
 			return String(exp.ROWID || exp.rowid || "");
 		}
-	} catch {
-		// fallback
-	}
+	} catch {}
 
 	return "";
 }

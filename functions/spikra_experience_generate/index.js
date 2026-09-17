@@ -4,7 +4,6 @@ const catalyst = require("zcatalyst-sdk-node");
 const fs = require("fs");
 const path = require("path");
 
-// Dynamic resolver for shared modules supporting both local and packaged execution
 let getDocument;
 let getProject;
 let findProcessingJob;
@@ -49,7 +48,6 @@ const PROCESSING_JOBS_TABLE = "PROCESSING_JOBS";
 const MAX_DOCUMENT_TEXT_SIZE = 15 * 1024 * 1024; // 15 MB
 const MAX_ANALYSIS_SIZE = 10 * 1024 * 1024; // 10 MB
 
-// Curated Spikra SVG icons matching the master template's visual design system
 const CURATED_CAPABILITY_SVGS = [
 	'<svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 3V5Z"/><path d="M8 9h8M8 12h5"/></svg>',
 	'<svg viewBox="0 0 24 24"><circle cx="10" cy="8" r="3.1"/><path d="M4.5 20a5.5 5.5 0 0 1 11 0"/><path d="M19 7v6M16 10h6"/></svg>',
@@ -182,6 +180,8 @@ const EXPERIENCE_CONTENT_SCHEMA = {
 	}
 };
 
+// Pure renderer: consumes Function 3's structured Zia Agent JSON and hydrates the FIXED master
+// template below. Zero AI calls happen anywhere in this file.
 module.exports = async (context, basicIO) => {
 	let app = null;
 	let projectId = "";
@@ -191,9 +191,6 @@ module.exports = async (context, basicIO) => {
 	let generateJobId = "";
 
 	try {
-		/*
-		 * 1. Extract and validate project_id and document_id from request.
-		 */
 		let rawProjectId = basicIO.getArgument("project_id");
 		if (!rawProjectId) rawProjectId = basicIO.getArgument("projectId");
 
@@ -209,9 +206,7 @@ module.exports = async (context, basicIO) => {
 						if (!rawProjectId) rawProjectId = parsedBody.project_id || parsedBody.projectId;
 						if (!rawDocumentId) rawDocumentId = parsedBody.document_id || parsedBody.documentId;
 					}
-				} catch {
-					// continue
-				}
+				} catch {}
 			}
 		}
 
@@ -226,9 +221,6 @@ module.exports = async (context, basicIO) => {
 			throw new ValidationError("document_id is required.");
 		}
 
-		/*
-		 * 2. Initialize Catalyst SDK.
-		 */
 		app = catalyst.initialize(context);
 		const datastore = app.datastore();
 		const stratus = app.stratus();
@@ -238,9 +230,6 @@ module.exports = async (context, basicIO) => {
 		const experiencesTable = datastore.table(EXPERIENCES_TABLE);
 		const processingJobsTable = datastore.table(PROCESSING_JOBS_TABLE);
 
-		/*
-		 * 3. Retrieve and validate PROJECTS record via targeted query.
-		 */
 		let projectRow;
 		try {
 			projectRow = await projectsTable.getRow(projectId);
@@ -252,9 +241,6 @@ module.exports = async (context, basicIO) => {
 			throw new NotFoundError(`Project ${projectId} was not found.`);
 		}
 
-		/*
-		 * 4. Retrieve and validate DOCUMENTS record via targeted query.
-		 */
 		let documentRow;
 		try {
 			documentRow = await documentsTable.getRow(documentId);
@@ -266,17 +252,11 @@ module.exports = async (context, basicIO) => {
 			throw new NotFoundError(`Document ${documentId} was not found.`);
 		}
 
-		/*
-		 * 5. Validate document belongs to project.
-		 */
 		const docProjectId = String(documentRow.project_id || "").trim();
 		if (docProjectId !== projectId) {
 			throw new ValidationError(`Document ${documentId} does not belong to project ${projectId}.`);
 		}
 
-		/*
-		 * 6. Read metadata.
-		 */
 		const contentObjectKey = String(
 			documentRow.content_object_key ||
 			`projects/${projectId}/documents/${documentId}/extracted-content.txt`
@@ -302,9 +282,6 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Function 4 processing start: project_id=${projectId}, document_id=${documentId}, business=${businessName}`);
 
-		/*
-		 * 7. Locate or initialize GENERATE job.
-		 */
 		generateJob = await findProcessingJob(app, documentId, "GENERATE");
 		if (generateJob) {
 			generateJobId = getRowId(generateJob);
@@ -322,9 +299,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		/*
-		 * 8. Check existing EXPERIENCES record (Idempotency & Duplicate Prevention).
-		 */
 		const existingExperience = await findExperience(app, documentId, projectId);
 
 		if (existingExperience) {
@@ -422,16 +396,11 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		/*
-		 * 9. Retrieve extracted text from Stratus.
-		 */
 		let extractedTextStream = null;
 		try {
 			const b = stratus.bucket(PROCESS_BUCKET_NAME);
 			extractedTextStream = await b.getObject(contentObjectKey);
-		} catch {
-			// not found
-		}
+		} catch {}
 
 		if (!extractedTextStream) {
 			throw new NotFoundError("Extracted text object was not found in Stratus.");
@@ -453,16 +422,11 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Extracted text retrieved: length=${extractedText.length} characters`);
 
-		/*
-		 * 10. Retrieve structured Zia Agent analysis JSON from Stratus.
-		 */
 		let analysisStream = null;
 		try {
 			const generatedBucket = stratus.bucket(GENERATED_BUCKET_NAME);
 			analysisStream = await generatedBucket.getObject(analysisObjectKey);
-		} catch {
-			// not found
-		}
+		} catch {}
 
 		if (!analysisStream) {
 			throw new NotFoundError("Analysis JSON was not found in Stratus. Please ensure Function 3 has executed.");
@@ -490,9 +454,6 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Analysis JSON retrieved: title=${analysisJson.proposal_title}`);
 
-		/*
-		 * 11. Determine business logo asset and copy to version-1/assets/.
-		 */
 		let logoRelativePath = null;
 		let generatedLogoObjectKey = null;
 		const rawLogoKey = String(projectRow.business_logo_object_key || "").trim();
@@ -503,9 +464,7 @@ module.exports = async (context, basicIO) => {
 				try {
 					const processBucket = stratus.bucket(PROCESS_BUCKET_NAME);
 					logoStream = await processBucket.getObject(rawLogoKey);
-				} catch {
-					// logo not found
-				}
+				} catch {}
 
 				if (logoStream) {
 					const logoBuffer = await streamToBuffer(logoStream);
@@ -535,11 +494,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		/*
-		 * 12. Structured Customer Showcase Content Preparation.
-		 * Function 4 is a PURE RENDERING FUNCTION with ZERO AI calls.
-		 * It consumes the structured Showcase output generated by the Zia Agent via Function 3.
-		 */
 		const customerContent = prepareCustomerContent({
 			analysisJson,
 			businessName,
@@ -548,11 +502,6 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Customer content ready for template rendering: ${customerContent.capabilities.length} capabilities, ${customerContent.timeline_phases.length} timeline phases`);
 
-		/*
-		 * 13. Render into the FIXED Spikra customer-facing HTML template.
-		 * The fixed template (templates/iSteel_Proposal_Site.html) is the DESIGN SOURCE OF TRUTH.
-		 * Function 4 is responsible for placing that content into the EXISTING DESIGN.
-		 */
 		const masterTemplate = loadMasterTemplate();
 		const renderedHtml = renderMasterTemplate(masterTemplate, customerContent, {
 			businessName,
@@ -589,9 +538,6 @@ module.exports = async (context, basicIO) => {
 
 		const generatedExperienceJson = JSON.stringify(experienceMetadata, null, 2);
 
-		/*
-		 * 14. Store the 4 controlled customer-facing files in Stratus.
-		 */
 		const experienceBaseKey = `projects/${projectId}/experiences/${experienceId}/version-1`;
 		const generatedObjectPath = `${experienceBaseKey}/`;
 		const generatedBucket = stratus.bucket(GENERATED_BUCKET_NAME);
@@ -658,9 +604,6 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Experience files successfully uploaded to: ${generatedObjectPath}`);
 
-		/*
-		 * 15. Update EXPERIENCES record to GENERATED.
-		 */
 		const updateData = {
 			ROWID: experienceId,
 			experience_title: customerContent.proposal_title.slice(0, 255),
@@ -694,9 +637,6 @@ module.exports = async (context, basicIO) => {
 			});
 		}
 
-		/*
-		 * 16. Update GENERATE job to COMPLETED.
-		 */
 		if (generateJobId) {
 			try {
 				await processingJobsTable.updateRow({
@@ -711,9 +651,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		/*
-		 * 17. Update PROJECTS record to GENERATED.
-		 */
 		try {
 			await projectsTable.updateRow({
 				ROWID: projectId,
@@ -724,9 +661,6 @@ module.exports = async (context, basicIO) => {
 			context.log("Notice: Failed to update PROJECTS record:", projErr.message);
 		}
 
-		/*
-		 * 18. Return standard API success response.
-		 */
 		basicIO.setStatus(200);
 		basicIO.write(
 			JSON.stringify({
@@ -768,17 +702,7 @@ module.exports = async (context, basicIO) => {
 	}
 };
 
-/* =========================================================================
- * STRUCTURED SHOWCASE CONTENT NORMALIZATION ENGINE (ZERO AI CALLS)
- * ========================================================================= */
-
-/**
- * Prepares and validates customer-facing content for the fixed template
- * directly from the structured Zia Agent output (produced by Function 3).
- * Function 4 contains ZERO AI calls and performs deterministic template hydration.
- */
 function prepareCustomerContent({ analysisJson = {}, businessName, projectName }) {
-	// If analysisJson has structured Showcase fields from Zia Agent, normalize them
 	if (
 		analysisJson &&
 		(analysisJson.deliverable_cards || analysisJson.capabilities || analysisJson.customer_benefits)
@@ -786,21 +710,13 @@ function prepareCustomerContent({ analysisJson = {}, businessName, projectName }
 		return normalizeExperienceContent(analysisJson, { analysisJson, businessName, projectName });
 	}
 
-	// Deterministic fallback content generator
 	return fallbackSimplifyContent({ analysisJson, businessName, projectName });
 }
 
-/**
- * Async wrapper for backward compatibility with existing tests and callers.
- */
 async function simplifyCustomerContent(args) {
 	return prepareCustomerContent(args);
 }
 
-/**
- * Deterministic fallback simplifier that converts Function 3 analysis JSON
- * into customer-friendly, concise content conforming to the fixed template sections.
- */
 function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName }) {
 	const cleanStr = (val, def = "") => {
 		if (typeof val !== "string" || !val.trim() || val.trim().toLowerCase() === "not specified in the source document") {
@@ -820,26 +736,22 @@ function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName 
 		return first + (first.endsWith(".") ? "" : ".");
 	};
 
-	// Proposal Title
 	let title = cleanStr(analysisJson.proposal_title);
 	if (!title || title.length > 80) {
 		title = projectName && projectName !== "Customer Proposal" ? projectName : "Zoho CRM & Digital Transformation";
 	}
 
-	// Project Summary
 	let summary = cleanStr(analysisJson.project_summary);
 	if (!summary) {
 		const solDesc = cleanStr(analysisJson.recommended_solution && analysisJson.recommended_solution.description);
 		summary = solDesc || `A configured digital platform designed for ${businessName} to unify customer engagement, field workflows, and operational insights.`;
 	}
 
-	// Method Cells
 	const solDesc = cleanStr(analysisJson.recommended_solution && analysisJson.recommended_solution.description);
 	const whatWeDeliver = solDesc ? firstSentence(solDesc, 26) : `A configured engagement layer connecting customer touchpoints to core operational systems.`;
 	const spikraWay = "BRD-aligned delivery. Every assumption is made explicit and every open item flagged for the discovery workshop, so scope is confirmed before detailed design is locked.";
 	const howWeSupport = "Per-system integration decisions, role-based user onboarding, and dedicated Hypercare through go-live.";
 
-	// Deliverable Cards (Exactly 6 concise cards)
 	const cards = [];
 	const techList = Array.isArray(analysisJson.technical_ecosystem) ? analysisJson.technical_ecosystem : [];
 	const mainPlatform = techList.length > 0 ? techList.slice(0, 2).join(" + ") : "Zoho CRM Platform";
@@ -911,7 +823,6 @@ function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName 
 		note: "Role-based visibility, field history, and verifiable progress tracking."
 	});
 
-	// Customer Benefits (6 to 8 outcome-oriented bullet points)
 	let rawBenefits = Array.isArray(analysisJson.business_benefits) ? [...analysisJson.business_benefits] : [];
 	if (rawBenefits.length < 6 && Array.isArray(analysisJson.business_goals)) {
 		rawBenefits.push(...analysisJson.business_goals);
@@ -932,7 +843,6 @@ function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName 
 		return firstSentence(text, 22);
 	}).filter(Boolean);
 
-	// Capabilities (5 to 8 accordion items)
 	const capabilities = [];
 	const sourceCaps = modules.length >= 5 ? modules : (caps.length >= 5 ? caps : [...modules, ...caps]);
 
@@ -982,7 +892,6 @@ function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName 
 		);
 	}
 
-	// Timeline Phases (3 to 4 implementation stages)
 	const timelinePhases = [];
 	const workflowSteps = Array.isArray(analysisJson.workflow_steps) ? analysisJson.workflow_steps : [];
 	const milestones = Array.isArray(analysisJson.milestones) ? analysisJson.milestones : [];
@@ -1099,10 +1008,6 @@ function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName 
 	};
 }
 
-/**
- * Validates and normalizes the structured Showcase response, ensuring exactly 6
- * deliverable cards and between 5-8 capabilities.
- */
 function normalizeExperienceContent(rawContent, fallbackContext) {
 	const fallback = fallbackSimplifyContent(fallbackContext);
 	if (!rawContent || typeof rawContent !== "object") {
@@ -1151,13 +1056,6 @@ function normalizeExperienceContent(rawContent, fallbackContext) {
 	};
 }
 
-/* =========================================================================
- * MASTER TEMPLATE RENDERER
- * ========================================================================= */
-
-/**
- * Loads the master template from template.html or templates/iSteel_Proposal_Site.html.
- */
 function loadMasterTemplate() {
 	const localPath = path.join(__dirname, "template.html");
 	if (fs.existsSync(localPath)) {
@@ -1177,15 +1075,9 @@ function loadMasterTemplate() {
 	throw new ProcessingError("Master template file (iSteel_Proposal_Site.html / template.html) was not found.");
 }
 
-/**
- * Server-side renders the simplified customer content into the fixed template design.
- * Does NOT generate a new HTML layout. Preserves all Spikra styling, cards, tabs,
- * accordion, timeline, team, and CTA structure.
- */
 function renderMasterTemplate(templateString, content, { businessName, projectName, logoRelativePath }) {
 	let html = templateString;
 
-	// 1. Title & Meta Description
 	const safeTitle = escapeHtml(content.proposal_title || `${projectName}`);
 	const safeBusinessName = escapeHtml(businessName);
 	const safeDescription = escapeHtml(content.project_summary || `Technical proposal for ${businessName}, BRD-aligned`);
@@ -1193,7 +1085,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	html = html.replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${safeBusinessName} · ${safeTitle} | Spikra</title>`);
 	html = html.replace(/<meta\s+name="description"\s+content="[^"]*">/i, () => `<meta name="description" content="Technical proposal — ${safeTitle} for ${safeBusinessName}, BRD-aligned">`);
 
-	// 2. Link styles.css in head if not already linked
 	if (!html.includes('<link rel="stylesheet" href="styles.css">')) {
 		html = html.replace(
 			/(<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*" rel="stylesheet">)/i,
@@ -1201,7 +1092,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		);
 	}
 
-	// Eradicate any literal $1 produced by legacy template replacements and restore Google Fonts link
 	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
 	html = html
 		.replace(/\$1\s*(<link rel="stylesheet")/gi, `${googleFontsLink}\n$1`)
@@ -1209,11 +1099,9 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		.replace(/^\s*\$1\s*$/gm, "")
 		.replace(/>\s*\$1\s*</g, "><");
 
-	// 3. Hero Section: Title and Subtitle
 	html = html.replace(/<h1>[\s\S]*?<\/h1>/i, () => `<h1>${safeTitle} for ${safeBusinessName}</h1>`);
 	html = html.replace(/<p class="hero-sub">[\s\S]*?<\/p>/i, () => `<p class="hero-sub">Prepared for <strong>${safeBusinessName}</strong>. ${escapeHtml(content.project_summary)}</p>`);
 
-	// 4. Client Logo
 	const initials = businessName.split(/\s+/).filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "SP";
 	let clientLogoHtml = "";
 	if (logoRelativePath) {
@@ -1223,7 +1111,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	}
 	html = html.replace(/<div class="client-logo">[\s\S]*?<\/div>/i, () => clientLogoHtml);
 
-	// 5. Method Cells (What we deliver, The Spikra way, How we support you)
 	const methodHtml = `<div class="method">
     <div class="mcell">
       <h3><span class="mi">◆</span>What we deliver</h3>
@@ -1240,7 +1127,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
   </div>`;
 	html = html.replace(/<div class="method">[\s\S]*?<\/div>\s*<\/section>/i, () => `${methodHtml}\n</section>`);
 
-	// 6. Deliverables Panel: 6 KPI Cards + What customer gets check list
 	const deliverableCardsHtml = (content.deliverable_cards || []).map((card, idx) => {
 		const accentClass = (idx === 1 || idx === 2) ? " accent" : "";
 		return `<div class="kpi${accentClass}"><div class="k-label">${escapeHtml(card.label)}</div><div class="k-value">${escapeHtml(card.value)}</div><div class="k-note">${escapeHtml(card.note)}</div></div>`;
@@ -1262,7 +1148,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 
 	html = html.replace(/<section class="panel active" id="deliverables" role="tabpanel">[\s\S]*?<\/section>/i, () => deliverablesPanelHtml);
 
-	// 7. Capabilities Accordion (5 to 8 items with curated SVGs)
 	const capabilitiesHtml = (content.capabilities || []).map((cap, idx) => {
 		const openClass = idx === 0 ? " open" : "";
 		const svgIcon = CURATED_CAPABILITY_SVGS[idx % CURATED_CAPABILITY_SVGS.length];
@@ -1287,7 +1172,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 
 	html = html.replace(/<section class="panel" id="capabilities" role="tabpanel">[\s\S]*?<\/section>/i, () => capabilitiesPanelHtml);
 
-	// 8. Timeline Section: Chips, Detail Box, Rollout Overview, and De-risk Cards
 	const phases = content.timeline_phases || [];
 	const chipsHtml = phases.map((phase, idx) => {
 		const onClass = idx === 0 ? " on" : "";
@@ -1337,13 +1221,11 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 
 	html = html.replace(/<section class="panel" id="timeline" role="tabpanel">[\s\S]*?<\/section>/i, () => timelinePanelHtml);
 
-	// 9. Footer: Exclusively prepared for business
 	html = html.replace(
 		/<span>Confidential[\s\S]*?<\/span>/i,
 		() => `<span>Confidential — prepared exclusively for ${safeBusinessName} · abinash@spikra.com · +91 92407 03257</span>`
 	);
 
-	// 10. Update PHASES array in the template's interactive script
 	const scriptPhases = phases.map(p => ({
 		name: p.name,
 		wk: p.duration,
@@ -1354,7 +1236,6 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	const phasesJs = `const PHASES = ${JSON.stringify(scriptPhases, null, 2)};`;
 	html = html.replace(/const PHASES\s*=\s*\[[\s\S]*?\];/i, () => phasesJs);
 
-	// 11. Add script.js tag and parent-loader dismissal helper before closing body tag
 	const dismissScript = `<script id="spikra-parent-dismiss-script">
 (function() {
   function dismissParentLoader() {
@@ -1378,25 +1259,17 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		html = html.replace("</body>", `${dismissScript}\n</body>`);
 	}
 
-	// 12. Global cleanup: Replace any residual "iSteel" or "VIPL" occurrences
 	html = html.replace(/\biSteel\s*(\(VIPL\))?/gi, safeBusinessName);
 	html = html.replace(/\bVIPL\b/gi, safeBusinessName);
 
 	return html;
 }
 
-/**
- * Extracts the stylesheet content from the master template.
- */
 function extractTemplateCss(templateString) {
 	const styleMatch = templateString.match(/<style>([\s\S]*?)<\/style>/i);
 	return styleMatch ? styleMatch[1].trim() : "";
 }
 
-/**
- * Extracts the interaction script content from the rendered HTML,
- * containing the dynamic PHASES array and tab/accordion/timeline logic.
- */
 function extractTemplateJs(renderedHtml) {
 	const scriptMatch = renderedHtml.match(/<script>([\s\S]*?)<\/script>/i);
 	if (scriptMatch) {

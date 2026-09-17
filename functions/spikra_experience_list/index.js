@@ -5,22 +5,16 @@ const catalyst = require('zcatalyst-sdk-node');
 const EXPERIENCES_TABLE = 'EXPERIENCES';
 const PROJECTS_TABLE = 'PROJECTS';
 
-/**
- * Basic I/O Entry Point for Function 7 (spikra_experience_list).
- * Retrieves generated customer experiences for valid active projects.
- * Verifies referential integrity against the PROJECTS table.
- * If projects have been deleted in Zoho Catalyst, automatically purges orphaned experience records.
- */
+// Experiences whose parent PROJECTS row no longer exists are purged here rather than just filtered,
+// so orphans left behind by manual project deletion in Catalyst don't accumulate silently.
 module.exports = async (context, basicIO) => {
 	try {
 		const app = catalyst.initialize(context);
 
-		// 1. Read optional filters from basicIO arguments or raw body payload
 		let projectId = basicIO.getArgument('project_id') || basicIO.getArgument('projectId') || null;
 		let businessName = basicIO.getArgument('business_name') || basicIO.getArgument('businessName') || null;
 		let status = basicIO.getArgument('status') || null;
 
-		// Check if payload arrived as raw body (e.g. JSON POST)
 		const bodyArg = basicIO.getArgument('req_body') || basicIO.getArgument('body') || basicIO.getArgument('BODY');
 		if (bodyArg) {
 			try {
@@ -47,7 +41,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		// 2. Validate parameter types if provided (return HTTP 400 on invalid format)
 		if (projectId && typeof projectId !== 'string' && typeof projectId !== 'number') {
 			basicIO.setStatus(400);
 			basicIO.write(
@@ -97,7 +90,6 @@ module.exports = async (context, basicIO) => {
 		const cleanBusinessName = businessName ? String(businessName).trim() : null;
 		const cleanStatus = status ? String(status).trim() : null;
 
-		// 3. Query active project IDs from PROJECTS table to maintain referential integrity
 		let validProjectIds = new Set();
 		try {
 			const projectRows = await app.zcql().executeZCQLQuery(`SELECT ROWID FROM ${PROJECTS_TABLE}`);
@@ -110,7 +102,6 @@ module.exports = async (context, basicIO) => {
 			context.log('spikra_experience_list project query warning:', projErr.message);
 		}
 
-		// 4. Build ZCQL Query for EXPERIENCES
 		let query = `SELECT * FROM ${EXPERIENCES_TABLE}`;
 		const conditions = [];
 
@@ -134,10 +125,8 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`spikra_experience_list query: project_id=${cleanProjectId || 'all'}, business_name=${cleanBusinessName || 'all'}, status=${cleanStatus || 'all'}`);
 
-		// 5. Execute Read-Only ZCQL Query
 		const result = await app.zcql().executeZCQLQuery(query);
 
-		// 6. Map and Normalize Experience Records, separating valid experiences from orphaned ones
 		const orphanRowIds = [];
 		const validExperiences = [];
 
@@ -147,7 +136,6 @@ module.exports = async (context, basicIO) => {
 			const rowId = String(exp.ROWID || exp.rowid || exp.ROW_ID || exp.id || '').trim();
 			const expProjectId = exp.project_id ? String(exp.project_id).trim() : null;
 
-			// If project does not exist in PROJECTS table, mark as orphan to purge
 			if (!expProjectId || !validProjectIds.has(expProjectId)) {
 				if (rowId) {
 					orphanRowIds.push(rowId);
@@ -179,12 +167,10 @@ module.exports = async (context, basicIO) => {
 			});
 		}
 
-		// 7. Purge orphaned records from EXPERIENCES table in Catalyst Data Store
 		if (orphanRowIds.length > 0) {
 			try {
 				const datastore = app.datastore();
 				const expTable = datastore.table(EXPERIENCES_TABLE);
-				// Delete in batches of 50
 				for (let i = 0; i < orphanRowIds.length; i += 50) {
 					const chunk = orphanRowIds.slice(i, i + 50);
 					await expTable.deleteRows(chunk);
@@ -195,7 +181,6 @@ module.exports = async (context, basicIO) => {
 			}
 		}
 
-		// 8. Construct Structured Response
 		const response = {
 			success: true,
 			count: validExperiences.length,
@@ -224,9 +209,6 @@ module.exports = async (context, basicIO) => {
 	context.close();
 };
 
-/**
- * Escapes single quotes for ZCQL queries to prevent SQL/ZCQL injection.
- */
 function escapeValue(value) {
 	return String(value || '').replace(/'/g, "''");
 }

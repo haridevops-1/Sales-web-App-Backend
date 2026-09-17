@@ -1,11 +1,5 @@
 "use strict";
 
-/**
- * Converts a readable stream or Buffer to a Buffer.
- *
- * @param {ReadableStream|Buffer} stream
- * @returns {Promise<Buffer>}
- */
 function streamToBuffer(stream) {
 	if (Buffer.isBuffer(stream)) {
 		return Promise.resolve(stream);
@@ -22,12 +16,6 @@ function streamToBuffer(stream) {
 	});
 }
 
-/**
- * Escapes HTML characters to prevent XSS and formatting breakage.
- *
- * @param {string} value
- * @returns {string}
- */
 function escapeHtml(value) {
 	return String(value || "")
 		.replace(/&/g, "&amp;")
@@ -37,12 +25,6 @@ function escapeHtml(value) {
 		.replace(/'/g, "&#039;");
 }
 
-/**
- * Validates that an analysis object matches Section 12 expectations.
- *
- * @param {Object} obj
- * @returns {boolean}
- */
 function validateAnalysisSchema(obj) {
 	if (!obj || typeof obj !== "object") return false;
 	const requiredFields = [
@@ -63,12 +45,6 @@ function validateAnalysisSchema(obj) {
 	return true;
 }
 
-/**
- * Sanitizes errors for safe return to clients and logs, preventing API key exposure.
- *
- * @param {Error|any} error
- * @returns {string}
- */
 function sanitizeErrorMessage(error) {
 	const raw = error && error.message ? String(error.message) : "An unexpected processing error occurred.";
 	return raw
