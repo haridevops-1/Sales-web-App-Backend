@@ -42,6 +42,9 @@ const PROCESSING_JOBS_TABLE = "PROCESSING_JOBS";
 const PROJECTS_TABLE = "PROJECTS";
 const EXPERIENCES_TABLE = "EXPERIENCES";
 
+// Catalyst Connection (Internal-Sales-Hub) used to authenticate to the Zia Agent Trigger API.
+const ZIA_AGENT_CONNECTION_LINK_NAME = "internalsaleshub";
+
 const MAX_DOCUMENT_TEXT_SIZE = 10 * 1024 * 1024; // 10 MB
 
 module.exports = async (context, basicIO) => {
@@ -216,6 +219,13 @@ module.exports = async (context, basicIO) => {
 
 		context.log(`Extracted text read successfully: ${documentText.length} characters`);
 
+		let connectionCredentials;
+		try {
+			connectionCredentials = await app.connections().getConnectionCredentials(ZIA_AGENT_CONNECTION_LINK_NAME);
+		} catch (connErr) {
+			throw new ProcessingError(`Zia Agent Catalyst Connection '${ZIA_AGENT_CONNECTION_LINK_NAME}' could not be resolved: ${connErr.message}`);
+		}
+
 		const agentClient = getZiaAgentClient();
 		context.log(
 			"Executing document analysis using Zia Agent client, endpoint_configured:",
@@ -226,11 +236,12 @@ module.exports = async (context, basicIO) => {
 			businessName,
 			projectName,
 			documentId,
-			projectId
+			projectId,
+			connectionCredentials
 		});
 
 		context.log(
-			`Zia Agent analysis complete: ${structuredShowcase.capabilities ? structuredShowcase.capabilities.length : 0} capabilities, ${structuredShowcase.deliverable_cards ? structuredShowcase.deliverable_cards.length : 0} deliverable cards`
+			`Zia Agent analysis complete: ${structuredShowcase.capabilities ? structuredShowcase.capabilities.length : 0} capabilities, ${structuredShowcase.deliverable_cards ? structuredShowcase.deliverable_cards.length : 0} deliverable cards, session_id=${agentClient.lastSessionId || "none"}`
 		);
 
 		const analysisObject = {
@@ -239,6 +250,7 @@ module.exports = async (context, basicIO) => {
 			source_content_object_key: contentObjectKey,
 			analysis_type: "ZIA_AGENT_ANALYSIS",
 			agent_type: "ZIA_AGENT",
+			agent_session_id: agentClient.lastSessionId || null,
 			analyzed_at: new Date().toISOString(),
 			branding: {
 				logo_available: logoAvailable

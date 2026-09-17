@@ -11,12 +11,12 @@ class ZiaAgentClient {
 	constructor(config = {}) {
 		const rawEndpoint = config.endpoint || process.env.ZIA_AGENT_ENDPOINT || process.env.ZIA_AGENT_URL || DEFAULT_ENDPOINT_PLACEHOLDER;
 		this.endpoint = String(rawEndpoint).trim();
-		this.authToken = String(config.authToken || process.env.ZIA_AGENT_AUTH_TOKEN || process.env.ZIA_AGENT_API_KEY || "").trim();
 		this.agentId = String(config.agentId || process.env.ZIA_AGENT_ID || "").trim();
-		this.agentVersionId = String(config.agentVersionId || process.env.ZIA_AGENT_VERSION_ID || "").trim();
-		this.orgId = String(config.orgId || process.env.ZIA_AGENT_ORG_ID || "").trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.ZIA_AGENT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.agentType = "ZIA_AGENT";
+		// Populated per-call from the last Agent response (see _extractSessionId). Not persisted or
+		// resent - each document is a single independent analysis, not a multi-turn conversation.
+		this.lastSessionId = null;
 	}
 
 	isConfigured() {
@@ -47,16 +47,20 @@ class ZiaAgentClient {
 			text.trim()
 		].join("\n\n");
 
-		// Zoho's documented Zia Agents API request schema uses a single top-level "query" field
-		// (see https://www.zoho.com/agents/resources/help/developer-documentation/api-reference.html).
-		// A prior attempt sent { input: instruction } instead of { query: ... }; the platform's generic
-		// JSON validator rejected the unrecognized top-level key and its error surfaced the internal
-		// "zoho-inputstream" parameter name it uses for the request envelope, not something this client
-		// ever sends directly. Only "query" belongs at the top level here (no attachments/systemArgs -
-		// this agent takes plain text, not a Catalyst/Zoho InputStream object).
-		const requestPayload = { query: instruction };
+		// Zia Agents Trigger API request schema: query, systemArgs, reasoning, attachments only -
+		// no other top-level keys. session_id is added only when continuing a prior session.
+		const requestPayload = {
+			query: instruction,
+			systemArgs: {},
+			reasoning: false,
+			attachments: []
+		};
+		if (options.sessionId) {
+			requestPayload.session_id = String(options.sessionId).trim();
+		}
 
-		const responseData = await this._callAgentEndpoint(requestPayload);
+		const responseData = await this._callAgentEndpoint(requestPayload, options.connectionCredentials);
+		this.lastSessionId = this._extractSessionId(responseData);
 		const structuredOutput = this._extractStructuredData(responseData, { businessName, projectName, text });
 
 		if (!this.hasMeaningfulShowcaseContent(structuredOutput)) {
@@ -89,36 +93,21 @@ class ZiaAgentClient {
 		return hasTitleOrSummary && contentArrayCount >= 2;
 	}
 
-	async _callAgentEndpoint(payload) {
+	async _callAgentEndpoint(payload, connectionCredentials) {
 		const urlObj = new URL(this.endpoint);
 		const payloadString = JSON.stringify(payload);
 		const isHttps = urlObj.protocol === "https:";
 		const client = isHttps ? https : http;
 
+		// Auth comes entirely from the Catalyst Connection (Internal-Sales-Hub /
+		// internalsaleshub, scope ZiaAgents.agents.TRIGGER) - it already contains the correct
+		// Authorization header for this OAuth scope. No token is generated or stored here.
 		const headers = {
 			"Content-Type": "application/json; charset=utf-8",
 			"Accept": "application/json, text/plain, */*",
-			"Content-Length": Buffer.byteLength(payloadString)
+			...(connectionCredentials && connectionCredentials.headers ? connectionCredentials.headers : {})
 		};
-
-		// Zoho's Zia Agents API uses the "Zoho-oauthtoken" auth scheme (not "Bearer"), and identifies
-		// the target agent/org via dedicated headers rather than the request body. This agent's
-		// endpoint currently embeds the agent ID directly in the URL path (.../agents/<id>/trigger),
-		// so these headers are only sent when explicitly configured - they must never be guessed.
-		if (this.authToken) {
-			headers["Authorization"] = /^(bearer|zoho-oauthtoken)\s/i.test(this.authToken)
-				? this.authToken
-				: `Zoho-oauthtoken ${this.authToken}`;
-		}
-		if (this.agentId) {
-			headers["X-ZIAAGENTS-AGENT-ID"] = this.agentId;
-		}
-		if (this.agentVersionId) {
-			headers["X-ZIAAGENTS-AGENT-VERSION-ID"] = this.agentVersionId;
-		}
-		if (this.orgId) {
-			headers["X-ZIAAGENTS-ORG"] = this.orgId;
-		}
+		headers["Content-Length"] = Buffer.byteLength(payloadString);
 
 		const options = {
 			hostname: urlObj.hostname,
@@ -180,6 +169,13 @@ class ZiaAgentClient {
 			req.write(payloadString);
 			req.end();
 		});
+	}
+
+	_extractSessionId(response) {
+		if (!response || typeof response !== "object") return null;
+		const candidate = response.session_id || response.sessionId ||
+			(response.data && (response.data.session_id || response.data.sessionId));
+		return candidate ? String(candidate).trim() : null;
 	}
 
 	_extractStructuredData(response, { businessName, projectName, text }) {
