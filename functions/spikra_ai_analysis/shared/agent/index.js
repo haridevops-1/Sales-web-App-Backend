@@ -37,26 +37,18 @@ class ZiaAgentClient {
 
 		const businessName = String(options.businessName || "Spikra").trim();
 		const projectName = String(options.projectName || "Customer Proposal").trim();
-		const documentId = String(options.documentId || "").trim();
-		const projectId = String(options.projectId || "").trim();
 
-		const requestPayload = {
-			document_content: text.trim(),
-			input: text.trim(),
-			query: `Analyze technical document for ${businessName} and generate structured V1 Customer Showcase content`,
-			business_name: businessName,
-			project_name: projectName,
-			metadata: {
-				document_id: documentId,
-				project_id: projectId,
-				source_length: text.length,
-				timestamp: new Date().toISOString()
-			}
-		};
+		const instruction = [
+			`Analyze the following technical/business document for "${businessName}" (project: ${projectName}) and generate structured V1 Customer Showcase content.`,
+			"Return ONLY a single JSON object (no markdown, no prose) with fields: proposal_title, project_summary, what_we_deliver, spikra_way, how_we_support, deliverable_cards (array of {label,value,note}), customer_benefits (array of strings), capabilities (array of {title,subtitle,teaser,description}), timeline_phases (array of {name,duration,items[],note}), rollout_overview (array of 2 {label,value,note}), de_risk_summary (array of 2 {label,value,note}).",
+			"Document content:",
+			text.trim()
+		].join("\n\n");
 
-		if (this.agentId) {
-			requestPayload.agent_id = this.agentId;
-		}
+		// Zia Agent trigger API enforces a strict input schema; extra top-level keys (previously
+		// document_content/query/business_name/metadata) caused EXTRA_KEY_FOUND_IN_JSON. Verify the
+		// exact expected key name against Zia Agent Studio's API/Deploy tab before relying on "input".
+		const requestPayload = { input: instruction };
 
 		const responseData = await this._callAgentEndpoint(requestPayload);
 		const structuredOutput = this._extractStructuredData(responseData, { businessName, projectName, text });
