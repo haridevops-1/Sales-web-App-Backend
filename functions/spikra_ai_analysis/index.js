@@ -46,18 +46,38 @@ const EXPERIENCES_TABLE = "EXPERIENCES";
 const ZIA_AGENT_CONNECTION_LINK_NAME = "internalsaleshub";
 
 const MAX_DOCUMENT_TEXT_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_REQUEST_BODY_SIZE = 1024 * 1024; // 1 MB
 
-module.exports = async (context, basicIO) => {
+// Advanced I/O (not Basic I/O): analyzing a large document through the Zia Agent can take
+// well beyond Basic I/O's execution-time ceiling, which was killing this function mid-call
+// ("basicio Execution Time Exceeded") regardless of document size. Advanced I/O gives this the
+// same longer execution budget Functions 1 and 5 already rely on for their own slow I/O.
+module.exports = async (req, res) => {
 	let app = null;
 	let documentId = null;
 	let aiAnalysisJob = null;
 	let jobId = "";
 
 	try {
-		let rawDocumentId = basicIO.getArgument("document_id");
-		if (!rawDocumentId) {
-			rawDocumentId = basicIO.getArgument("documentId");
+		setCorsHeaders(res);
+
+		if (req.method === "OPTIONS") {
+			res.statusCode = 204;
+			res.end();
+			return;
 		}
+
+		if (req.method !== "POST") {
+			sendJson(res, 405, { success: false, message: "Only POST requests are supported." });
+			return;
+		}
+
+		const rawBody = await readRequestBody(req, MAX_REQUEST_BODY_SIZE);
+		const requestData = parseJsonBody(rawBody);
+
+		const urlObj = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+		let rawDocumentId = requestData.document_id || requestData.documentId ||
+			urlObj.searchParams.get("document_id") || urlObj.searchParams.get("documentId");
 
 		documentId = String(rawDocumentId || "").trim();
 
@@ -65,7 +85,7 @@ module.exports = async (context, basicIO) => {
 			throw new ValidationError("document_id is required");
 		}
 
-		app = catalyst.initialize(context);
+		app = catalyst.initialize(req);
 		const datastore = app.datastore();
 		const stratus = app.stratus();
 
@@ -98,7 +118,7 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("Extracted text object key is missing");
 		}
 
-		context.log(`Function 3 (Zia Agent Orchestration) processing document_id: ${documentId}, project_id: ${projectId}, content_key: ${contentObjectKey}`);
+		console.log(`Function 3 (Zia Agent Orchestration) processing document_id: ${documentId}, project_id: ${projectId}, content_key: ${contentObjectKey}`);
 
 		let projectRow = null;
 		try {
@@ -143,7 +163,7 @@ module.exports = async (context, basicIO) => {
 					error_message: ""
 				});
 			} catch (jobInsertError) {
-				context.log("Job insertion notice:", jobInsertError.message);
+				console.log("Job insertion notice:", jobInsertError.message);
 				aiAnalysisJob = await findProcessingJob(app, documentId, "AI_ANALYSIS");
 			}
 		}
@@ -155,22 +175,19 @@ module.exports = async (context, basicIO) => {
 			const genBucket = stratus.bucket(GENERATED_BUCKET_NAME);
 			const existingObj = await genBucket.getObject(analysisObjectKey);
 			if (existingObj) {
-				context.log(`Idempotent hit: analysis already exists at ${analysisObjectKey}. Returning cached AI analysis.`);
-				basicIO.setStatus(200);
-				basicIO.write(
-					JSON.stringify({
-						success: true,
-						message: "Document analysis already exists",
-						document_id: documentId,
-						project_id: projectId,
-						job_id: jobId,
-						processing_status: "COMPLETED",
-						job_status: "COMPLETED",
-						analysis_object_key: analysisObjectKey,
-						analysis_type: "ZIA_AGENT_ANALYSIS",
-						agent_type: "ZIA_AGENT"
-					})
-				);
+				console.log(`Idempotent hit: analysis already exists at ${analysisObjectKey}. Returning cached AI analysis.`);
+				sendJson(res, 200, {
+					success: true,
+					message: "Document analysis already exists",
+					document_id: documentId,
+					project_id: projectId,
+					job_id: jobId,
+					processing_status: "COMPLETED",
+					job_status: "COMPLETED",
+					analysis_object_key: analysisObjectKey,
+					analysis_type: "ZIA_AGENT_ANALYSIS",
+					agent_type: "ZIA_AGENT"
+				});
 				return;
 			}
 		} catch {}
@@ -217,7 +234,7 @@ module.exports = async (context, basicIO) => {
 			throw new ProcessingError("Extracted text is empty");
 		}
 
-		context.log(`Extracted text read successfully: ${documentText.length} characters`);
+		console.log(`Extracted text read successfully: ${documentText.length} characters`);
 
 		let connectionCredentials;
 		try {
@@ -227,7 +244,7 @@ module.exports = async (context, basicIO) => {
 		}
 
 		const agentClient = getZiaAgentClient();
-		context.log(
+		console.log(
 			"Executing document analysis using Zia Agent client, endpoint_configured:",
 			agentClient.isConfigured()
 		);
@@ -240,7 +257,7 @@ module.exports = async (context, basicIO) => {
 			connectionCredentials
 		});
 
-		context.log(
+		console.log(
 			`Zia Agent analysis complete: ${structuredShowcase.capabilities ? structuredShowcase.capabilities.length : 0} capabilities, ${structuredShowcase.deliverable_cards ? structuredShowcase.deliverable_cards.length : 0} deliverable cards, session_id=${agentClient.lastSessionId || "none"}`
 		);
 
@@ -274,9 +291,9 @@ module.exports = async (context, basicIO) => {
 					agent_type: "ZIA_AGENT"
 				}
 			});
-			context.log(`Analysis JSON stored in Stratus at ${analysisObjectKey}`);
+			console.log(`Analysis JSON stored in Stratus at ${analysisObjectKey}`);
 		} catch (uploadError) {
-			context.log("Failed to store analysis JSON in Stratus:", uploadError.message);
+			console.log("Failed to store analysis JSON in Stratus:", uploadError.message);
 			throw new ProcessingError("Failed to store analysis JSON in Stratus");
 		}
 
@@ -290,9 +307,9 @@ module.exports = async (context, basicIO) => {
 				updateDocData.analysis_object_key = analysisObjectKey;
 			}
 			await documentsTable.updateRow(updateDocData);
-			context.log("DOCUMENTS row updated: processing_status = COMPLETED");
+			console.log("DOCUMENTS row updated: processing_status = COMPLETED");
 		} catch (docUpdateError) {
-			context.log("DOCUMENTS status update failed:", docUpdateError.message);
+			console.log("DOCUMENTS status update failed:", docUpdateError.message);
 			throw new ProcessingError("Failed to update document status in Data Store");
 		}
 
@@ -304,9 +321,9 @@ module.exports = async (context, basicIO) => {
 					completed_time: new Date().toISOString().replace("T", " ").substring(0, 19),
 					error_message: ""
 				});
-				context.log("PROCESSING_JOBS row updated: status = COMPLETED");
+				console.log("PROCESSING_JOBS row updated: status = COMPLETED");
 			} catch (jobUpdateError) {
-				context.log("PROCESSING_JOBS status update failed:", jobUpdateError.message);
+				console.log("PROCESSING_JOBS status update failed:", jobUpdateError.message);
 			}
 		}
 
@@ -316,58 +333,144 @@ module.exports = async (context, basicIO) => {
 				status: "PROCESSING"
 			});
 		} catch (projUpdateError) {
-			context.log("PROJECTS status update notice:", projUpdateError.message);
+			console.log("PROJECTS status update notice:", projUpdateError.message);
 		}
 
-		basicIO.setStatus(200);
-		basicIO.write(
-			JSON.stringify({
-				success: true,
-				message: "AI analysis completed successfully",
-				project_id: projectId,
-				document_id: documentId,
-				job_id: jobId,
-				status: "COMPLETED",
-				processing_status: "COMPLETED",
-				job_status: "COMPLETED",
-				analysis_object_key: analysisObjectKey,
-				analysis_type: "ZIA_AGENT_ANALYSIS",
-				agent_type: "ZIA_AGENT"
-			})
-		);
+		sendJson(res, 200, {
+			success: true,
+			message: "AI analysis completed successfully",
+			project_id: projectId,
+			document_id: documentId,
+			job_id: jobId,
+			status: "COMPLETED",
+			processing_status: "COMPLETED",
+			job_status: "COMPLETED",
+			analysis_object_key: analysisObjectKey,
+			analysis_type: "ZIA_AGENT_ANALYSIS",
+			agent_type: "ZIA_AGENT"
+		});
 	} catch (error) {
 		const safeErrorMessage = sanitizeErrorMessage(error);
-		context.log("spikra_ai_analysis failed:", safeErrorMessage);
+		console.log("spikra_ai_analysis failed:", safeErrorMessage);
 
 		// SchemaValidationError carries a shallow, size-bounded shape snapshot of the Agent's raw
 		// response (no document text/secrets) - only way to see why hasMeaningfulShowcaseContent
-		// rejected it, since console.* inside the shared agent module isn't reliably captured here.
+		// rejected it.
 		if (error && error.rawResponseSnapshot) {
 			try {
-				context.log("spikra_ai_analysis raw response snapshot:", JSON.stringify(error.rawResponseSnapshot));
-				context.log("spikra_ai_analysis extracted output snapshot:", JSON.stringify(error.extractedOutputSnapshot));
+				console.log("spikra_ai_analysis raw response snapshot:", JSON.stringify(error.rawResponseSnapshot));
+				console.log("spikra_ai_analysis extracted output snapshot:", JSON.stringify(error.extractedOutputSnapshot));
 			} catch (logErr) {
-				context.log("spikra_ai_analysis snapshot logging failed:", logErr.message);
+				console.log("spikra_ai_analysis snapshot logging failed:", logErr.message);
 			}
 		}
 
 		await markProcessingFailure(app, documentId, aiAnalysisJob, safeErrorMessage);
 
-		basicIO.setStatus(200);
-		basicIO.write(
-			JSON.stringify({
-				success: false,
-				message: "AI analysis failed",
-				document_id: documentId || "",
-				processing_status: "FAILED",
-				job_status: "FAILED",
-				error: safeErrorMessage
-			})
-		);
-	} finally {
-		context.close();
+		sendJson(res, 200, {
+			success: false,
+			message: "AI analysis failed",
+			document_id: documentId || "",
+			processing_status: "FAILED",
+			job_status: "FAILED",
+			error: safeErrorMessage
+		});
 	}
 };
+
+function setCorsHeaders(res) {
+	res.setHeader("Access-Control-Allow-Origin", "*");
+	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+function readRequestBody(req, maxSizeBytes) {
+	if (req.body && Buffer.isBuffer(req.body)) {
+		return Promise.resolve(req.body.toString("utf8"));
+	}
+	if (req.body && typeof req.body === "string") {
+		return Promise.resolve(req.body);
+	}
+	if (req.body && typeof req.body === "object") {
+		return Promise.resolve(JSON.stringify(req.body));
+	}
+	if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
+		return Promise.resolve(req.rawBody.toString("utf8"));
+	}
+	if (req.rawBody && typeof req.rawBody === "string") {
+		return Promise.resolve(req.rawBody);
+	}
+
+	return new Promise((resolve, reject) => {
+		const chunks = [];
+		let totalSize = 0;
+		let settled = false;
+
+		const fail = (error) => {
+			if (!settled) {
+				settled = true;
+				reject(error);
+			}
+		};
+
+		req.on("data", (chunk) => {
+			if (settled) return;
+			totalSize += chunk.length;
+			if (totalSize > maxSizeBytes) {
+				fail(new ValidationError(`Request body exceeds the ${maxSizeBytes} bytes limit.`));
+				if (typeof req.destroy === "function") req.destroy();
+				return;
+			}
+			chunks.push(chunk);
+		});
+
+		req.on("end", () => {
+			if (!settled) {
+				settled = true;
+				resolve(Buffer.concat(chunks).toString("utf8"));
+			}
+		});
+
+		req.on("error", fail);
+
+		if (req.readableEnded || req.complete) {
+			if (!settled) {
+				settled = true;
+				resolve(Buffer.concat(chunks).toString("utf8"));
+			}
+		}
+
+		if (typeof req.resume === "function" && req.isPaused && req.isPaused()) {
+			req.resume();
+		}
+	});
+}
+
+function parseJsonBody(bodyString) {
+	if (!bodyString || !bodyString.trim()) {
+		return {};
+	}
+	try {
+		return JSON.parse(bodyString);
+	} catch {
+		try {
+			const parsed = new URLSearchParams(bodyString);
+			const obj = {};
+			for (const [key, value] of parsed.entries()) {
+				obj[key] = value;
+			}
+			return obj;
+		} catch {
+			return {};
+		}
+	}
+}
+
+function sendJson(res, statusCode, payload) {
+	res.statusCode = statusCode;
+	res.setHeader("Content-Type", "application/json; charset=utf-8");
+	res.end(JSON.stringify(payload));
+}
 
 async function resolveExperienceId(app, documentId, projectId) {
 	if (!app || typeof app.zcql !== "function" || !documentId) {

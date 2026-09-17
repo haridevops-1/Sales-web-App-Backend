@@ -778,9 +778,11 @@ function escapeQueryValue(value) {
 }
 
 function setCorsHeaders(res) {
-	// Access-Control-Allow-Origin is intentionally NOT set here - the Catalyst project's CORS
-	// domain allowlist already injects it for registered origins, and setting our own "*" value
-	// here on top of that produces an invalid multi-value header the browser rejects outright.
+	// This endpoint serves already-public, read-only proposal content (no auth) and is fetched
+	// client-side by the Slate proposal page from spikra-ai-proposal.onslate.com - an origin not
+	// in Catalyst's own CORS allowlist, which was causing "Failed to fetch" on the friendly link
+	// while the direct API URL (a top-level navigation, not subject to CORS) worked fine.
+	res.setHeader("Access-Control-Allow-Origin", "*");
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 	res.setHeader("Access-Control-Max-Age", "86400");

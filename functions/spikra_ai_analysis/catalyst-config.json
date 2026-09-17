@@ -2,7 +2,7 @@
 	"deployment": {
 		"name": "spikra_ai_analysis",
 		"stack": "node22",
-		"type": "basicio",
+		"type": "advancedio",
 		"env_variables": {
 			"ZIA_AGENT_ENDPOINT": "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000141003/trigger",
 			"ZIA_AGENT_AUTH_TOKEN": "",

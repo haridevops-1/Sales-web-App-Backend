@@ -24,8 +24,8 @@
   {
     "name": "spikra-document-analyze-api",
     "source_endpoint": "/spikra/document/analyze",
-    "target_endpoint": "/server/spikra_ai_analysis/execute",
-    "target": "basicio",
+    "target_endpoint": "/server/spikra_ai_analysis/",
+    "target": "advancedio",
     "method": "POST",
     "throttling": {
       "overall": {},

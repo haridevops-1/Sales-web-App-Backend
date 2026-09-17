@@ -5,7 +5,10 @@ const http = require("http");
 const { URL } = require("url");
 
 const DEFAULT_ENDPOINT_PLACEHOLDER = "[PASTE ZIA AGENT URL HERE]";
-const DEFAULT_TIMEOUT_MS = 120000;
+// Raised from 120s now that Function 3 runs as Advanced I/O with a much longer execution budget -
+// large documents need more real Agent processing time than Basic I/O ever allowed. Override via
+// ZIA_AGENT_TIMEOUT_MS if the actual Catalyst Advanced I/O ceiling turns out to need a different value.
+const DEFAULT_TIMEOUT_MS = 280000;
 
 class ZiaAgentClient {
 	constructor(config = {}) {
