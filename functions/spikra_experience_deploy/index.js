@@ -778,7 +778,9 @@ function escapeQueryValue(value) {
 }
 
 function setCorsHeaders(res) {
-	res.setHeader("Access-Control-Allow-Origin", "*");
+	// Access-Control-Allow-Origin is intentionally NOT set here - the Catalyst project's CORS
+	// domain allowlist already injects it for registered origins, and setting our own "*" value
+	// here on top of that produces an invalid multi-value header the browser rejects outright.
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 	res.setHeader("Access-Control-Max-Age", "86400");

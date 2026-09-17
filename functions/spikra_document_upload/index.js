@@ -279,7 +279,9 @@ module.exports = async (req, res) => {
 };
 
 function setCorsHeaders(res) {
-	res.setHeader("Access-Control-Allow-Origin", "*");
+	// Access-Control-Allow-Origin is intentionally NOT set here - the Catalyst project's CORS
+	// domain allowlist already injects it for registered origins, and setting our own "*" value
+	// here on top of that produces an invalid multi-value header the browser rejects outright.
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader(
 		"Access-Control-Allow-Headers",
