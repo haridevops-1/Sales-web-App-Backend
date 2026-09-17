@@ -69,7 +69,10 @@ async function verifyAndBuildExperienceUrl({ app, projectId, experienceId, busin
 	}
 
 	const slug = generateBusinessSlug(resolvedBizName);
-	const generatedUrl = `${SLATE_APP_URL}/${slug}`;
+	// The Slate app is a plain static host (no SPA/rewrite fallback configured), so a path like
+	// /<slug> 404s before index.html's own routing script ever runs - only literal files (/, index.html)
+	// resolve. index.html already reads ?slug=... for this exact reason, so the link must use that.
+	const generatedUrl = `${SLATE_APP_URL}/?slug=${encodeURIComponent(slug)}`;
 
 	return {
 		success: true,

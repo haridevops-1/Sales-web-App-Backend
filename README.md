@@ -19,7 +19,7 @@ spikra-catalyst/
 ├── functions/                    # Zoho Catalyst Serverless Functions (Microservices)
 │   ├── spikra_document_upload/     # Function 1: File upload & initial job creation (Advanced I/O)
 │   ├── spikra_document_process/    # Function 2: PDF text extraction & validation (Basic I/O)
-│   ├── spikra_ai_analysis/         # Function 3: Zia Agent orchestration bridge & structured Showcase extraction (Basic I/O)
+│   ├── spikra_ai_analysis/         # Function 3: Zia Agent orchestration bridge & structured Showcase extraction (Advanced I/O)
 │   ├── spikra_experience_generate/ # Function 4: Pure HTML/CSS/JSON master template renderer (Basic I/O, zero AI calls)
 │   ├── spikra_experience_deploy/   # Function 5: Publishes the experience & returns the customer link (Advanced I/O)
 │   ├── spikra_process_status/      # Function 6: Real-time stage monitoring & status polling (Advanced I/O)

@@ -334,9 +334,10 @@ module.exports = async (req, res) => {
 		const currentStatus = String(experienceRow.status || "").trim().toUpperCase();
 		const existingGeneratedUrl = String(experienceRow.generated_url || "").trim();
 
+		const friendlySlugMatch = existingGeneratedUrl.match(/[?&]slug=([^&]+)/);
 		const isFriendlyUrl = existingGeneratedUrl.includes("spikra-ai-proposal.onslate.com") &&
-			!existingGeneratedUrl.includes("?") &&
-			existingGeneratedUrl.endsWith("_proposal");
+			Boolean(friendlySlugMatch) &&
+			decodeURIComponent(friendlySlugMatch[1]).endsWith("_proposal");
 
 		if (currentStatus === "PUBLISHED" && existingGeneratedUrl && isValidHttpUrl(existingGeneratedUrl) && isFriendlyUrl) {
 			const isLive = await verifyUrlAccessible(existingGeneratedUrl, 2);
@@ -861,8 +862,10 @@ async function findExperienceBySlug(app, slug) {
 	if (!cleanSlug || cleanSlug === "index.html") return null;
 
 	const targetUrls = [
+		`https://spikra-ai-proposal.onslate.com/?slug=${cleanSlug}`,
 		`https://spikra-ai-proposal.onslate.com/${cleanSlug}`,
 		`https://spikra-ai-proposal.onslate.com/${cleanSlug}/`,
+		`https://spikra-experience-kspwbmax.onslate.com/?slug=${cleanSlug}`,
 		`https://spikra-experience-kspwbmax.onslate.com/${cleanSlug}`,
 		`https://spikra-experience-kspwbmax.onslate.com/${cleanSlug}/`
 	];
