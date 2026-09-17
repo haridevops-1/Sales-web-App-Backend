@@ -13,6 +13,8 @@ class ZiaAgentClient {
 		this.endpoint = String(rawEndpoint).trim();
 		this.authToken = String(config.authToken || process.env.ZIA_AGENT_AUTH_TOKEN || process.env.ZIA_AGENT_API_KEY || "").trim();
 		this.agentId = String(config.agentId || process.env.ZIA_AGENT_ID || "").trim();
+		this.agentVersionId = String(config.agentVersionId || process.env.ZIA_AGENT_VERSION_ID || "").trim();
+		this.orgId = String(config.orgId || process.env.ZIA_AGENT_ORG_ID || "").trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.ZIA_AGENT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.agentType = "ZIA_AGENT";
 	}
@@ -45,10 +47,14 @@ class ZiaAgentClient {
 			text.trim()
 		].join("\n\n");
 
-		// Zia Agent trigger API enforces a strict input schema; extra top-level keys (previously
-		// document_content/query/business_name/metadata) caused EXTRA_KEY_FOUND_IN_JSON. Verify the
-		// exact expected key name against Zia Agent Studio's API/Deploy tab before relying on "input".
-		const requestPayload = { input: instruction };
+		// Zoho's documented Zia Agents API request schema uses a single top-level "query" field
+		// (see https://www.zoho.com/agents/resources/help/developer-documentation/api-reference.html).
+		// A prior attempt sent { input: instruction } instead of { query: ... }; the platform's generic
+		// JSON validator rejected the unrecognized top-level key and its error surfaced the internal
+		// "zoho-inputstream" parameter name it uses for the request envelope, not something this client
+		// ever sends directly. Only "query" belongs at the top level here (no attachments/systemArgs -
+		// this agent takes plain text, not a Catalyst/Zoho InputStream object).
+		const requestPayload = { query: instruction };
 
 		const responseData = await this._callAgentEndpoint(requestPayload);
 		const structuredOutput = this._extractStructuredData(responseData, { businessName, projectName, text });
@@ -95,10 +101,23 @@ class ZiaAgentClient {
 			"Content-Length": Buffer.byteLength(payloadString)
 		};
 
+		// Zoho's Zia Agents API uses the "Zoho-oauthtoken" auth scheme (not "Bearer"), and identifies
+		// the target agent/org via dedicated headers rather than the request body. This agent's
+		// endpoint currently embeds the agent ID directly in the URL path (.../agents/<id>/trigger),
+		// so these headers are only sent when explicitly configured - they must never be guessed.
 		if (this.authToken) {
-			headers["Authorization"] = this.authToken.toLowerCase().startsWith("bearer ")
+			headers["Authorization"] = /^(bearer|zoho-oauthtoken)\s/i.test(this.authToken)
 				? this.authToken
-				: `Bearer ${this.authToken}`;
+				: `Zoho-oauthtoken ${this.authToken}`;
+		}
+		if (this.agentId) {
+			headers["X-ZIAAGENTS-AGENT-ID"] = this.agentId;
+		}
+		if (this.agentVersionId) {
+			headers["X-ZIAAGENTS-AGENT-VERSION-ID"] = this.agentVersionId;
+		}
+		if (this.orgId) {
+			headers["X-ZIAAGENTS-ORG"] = this.orgId;
 		}
 
 		const options = {
