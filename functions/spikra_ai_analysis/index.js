@@ -339,6 +339,18 @@ module.exports = async (context, basicIO) => {
 		const safeErrorMessage = sanitizeErrorMessage(error);
 		context.log("spikra_ai_analysis failed:", safeErrorMessage);
 
+		// SchemaValidationError carries a shallow, size-bounded shape snapshot of the Agent's raw
+		// response (no document text/secrets) - only way to see why hasMeaningfulShowcaseContent
+		// rejected it, since console.* inside the shared agent module isn't reliably captured here.
+		if (error && error.rawResponseSnapshot) {
+			try {
+				context.log("spikra_ai_analysis raw response snapshot:", JSON.stringify(error.rawResponseSnapshot));
+				context.log("spikra_ai_analysis extracted output snapshot:", JSON.stringify(error.extractedOutputSnapshot));
+			} catch (logErr) {
+				context.log("spikra_ai_analysis snapshot logging failed:", logErr.message);
+			}
+		}
+
 		await markProcessingFailure(app, documentId, aiAnalysisJob, safeErrorMessage);
 
 		basicIO.setStatus(200);

@@ -64,11 +64,17 @@ class ZiaAgentClient {
 		const structuredOutput = this._extractStructuredData(responseData, { businessName, projectName, text });
 
 		if (!this.hasMeaningfulShowcaseContent(structuredOutput)) {
-			throw new SchemaValidationError(
+			const schemaErr = new SchemaValidationError(
 				"Zia Agent response did not contain a recognizable Customer Showcase structure " +
 				"(missing proposal_title/project_summary and insufficient deliverable_cards/capabilities/customer_benefits/timeline_phases). " +
 				"Refusing to substitute generic fabricated customer content."
 			);
+			// Diagnostic only (no secrets/document text) - a shallow shape snapshot the caller can
+			// pass to context.log (console.* here is not reliably captured by Catalyst's log
+			// pipeline), so the actual response shape is visible if the schema still doesn't match.
+			schemaErr.rawResponseSnapshot = response_keys_safe(responseData);
+			schemaErr.extractedOutputSnapshot = response_keys_safe(structuredOutput);
+			throw schemaErr;
 		}
 
 		return this.normalizeShowcaseContent(structuredOutput, { businessName, projectName, text });
@@ -191,10 +197,21 @@ class ZiaAgentClient {
 			if (response.data.proposal_title || response.data.deliverable_cards || response.data.capabilities) {
 				return response.data;
 			}
-			if (typeof response.data === "string") {
-				const inner = extractJsonFromString(response.data);
-				if (inner) return inner;
+			// Zoho's documented Zia Agents API response shape nests the agent's generated output
+			// at data.response (see the official API reference), which this extraction never
+			// checked before - it only looked at a top-level "response" key.
+			if (response.data.response) {
+				if (typeof response.data.response === "object") {
+					return response.data.response;
+				}
+				if (typeof response.data.response === "string") {
+					const inner = extractJsonFromString(response.data.response);
+					if (inner) return inner;
+				}
 			}
+		} else if (typeof response.data === "string") {
+			const inner = extractJsonFromString(response.data);
+			if (inner) return inner;
 		}
 
 		if (response.output) {
@@ -452,6 +469,24 @@ class ZiaAgentClient {
 			risks: Array.isArray(data.risks) ? data.risks : []
 		};
 	}
+}
+
+// Shallow, size-bounded snapshot of an object's shape for diagnostic logging - never dumps
+// full document text or large arrays, just enough structure to see what came back.
+function response_keys_safe(obj, depth = 0) {
+	if (obj === null || obj === undefined) return obj;
+	if (depth >= 2 || typeof obj !== "object") {
+		if (typeof obj === "string") return obj.length > 120 ? `${obj.slice(0, 120)}...(${obj.length} chars)` : obj;
+		return obj;
+	}
+	if (Array.isArray(obj)) {
+		return `Array(${obj.length})`;
+	}
+	const snapshot = {};
+	for (const key of Object.keys(obj).slice(0, 20)) {
+		snapshot[key] = response_keys_safe(obj[key], depth + 1);
+	}
+	return snapshot;
 }
 
 function extractJsonFromString(str) {
