@@ -3,7 +3,10 @@
 		"name": "spikra_ai_analysis",
 		"stack": "node22",
 		"type": "basicio",
-		"env_variables": {}
+		"env_variables": {
+			"ZIA_AGENT_ENDPOINT": "[PASTE ZIA AGENT URL HERE]",
+			"ZIA_AGENT_AUTH_TOKEN": ""
+		}
 	},
 	"execution": {
 		"main": "index.js"
