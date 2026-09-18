@@ -20,7 +20,7 @@
   var hashSlug = "";
   if (hash) {
     if (hash.indexOf("slug=") >= 0) {
-      var hParams = new URLSearchParams(hash.replace(/^#/?/, ""));
+      var hParams = new URLSearchParams(hash.replace(/^#\/?/, ""));
       hashSlug = hParams.get("slug") || "";
       if (!expId) expId = hParams.get("experience_id") || hParams.get("id") || "";
     } else if (!hash.includes("=") && !hash.includes("&")) {

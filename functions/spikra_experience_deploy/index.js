@@ -1015,13 +1015,19 @@ async function findExperienceBySlug(app, slug) {
 	}
 
 	try {
-		const likeQuery = `SELECT * FROM ${EXPERIENCES_TABLE} WHERE generated_url LIKE '%${escapeQueryValue(cleanSlug)}%' ORDER BY CREATEDTIME DESC LIMIT 1`;
-		const likeRes = await app.zcql().executeZCQLQuery(likeQuery);
-		if (Array.isArray(likeRes) && likeRes[0]) {
-			return likeRes[0][EXPERIENCES_TABLE] || likeRes[0];
+		const recentQuery = `SELECT * FROM ${EXPERIENCES_TABLE} ORDER BY CREATEDTIME DESC LIMIT 35`;
+		const recentRes = await app.zcql().executeZCQLQuery(recentQuery);
+		if (Array.isArray(recentRes)) {
+			for (const item of recentRes) {
+				const row = item[EXPERIENCES_TABLE] || item;
+				const genUrl = String(row.generated_url || "").toLowerCase();
+				if (genUrl.includes(cleanSlug)) {
+					return row;
+				}
+			}
 		}
 	} catch (e) {
-		console.log("findExperienceBySlug LIKE query notice:", e.message);
+		console.log("findExperienceBySlug recent query notice:", e.message);
 	}
 
 	for (const targetUrl of targetUrls) {
