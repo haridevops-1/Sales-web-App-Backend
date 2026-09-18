@@ -144,7 +144,17 @@ module.exports = async (context, basicIO) => {
 			}
 
 			const expStatus = exp.status ? String(exp.status).trim() : null;
-			const genUrl = exp.generated_url ? String(exp.generated_url).trim() : null;
+			const rawGenUrl = exp.generated_url ? String(exp.generated_url).trim() : null;
+			const genUrl = rawGenUrl ? formatProposalUrl(rawGenUrl, rowId, expProjectId) : null;
+
+			if (expStatus === 'PUBLISHED' && rawGenUrl && genUrl && rawGenUrl !== genUrl && rowId) {
+				try {
+					app.datastore().table(EXPERIENCES_TABLE).updateRow({
+						ROWID: rowId,
+						generated_url: genUrl
+					}).catch(() => {});
+				} catch {}
+			}
 
 			let versionNum = 1;
 			if (exp.version_number !== undefined && exp.version_number !== null && !isNaN(exp.version_number)) {
@@ -212,3 +222,34 @@ module.exports = async (context, basicIO) => {
 function escapeValue(value) {
 	return String(value || '').replace(/'/g, "''");
 }
+
+function formatProposalUrl(rawUrl, expId = '', projId = '') {
+	if (!rawUrl || typeof rawUrl !== 'string') return null;
+	const trimmed = rawUrl.trim();
+	if (!trimmed) return null;
+
+	try {
+		const parsed = new URL(trimmed);
+		const hostname = parsed.hostname.toLowerCase();
+		if (hostname.includes('onslate.com')) {
+			const pathname = parsed.pathname.replace(/^\/+|\/+$/g, '');
+			if (pathname && pathname.toLowerCase() !== 'index.html' && pathname.toLowerCase() !== '404.html') {
+				if (!parsed.searchParams.has('slug')) {
+					parsed.searchParams.set('slug', pathname);
+				}
+				parsed.pathname = '/';
+			}
+			if (expId && !parsed.searchParams.has('experience_id')) {
+				parsed.searchParams.set('experience_id', String(expId).trim());
+			}
+			if (projId && !parsed.searchParams.has('project_id')) {
+				parsed.searchParams.set('project_id', String(projId).trim());
+			}
+			return parsed.toString();
+		}
+		return trimmed;
+	} catch {
+		return trimmed;
+	}
+}
+

@@ -72,13 +72,53 @@ async function verifyAndBuildExperienceUrl({ app, projectId, experienceId, busin
 	// The Slate app is a plain static host (no SPA/rewrite fallback configured), so a path like
 	// /<slug> 404s before index.html's own routing script ever runs - only literal files (/, index.html)
 	// resolve. index.html already reads ?slug=... for this exact reason, so the link must use that.
-	const generatedUrl = `${SLATE_APP_URL}/?slug=${encodeURIComponent(slug)}`;
+	let generatedUrl = `${SLATE_APP_URL}/?slug=${encodeURIComponent(slug)}`;
+	if (experienceId) {
+		generatedUrl += `&experience_id=${encodeURIComponent(experienceId)}`;
+	}
+	if (projectId) {
+		generatedUrl += `&project_id=${encodeURIComponent(projectId)}`;
+	}
 
 	return {
 		success: true,
 		slug,
 		generated_url: generatedUrl
 	};
+}
+
+/**
+ * Format and sanitize a proposal or experience showcase URL.
+ * Converts path-based Slate URLs to query-based URLs with ?slug=...
+ */
+function formatProposalUrl(rawUrl, experienceId = "", projectId = "") {
+	if (!rawUrl || typeof rawUrl !== "string") return null;
+	const trimmed = rawUrl.trim();
+	if (!trimmed) return null;
+
+	try {
+		const parsed = new URL(trimmed);
+		const hostname = parsed.hostname.toLowerCase();
+		if (hostname.includes("onslate.com")) {
+			const pathname = parsed.pathname.replace(/^\/+|\/+$/g, "");
+			if (pathname && pathname.toLowerCase() !== "index.html" && pathname.toLowerCase() !== "404.html") {
+				if (!parsed.searchParams.has("slug")) {
+					parsed.searchParams.set("slug", pathname);
+				}
+				parsed.pathname = "/";
+			}
+			if (experienceId && !parsed.searchParams.has("experience_id")) {
+				parsed.searchParams.set("experience_id", String(experienceId).trim());
+			}
+			if (projectId && !parsed.searchParams.has("project_id")) {
+				parsed.searchParams.set("project_id", String(projectId).trim());
+			}
+			return parsed.toString();
+		}
+		return trimmed;
+	} catch {
+		return trimmed;
+	}
 }
 
 async function verifyUrlAccessible(testUrl, maxAttempts = 3) {
@@ -122,5 +162,7 @@ module.exports = {
 	SLATE_APP_URL,
 	generateBusinessSlug,
 	verifyAndBuildExperienceUrl,
-	verifyUrlAccessible
+	verifyUrlAccessible,
+	formatProposalUrl
 };
+

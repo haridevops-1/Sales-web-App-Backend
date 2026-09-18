@@ -16,18 +16,21 @@ let verifyAndBuildExperienceUrl;
 let verifyUrlAccessible;
 let generateBusinessSlug;
 let SLATE_APP_URL;
+let formatProposalUrl;
 try {
 	const worker = require("./deploy_worker");
 	verifyAndBuildExperienceUrl = worker.verifyAndBuildExperienceUrl;
 	verifyUrlAccessible = worker.verifyUrlAccessible;
 	generateBusinessSlug = worker.generateBusinessSlug;
 	SLATE_APP_URL = worker.SLATE_APP_URL;
+	formatProposalUrl = worker.formatProposalUrl;
 } catch {
 	const worker = require("../../scripts/deploy_worker");
 	verifyAndBuildExperienceUrl = worker.verifyAndBuildExperienceUrl;
 	verifyUrlAccessible = worker.verifyUrlAccessible;
 	generateBusinessSlug = worker.generateBusinessSlug;
 	SLATE_APP_URL = worker.SLATE_APP_URL;
+	formatProposalUrl = worker.formatProposalUrl;
 }
 
 const REQUIRED_EXPERIENCE_FILES = [
@@ -197,7 +200,7 @@ module.exports = async (req, res) => {
 					title: experienceRow.experience_title || (experienceJson && experienceJson.title) || "Customer Proposal Experience",
 					status: experienceRow.status,
 					generated_url: (experienceRow.status === "PUBLISHED" && experienceRow.generated_url && isValidHttpUrl(experienceRow.generated_url))
-						? experienceRow.generated_url
+						? (typeof formatProposalUrl === "function" ? formatProposalUrl(experienceRow.generated_url, expId, projId) : experienceRow.generated_url)
 						: null,
 					business_logo: {
 						available: hasLogo,
@@ -332,16 +335,28 @@ module.exports = async (req, res) => {
 		}
 
 		const currentStatus = String(experienceRow.status || "").trim().toUpperCase();
-		const existingGeneratedUrl = String(experienceRow.generated_url || "").trim();
+		const rawExistingGeneratedUrl = String(experienceRow.generated_url || "").trim();
+		const existingGeneratedUrl = (typeof formatProposalUrl === "function" && rawExistingGeneratedUrl)
+			? formatProposalUrl(rawExistingGeneratedUrl, experienceId, projectId)
+			: rawExistingGeneratedUrl;
 
-		const friendlySlugMatch = existingGeneratedUrl.match(/[?&]slug=([^&]+)/);
-		const isFriendlyUrl = existingGeneratedUrl.includes("spikra-ai-proposal.onslate.com") &&
+		const friendlySlugMatch = existingGeneratedUrl ? existingGeneratedUrl.match(/[?&]slug=([^&]+)/) : null;
+		const isFriendlyUrl = existingGeneratedUrl &&
+			existingGeneratedUrl.includes("spikra-ai-proposal.onslate.com") &&
 			Boolean(friendlySlugMatch) &&
 			decodeURIComponent(friendlySlugMatch[1]).endsWith("_proposal");
 
 		if (currentStatus === "PUBLISHED" && existingGeneratedUrl && isValidHttpUrl(existingGeneratedUrl) && isFriendlyUrl) {
 			const isLive = await verifyUrlAccessible(existingGeneratedUrl, 2);
 			if (isLive) {
+				if (rawExistingGeneratedUrl !== existingGeneratedUrl) {
+					try {
+						await experiencesTable.updateRow({
+							ROWID: experienceId,
+							generated_url: existingGeneratedUrl
+						}).catch(() => {});
+					} catch {}
+				}
 				console.log(`Idempotent hit: Experience ${experienceId} is already PUBLISHED with verified friendly live URL ${existingGeneratedUrl}`);
 				sendJson(res, 200, {
 					success: true,
@@ -470,7 +485,7 @@ module.exports = async (req, res) => {
 			experienceId,
 			businessName: verifiedBusinessName
 		});
-		const finalUrl = deployResult.generated_url;
+		const finalUrl = (typeof formatProposalUrl === "function" ? formatProposalUrl(deployResult.generated_url, experienceId, projectId) : null) || deployResult.generated_url;
 
 		await experiencesTable.updateRow({
 			ROWID: experienceId,
@@ -880,6 +895,16 @@ async function findExperienceBySlug(app, slug) {
 		} catch (e) {
 			console.log("findExperienceBySlug exact url query notice:", e.message);
 		}
+	}
+
+	try {
+		const likeQuery = `SELECT * FROM ${EXPERIENCES_TABLE} WHERE generated_url LIKE '%${escapeQueryValue(cleanSlug)}%' ORDER BY CREATEDTIME DESC LIMIT 1`;
+		const likeRes = await app.zcql().executeZCQLQuery(likeQuery);
+		if (Array.isArray(likeRes) && likeRes[0]) {
+			return likeRes[0][EXPERIENCES_TABLE] || likeRes[0];
+		}
+	} catch (e) {
+		console.log("findExperienceBySlug LIKE query notice:", e.message);
 	}
 
 	for (const targetUrl of targetUrls) {

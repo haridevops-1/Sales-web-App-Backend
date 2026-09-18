@@ -188,8 +188,52 @@ module.exports = async (context, basicIO) => {
 			processing_status: documentRow.processing_status || 'UNKNOWN'
 		} : null;
 
+function formatProposalUrl(rawUrl, expId = '', projId = '') {
+	if (!rawUrl || typeof rawUrl !== 'string') return null;
+	const trimmed = rawUrl.trim();
+	if (!trimmed) return null;
+
+	try {
+		const parsed = new URL(trimmed);
+		const hostname = parsed.hostname.toLowerCase();
+		if (hostname.includes('onslate.com')) {
+			const pathname = parsed.pathname.replace(/^\/+|\/+$/g, '');
+			if (pathname && pathname.toLowerCase() !== 'index.html' && pathname.toLowerCase() !== '404.html') {
+				if (!parsed.searchParams.has('slug')) {
+					parsed.searchParams.set('slug', pathname);
+				}
+				parsed.pathname = '/';
+			}
+			if (expId && !parsed.searchParams.has('experience_id')) {
+				parsed.searchParams.set('experience_id', String(expId).trim());
+			}
+			if (projId && !parsed.searchParams.has('project_id')) {
+				parsed.searchParams.set('project_id', String(projId).trim());
+			}
+			return parsed.toString();
+		}
+		return trimmed;
+	} catch {
+		return trimmed;
+	}
+}
+
 		const isPublished = (experienceRow?.status || '').toUpperCase() === 'PUBLISHED';
-		const safeGeneratedUrl = isPublished ? (experienceRow.generated_url || null) : null;
+		const rawGenUrl = isPublished ? (experienceRow.generated_url || null) : null;
+		const safeGeneratedUrl = isPublished ? formatProposalUrl(rawGenUrl, getRowId(experienceRow) || experienceId, projectId) : null;
+
+		if (isPublished && rawGenUrl && safeGeneratedUrl && rawGenUrl !== safeGeneratedUrl && experienceRow) {
+			const expRowId = getRowId(experienceRow);
+			if (expRowId && app) {
+				try {
+					app.datastore().table(EXPERIENCES_TABLE).updateRow({
+						ROWID: expRowId,
+						generated_url: safeGeneratedUrl
+					}).catch(() => {});
+				} catch {}
+			}
+		}
+
 		const experienceSection = experienceRow ? {
 			experience_id: getRowId(experienceRow) || experienceId,
 			experience_title: experienceRow.experience_title || '',

@@ -52,9 +52,49 @@ function sanitizeErrorMessage(error) {
 		.slice(0, 500);
 }
 
+/**
+ * Format and sanitize a proposal or experience showcase URL.
+ * Zoho Slate (onslate.com) hosts static assets and does not rewrite deep subpaths
+ * to index.html. A path-based URL like https://spikra-ai-proposal.onslate.com/abc-pvt-ltd_proposal
+ * returns Slate's 404 "Oops..Page not found".
+ * Converting it to query-based format: https://spikra-ai-proposal.onslate.com/?slug=abc-pvt-ltd_proposal
+ * allows Slate's index.html to load with HTTP 200, parse the slug, and fetch the proposal from Catalyst.
+ */
+function formatProposalUrl(rawUrl, experienceId = "", projectId = "") {
+	if (!rawUrl || typeof rawUrl !== "string") return null;
+	const trimmed = rawUrl.trim();
+	if (!trimmed) return null;
+
+	try {
+		const parsed = new URL(trimmed);
+		const hostname = parsed.hostname.toLowerCase();
+		if (hostname.includes("onslate.com")) {
+			const pathname = parsed.pathname.replace(/^\/+|\/+$/g, "");
+			if (pathname && pathname.toLowerCase() !== "index.html" && pathname.toLowerCase() !== "404.html") {
+				if (!parsed.searchParams.has("slug")) {
+					parsed.searchParams.set("slug", pathname);
+				}
+				parsed.pathname = "/";
+			}
+			if (experienceId && !parsed.searchParams.has("experience_id")) {
+				parsed.searchParams.set("experience_id", String(experienceId).trim());
+			}
+			if (projectId && !parsed.searchParams.has("project_id")) {
+				parsed.searchParams.set("project_id", String(projectId).trim());
+			}
+			return parsed.toString();
+		}
+		return trimmed;
+	} catch {
+		return trimmed;
+	}
+}
+
 module.exports = {
 	streamToBuffer,
 	escapeHtml,
 	validateAnalysisSchema,
-	sanitizeErrorMessage
+	sanitizeErrorMessage,
+	formatProposalUrl
 };
+

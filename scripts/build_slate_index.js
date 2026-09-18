@@ -30,17 +30,30 @@ const headScript = [
   '(function() {',
   '  var path = window.location.pathname || "";',
   '  var slug = path.replace(new RegExp("^/+|/+$", "g"), "").trim();',
-  '  var isRoot = (!slug || slug.toLowerCase() === "index.html");',
+  '  var isRoot = (!slug || slug.toLowerCase() === "index.html" || slug.toLowerCase() === "404.html");',
   '  var params = new URLSearchParams(window.location.search);',
   '  var expId = params.get("experience_id") || params.get("id") || "";',
   '  var querySlug = params.get("slug") || "";',
+  '  var hash = (window.location.hash || "").replace(/^[#\/]+|[#\/]+$/g, "").trim();',
+  '  var hashSlug = "";',
+  '  if (hash) {',
+  '    if (hash.indexOf("slug=") >= 0) {',
+  '      var hParams = new URLSearchParams(hash.replace(/^#\/?/, ""));',
+  '      hashSlug = hParams.get("slug") || "";',
+  '      if (!expId) expId = hParams.get("experience_id") || hParams.get("id") || "";',
+  '    } else if (!hash.includes("=") && !hash.includes("&")) {',
+  '      hashSlug = hash;',
+  '    }',
+  '  }',
   '',
-  '  if (isRoot && !expId && !querySlug) {',
+  '  var activeSlug = querySlug || hashSlug || (!isRoot ? slug : "");',
+  '',
+  '  if (isRoot && !expId && !activeSlug) {',
   '    document.title = "iSteel (VIPL) \u00B7 Zoho CRM & Marketing Automation | Spikra";',
   '    return;',
   '  }',
   '',
-  '  var rawSlug = (!isRoot ? slug : querySlug) || "";',
+  '  var rawSlug = activeSlug || "";',
   '  var cleanName = rawSlug.replace(/_proposal$/i, "").replace(new RegExp("[-_]+", "g"), " ").trim();',
   '  if (cleanName) {',
   '    var businessName = cleanName.split(" ").map(function(w) {',
@@ -53,6 +66,13 @@ const headScript = [
   '    document.title = "Proposal Experience";',
   '  }',
   '',
+  '  if (!querySlug && activeSlug && typeof history !== "undefined" && history.replaceState) {',
+  '    try {',
+  '      var newUrl = "/?slug=" + encodeURIComponent(activeSlug) + (expId ? "&experience_id=" + encodeURIComponent(expId) : "");',
+  '      history.replaceState(null, "", newUrl);',
+  '    } catch(e) {}',
+  '  }',
+  '',
   '  document.write("<style id=\\"spikra-experience-styles\\">" +',
   '    "#spikra-default-root { display: none !important; } " +',
   '    "#spikra-loader-screen { display: flex; } " +',
@@ -60,7 +80,6 @@ const headScript = [
   '    "</style>");',
   '',
   '  var DEPLOY_ENDPOINT = "https://spikra-ai-proposal-698386704.development.catalystserverless.com/spikra/experience/deploy";',
-  '  var activeSlug = (!isRoot) ? slug : querySlug;',
   '  var targetUrl = DEPLOY_ENDPOINT;',
   '  if (activeSlug) {',
   '    targetUrl += "?slug=" + encodeURIComponent(activeSlug);',
@@ -302,5 +321,10 @@ const finalHtml = beforeBody +
   afterBody;
 
 fs.writeFileSync(targetPath, finalHtml, "utf8");
+
+const target404Path = path.join(catalystDir, "slate/spikra-experience/404.html");
+fs.writeFileSync(target404Path, finalHtml, "utf8");
+
 fs.writeFileSync(builderPath, fs.readFileSync(__filename, "utf8"), "utf8");
-console.log("Successfully built " + targetPath + " and synced " + builderPath);
+console.log("Successfully built " + targetPath + " and " + target404Path + " and synced " + builderPath);
+
