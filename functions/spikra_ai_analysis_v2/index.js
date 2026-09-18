@@ -57,6 +57,7 @@ module.exports = async (req, res) => {
 	let documentId = null;
 	let aiAnalysisJob = null;
 	let jobId = "";
+	let responded = false;
 
 	try {
 		setCorsHeaders(req, res);
@@ -278,6 +279,25 @@ module.exports = async (req, res) => {
 			agentClient.isConfigured()
 		);
 
+		// The Agent call below has no fixed upper bound - it depends on document size and which
+		// model is configured in Zia Agent Studio, and can exceed Catalyst's response-delivery
+		// window even though the work itself reliably finishes (confirmed: the AI_ANALYSIS job
+		// completes server-side even on requests that already returned 408 to the client). So the
+		// client is answered now, before the slow part, instead of being left waiting through it -
+		// the actual result is then picked up via a retry, which safely hits the idempotent check
+		// or the still-processing guard above instead of ever re-invoking the Agent.
+		sendJson(res, 200, {
+			success: false,
+			still_processing: true,
+			message: "Analysis started. Larger documents or certain models can take a while - please check back shortly.",
+			document_id: documentId,
+			project_id: projectId,
+			job_id: jobId,
+			processing_status: "PROCESSING",
+			job_status: "RUNNING"
+		});
+		responded = true;
+
 		const structuredShowcase = await agentClient.analyzeDocument(documentText, {
 			businessName,
 			projectName,
@@ -365,19 +385,9 @@ module.exports = async (req, res) => {
 			console.log("PROJECTS status update notice:", projUpdateError.message);
 		}
 
-		sendJson(res, 200, {
-			success: true,
-			message: "AI analysis completed successfully",
-			project_id: projectId,
-			document_id: documentId,
-			job_id: jobId,
-			status: "COMPLETED",
-			processing_status: "COMPLETED",
-			job_status: "COMPLETED",
-			analysis_object_key: analysisObjectKey,
-			analysis_type: "ZIA_AGENT_ANALYSIS",
-			agent_type: "ZIA_AGENT"
-		});
+		// The client was already answered with still_processing before the Agent call started - it
+		// (or a poll) picks up this COMPLETED state via the idempotent check on the next call.
+		console.log(`AI analysis completed successfully in the background for document_id=${documentId}, analysis_object_key=${analysisObjectKey}`);
 	} catch (error) {
 		const safeErrorMessage = sanitizeErrorMessage(error);
 		console.log("spikra_ai_analysis failed:", safeErrorMessage);
@@ -396,14 +406,18 @@ module.exports = async (req, res) => {
 
 		await markProcessingFailure(app, documentId, aiAnalysisJob, safeErrorMessage);
 
-		sendJson(res, 200, {
-			success: false,
-			message: "AI analysis failed",
-			document_id: documentId || "",
-			processing_status: "FAILED",
-			job_status: "FAILED",
-			error: safeErrorMessage
-		});
+		if (!responded) {
+			sendJson(res, 200, {
+				success: false,
+				message: "AI analysis failed",
+				document_id: documentId || "",
+				processing_status: "FAILED",
+				job_status: "FAILED",
+				error: safeErrorMessage
+			});
+		} else {
+			console.log(`AI analysis failed in the background after the still_processing response was already sent for document_id=${documentId}: ${safeErrorMessage}`);
+		}
 	}
 };
 
