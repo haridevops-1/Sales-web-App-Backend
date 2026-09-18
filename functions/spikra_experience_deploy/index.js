@@ -39,7 +39,7 @@ module.exports = async (req, res) => {
 	let deployJobId = "";
 
 	try {
-		setCorsHeaders(res);
+		setCorsHeaders(req, res);
 
 		if (req.method === "OPTIONS") {
 			res.statusCode = 204;
@@ -785,12 +785,18 @@ function escapeQueryValue(value) {
 		.replace(/\\/g, "\\\\");
 }
 
-function setCorsHeaders(res) {
-	// This endpoint serves already-public, read-only proposal content (no auth) and is fetched
-	// client-side by the Slate proposal page from spikra-ai-proposal.onslate.com - an origin not
-	// in Catalyst's own CORS allowlist, which was causing "Failed to fetch" on the friendly link
-	// while the direct API URL (a top-level navigation, not subject to CORS) worked fine.
-	res.setHeader("Access-Control-Allow-Origin", "*");
+// Catalyst's own CORS allowlist already injects Access-Control-Allow-Origin for
+// spikra-ai-proposal-app.onslate.com (confirmed live on Function 3 - setting our own value on top of
+// that produced "header contains multiple values" and the browser rejected the response outright).
+// The public Slate proposal page (spikra-ai-proposal.onslate.com) and local dev aren't in that
+// allowlist, so this endpoint - fetched from both - still needs to set its own header for them.
+const CATALYST_COVERED_ORIGIN = "https://spikra-ai-proposal-app.onslate.com";
+
+function setCorsHeaders(req, res) {
+	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
+	if (origin !== CATALYST_COVERED_ORIGIN) {
+		res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	}
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 	res.setHeader("Access-Control-Max-Age", "86400");

@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
 	let jobId = "";
 
 	try {
-		setCorsHeaders(res);
+		setCorsHeaders(req, res);
 
 		if (req.method === "OPTIONS") {
 			res.statusCode = 204;
@@ -148,6 +148,7 @@ module.exports = async (req, res) => {
 		const analysisObjectKey = `projects/${projectId}/analysis/document-${documentId}-analysis.json`;
 
 		aiAnalysisJob = await findProcessingJob(app, documentId, "AI_ANALYSIS");
+		const wasAlreadyRunning = Boolean(aiAnalysisJob) && String(aiAnalysisJob.status || "").toUpperCase() === "RUNNING";
 
 		if (!aiAnalysisJob) {
 			const experienceId = await resolveExperienceId(app, documentId, projectId);
@@ -191,6 +192,34 @@ module.exports = async (req, res) => {
 				return;
 			}
 		} catch {}
+
+		// A retry (e.g. after the client gave up waiting on a slow Agent call) must never trigger a
+		// second concurrent Agent call for the same document - the first one is very likely still
+		// genuinely running server-side even though the earlier HTTP response timed out client-side.
+		// Report "still processing" instead until the job is stale enough to assume it's abandoned.
+		if (wasAlreadyRunning) {
+			const startedTimeRaw = String(aiAnalysisJob.started_time || "").trim();
+			const startedAt = startedTimeRaw ? new Date(`${startedTimeRaw.replace(" ", "T")}Z`) : null;
+			const elapsedMs = startedAt && !isNaN(startedAt.getTime()) ? (Date.now() - startedAt.getTime()) : Infinity;
+			const STILL_RUNNING_THRESHOLD_MS = 5 * 60 * 1000;
+
+			if (elapsedMs < STILL_RUNNING_THRESHOLD_MS) {
+				console.log(`AI_ANALYSIS job ${jobId} is still RUNNING (started ${Math.round(elapsedMs / 1000)}s ago) - reporting still-processing instead of re-invoking the Agent.`);
+				sendJson(res, 200, {
+					success: false,
+					still_processing: true,
+					message: "Analysis is still in progress. Please check back shortly.",
+					document_id: documentId,
+					project_id: projectId,
+					job_id: jobId,
+					processing_status: "PROCESSING",
+					job_status: "RUNNING"
+				});
+				return;
+			}
+
+			console.log(`AI_ANALYSIS job ${jobId} has been RUNNING for ${Math.round(elapsedMs / 1000)}s - treating as abandoned and retrying.`);
+		}
 
 		await documentsTable.updateRow({
 			ROWID: documentId,
@@ -378,8 +407,17 @@ module.exports = async (req, res) => {
 	}
 };
 
-function setCorsHeaders(res) {
-	res.setHeader("Access-Control-Allow-Origin", "*");
+// Catalyst's own CORS allowlist already injects Access-Control-Allow-Origin for
+// spikra-ai-proposal-app.onslate.com (confirmed live - setting our own value on top of that produced
+// "header contains multiple values" and the browser rejected the response outright). Every other
+// origin (local dev, etc.) isn't in that allowlist, so it still needs our own header.
+const CATALYST_COVERED_ORIGIN = "https://spikra-ai-proposal-app.onslate.com";
+
+function setCorsHeaders(req, res) {
+	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
+	if (origin !== CATALYST_COVERED_ORIGIN) {
+		res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	}
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
