@@ -748,9 +748,9 @@ function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName 
 	}
 
 	const solDesc = cleanStr(analysisJson.recommended_solution && analysisJson.recommended_solution.description);
-	const whatWeDeliver = solDesc ? firstSentence(solDesc, 26) : `A configured engagement layer connecting customer touchpoints to core operational systems.`;
-	const spikraWay = "BRD-aligned delivery. Every assumption is made explicit and every open item flagged for the discovery workshop, so scope is confirmed before detailed design is locked.";
-	const howWeSupport = "Per-system integration decisions, role-based user onboarding, and dedicated Hypercare through go-live.";
+	const whatWeDeliver = solDesc ? firstSentence(solDesc, 22) : `A configured engagement layer connecting customer touchpoints to core operational systems.`;
+	const spikraWay = "Clear and structured. We align on requirements first, validate every step, and test thoroughly before launch.";
+	const howWeSupport = "Hands-on team training, seamless system integration, and dedicated Hypercare support after go-live.";
 
 	const cards = [];
 	const techList = Array.isArray(analysisJson.technical_ecosystem) ? analysisJson.technical_ecosystem : [];
@@ -1092,7 +1092,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		);
 	}
 
-	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
+	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
 	html = html
 		.replace(/\$1\s*(<link rel="stylesheet")/gi, `${googleFontsLink}\n$1`)
 		.replace(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>\s*\$1/gi, `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n${googleFontsLink}`)
@@ -1105,11 +1105,15 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	const initials = businessName.split(/\s+/).filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "SP";
 	let clientLogoHtml = "";
 	if (logoRelativePath) {
-		clientLogoHtml = `<div class="client-logo"><img src="${escapeHtml(logoRelativePath)}" alt="${safeBusinessName} logo"><h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;color:var(--deep);margin-top:8px;text-align:center;">${safeBusinessName}</h3></div>`;
+		clientLogoHtml = `<div class="client-badge"><div class="client-logo"><img src="${escapeHtml(logoRelativePath)}" alt="${safeBusinessName} logo"></div><div class="client-name">${safeBusinessName}</div></div>`;
 	} else {
-		clientLogoHtml = `<div class="client-logo"><div class="client-logo-fallback" style="width:76px;height:76px;border-radius:12px;background:var(--flame-soft);color:var(--flame);display:grid;place-items:center;font-size:24px;font-weight:700;margin:0 auto;">${escapeHtml(initials)}</div><h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;color:var(--deep);margin-top:8px;text-align:center;">${safeBusinessName}</h3></div>`;
+		clientLogoHtml = `<div class="client-badge"><div class="client-logo"><div class="client-logo-fallback" style="width:96px;height:96px;border-radius:14px;background:var(--flame-soft);color:var(--flame);display:grid;place-items:center;font-size:28px;font-weight:700;margin:0 auto;">${escapeHtml(initials)}</div></div><div class="client-name">${safeBusinessName}</div></div>`;
 	}
-	html = html.replace(/<div class="client-logo">[\s\S]*?<\/div>/i, () => clientLogoHtml);
+	if (/<div class="client-badge"/i.test(html)) {
+		html = html.replace(/<div class="client-badge">[\s\S]*?<\/div>\s*<\/div>/i, () => clientLogoHtml);
+	} else {
+		html = html.replace(/<div class="client-logo">[\s\S]*?<\/div>/i, () => clientLogoHtml);
+	}
 
 	const methodHtml = `<div class="method">
     <div class="mcell">
@@ -1127,9 +1131,8 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
   </div>`;
 	html = html.replace(/<div class="method">[\s\S]*?<\/div>\s*<\/section>/i, () => `${methodHtml}\n</section>`);
 
-	const deliverableCardsHtml = (content.deliverable_cards || []).map((card, idx) => {
-		const accentClass = (idx === 1 || idx === 2) ? " accent" : "";
-		return `<div class="kpi${accentClass}"><div class="k-label">${escapeHtml(card.label)}</div><div class="k-value">${escapeHtml(card.value)}</div><div class="k-note">${escapeHtml(card.note)}</div></div>`;
+	const deliverableCardsHtml = (content.deliverable_cards || []).map((card) => {
+		return `<div class="kpi"><div class="k-label">${escapeHtml(card.label)}</div><div class="k-value">${escapeHtml(card.value)}</div><div class="k-note">${escapeHtml(card.note)}</div></div>`;
 	}).join("\n      ");
 
 	const benefitsHtml = (content.customer_benefits || []).map(b => `<li>${escapeHtml(b)}</li>`).join("\n      ");
@@ -1152,6 +1155,9 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		const openClass = idx === 0 ? " open" : "";
 		const svgIcon = CURATED_CAPABILITY_SVGS[idx % CURATED_CAPABILITY_SVGS.length];
 		const subtitleHtml = cap.subtitle ? ` <small>${escapeHtml(cap.subtitle)}</small>` : "";
+		const descText = (cap.description && String(cap.description).trim())
+			? String(cap.description).trim()
+			: `${cap.title} delivers structured workflows, seamless integration, and end-to-end automation to ensure consistent operational outcomes.`;
 		return `<button class="acc-item${openClass}" data-i="${idx}">
         <div class="acc-bar">
           <span class="acc-ic">${svgIcon}</span>
@@ -1159,7 +1165,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
           <span class="acc-tease">${escapeHtml(cap.teaser)}</span>
           <span class="acc-chev" aria-hidden="true">›</span>
         </div>
-        <div class="acc-body"><p>${escapeHtml(cap.description)}</p></div>
+        <div class="acc-body"><p>${escapeHtml(descText)}</p></div>
       </button>`;
 	}).join("\n\n      ");
 
@@ -1254,7 +1260,12 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 </script>`;
 
 	if (!html.includes('<script src="script.js"></script>')) {
-		html = html.replace("</body>", `<script src="script.js"></script>\n${dismissScript}\n</body>`);
+		if (/<script>[\s\S]*?<\/script>/i.test(html)) {
+			html = html.replace(/<script>[\s\S]*?<\/script>/i, `<script src="script.js"></script>`);
+			html = html.replace("</body>", `${dismissScript}\n</body>`);
+		} else {
+			html = html.replace("</body>", `<script src="script.js"></script>\n${dismissScript}\n</body>`);
+		}
 	} else if (!html.includes('spikra-parent-dismiss-script')) {
 		html = html.replace("</body>", `${dismissScript}\n</body>`);
 	}

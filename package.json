@@ -4,8 +4,7 @@
   "description": "Spikra Customer Experience Engine — Node.js 22 Zoho Catalyst Backend Services",
   "private": true,
   "scripts": {
-    "test": "node scripts/verify_flow.js",
-    "verify": "node scripts/verify_flow.js"
+    "build:slate": "node scripts/build_slate_index.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

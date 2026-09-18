@@ -12,26 +12,13 @@ const DOCUMENTS_TABLE = "DOCUMENTS";
 const EXPERIENCES_TABLE = "EXPERIENCES";
 const PROCESSING_JOBS_TABLE = "PROCESSING_JOBS";
 
-let verifyAndBuildExperienceUrl;
-let verifyUrlAccessible;
-let generateBusinessSlug;
-let SLATE_APP_URL;
-let formatProposalUrl;
-try {
-	const worker = require("./deploy_worker");
-	verifyAndBuildExperienceUrl = worker.verifyAndBuildExperienceUrl;
-	verifyUrlAccessible = worker.verifyUrlAccessible;
-	generateBusinessSlug = worker.generateBusinessSlug;
-	SLATE_APP_URL = worker.SLATE_APP_URL;
-	formatProposalUrl = worker.formatProposalUrl;
-} catch {
-	const worker = require("../../scripts/deploy_worker");
-	verifyAndBuildExperienceUrl = worker.verifyAndBuildExperienceUrl;
-	verifyUrlAccessible = worker.verifyUrlAccessible;
-	generateBusinessSlug = worker.generateBusinessSlug;
-	SLATE_APP_URL = worker.SLATE_APP_URL;
-	formatProposalUrl = worker.formatProposalUrl;
-}
+const {
+	verifyAndBuildExperienceUrl,
+	verifyUrlAccessible,
+	generateBusinessSlug,
+	SLATE_APP_URL,
+	formatProposalUrl
+} = require("./deploy_worker");
 
 const REQUIRED_EXPERIENCE_FILES = [
 	"index.html",
@@ -171,7 +158,12 @@ module.exports = async (req, res) => {
 						requestedAsset === "styles.css" ? "text/css; charset=utf-8" : "application/javascript; charset=utf-8"
 					);
 					res.setHeader("Cache-Control", "public, max-age=300");
-					if (requestedAsset === "script.js") {
+					if (requestedAsset === "styles.css") {
+						let cssText = assetBuffer.toString("utf8");
+						cssText = cssText.replace(/'Space Grotesk'/g, "'Poppins'");
+						cssText += `\n.kpi.accent .k-value { color: var(--deep) !important; }\n.client-logo img { height: 96px !important; max-height: 104px !important; max-width: 160px !important; }\n.acc-item.open .acc-body { max-height: 600px !important; opacity: 1 !important; }`;
+						res.end(Buffer.from(cssText, "utf8"));
+					} else if (requestedAsset === "script.js") {
 						const rawScript = assetBuffer.toString("utf8");
 						const safeScript = `(function(){\ntry {\n${rawScript}\n} catch(err) { console.warn("Proposal script warning:", err); }\n})();`;
 						res.end(Buffer.from(safeScript, "utf8"));
@@ -856,9 +848,10 @@ function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
 	const logoUrl = `${DEPLOY_BASE_URL}?${baseQs}&asset=logo`;
 	const cssUrl = `${DEPLOY_BASE_URL}?${baseQs}&asset=styles.css`;
 	const jsUrl = `${DEPLOY_BASE_URL}?${baseQs}&asset=script.js`;
-	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
+	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
 
 	let out = String(html || "")
+		.replace(/https:\/\/fonts\.googleapis\.com\/css2\?[^"']*Space\+Grotesk[^"']*/gi, 'https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap')
 		.replace(/\$1\s*(<link rel="stylesheet")/gi, `${googleFontsLink}\n$1`)
 		.replace(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>\s*\$1/gi, `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n${googleFontsLink}`)
 		.replace(/^\s*\$1\s*$/gm, "")
@@ -867,6 +860,124 @@ function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
 		.replace(/src=["']script\.js["']/g, `src="${jsUrl}"`)
 		.replace(/src=["']assets\/business-logo\.[a-zA-Z0-9]+["']/gi, `src="${logoUrl}"`)
 		.replace(/src=["']assets\/[^"']*logo[^"']*["']/gi, `src="${logoUrl}"`);
+
+	// Transform legacy client logo box with internal <h3> into client-badge with separate client-name
+	out = out.replace(
+		/<div class="client-logo">\s*<img([^>]*)>\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<\/div>/gi,
+		'<div class="client-badge"><div class="client-logo"><img$1></div><div class="client-name">$2</div></div>'
+	);
+	out = out.replace(
+		/<div class="client-logo">\s*(<div class="client-logo-fallback"[\s\S]*?<\/div>)\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<\/div>/gi,
+		'<div class="client-badge"><div class="client-logo">$1</div><div class="client-name">$2</div></div>'
+	);
+
+	// Ensure uniform KPI card color (remove accent from deliverables cards)
+	out = out.replace(/(<section[^>]*id="deliverables"[\s\S]*?<\/section>)/i, (match) => {
+		return match.replace(/\bclass="kpi\s+accent"/gi, 'class="kpi"');
+	});
+
+	// Inject runtime modern styling and accordion fix
+	const runtimeStyles = `<style id="spikra-modern-runtime-patch">
+  h1, h2, h3, .eyebrow, .kpi .k-value, .acc-title, .plabel, .tab, .mgroup, .tl-detail h3, .org-head .oh-title, .p-name, .cta-box h2, .client-name {
+    font-family: 'Poppins', sans-serif !important;
+  }
+  body, p, .k-label, .k-note, .hero-sub, .mcell p, .acc-body p, .acc-tease, .check li, .tl-name, .tl-wk, .tl-detail li, .tl-note, .lead-pill {
+    font-family: 'Inter', sans-serif !important;
+  }
+  .client-badge {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 10px !important;
+    flex-shrink: 0 !important;
+  }
+  .client-logo {
+    min-width: 140px !important;
+    min-height: 100px !important;
+    padding: 16px 22px !important;
+    border-radius: 16px !important;
+  }
+  .client-logo img {
+    height: 96px !important;
+    max-height: 104px !important;
+    width: auto !important;
+    max-width: 160px !important;
+    object-fit: contain !important;
+  }
+  .client-name {
+    font-family: 'Poppins', sans-serif !important;
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    color: var(--deep) !important;
+    text-align: center !important;
+    letter-spacing: -0.01em !important;
+  }
+  .kpi.accent .k-value {
+    color: var(--deep) !important;
+  }
+  .acc-item, .acc-bar {
+    cursor: pointer !important;
+  }
+  .acc-item.open .acc-body {
+    max-height: 600px !important;
+    opacity: 1 !important;
+  }
+</style>`;
+
+	const runtimeScript = `<script id="spikra-runtime-fix-script">
+(function() {
+  function fixProposalInteractions() {
+    var acc = document.getElementById('acc');
+    if (!acc) return;
+    if (acc.dataset.patchApplied === 'true') return;
+    acc.dataset.patchApplied = 'true';
+
+    var items = acc.querySelectorAll('.acc-item');
+    items.forEach(function(item, idx) {
+      var body = item.querySelector('.acc-body');
+      if (body) {
+        var p = body.querySelector('p');
+        if (!p || !p.textContent.trim()) {
+          var titleElem = item.querySelector('.acc-title');
+          var title = titleElem ? titleElem.textContent.trim() : ('Solution Capability ' + (idx + 1));
+          body.innerHTML = '<p>' + title + ' delivers structured workflows, seamless integration, and end-to-end automation to ensure consistent operational outcomes.</p>';
+        }
+      }
+      var clone = item.cloneNode(true);
+      item.parentNode.replaceChild(clone, item);
+    });
+
+    acc.addEventListener('click', function(e) {
+      var item = e.target.closest('.acc-item');
+      if (!item) return;
+      e.preventDefault();
+      var wasOpen = item.classList.contains('open');
+      acc.querySelectorAll('.acc-item').forEach(function(x) { x.classList.remove('open'); });
+      if (!wasOpen) item.classList.add('open');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fixProposalInteractions);
+  } else {
+    fixProposalInteractions();
+  }
+  setTimeout(fixProposalInteractions, 150);
+  setTimeout(fixProposalInteractions, 600);
+})();
+</script>`;
+
+	if (out.includes("</head>")) {
+		out = out.replace("</head>", `${runtimeStyles}\n</head>`);
+	} else {
+		out = `${runtimeStyles}\n${out}`;
+	}
+
+	if (out.includes("</body>")) {
+		out = out.replace("</body>", `${runtimeScript}\n</body>`);
+	} else {
+		out += `\n${runtimeScript}`;
+	}
 
 	return out;
 }

@@ -265,7 +265,7 @@ const bottomScript = [
   '        } catch(e) {}',
   '      }',
   '',
-  '      var googleFontsLink = \'<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">\';',
+  '      var googleFontsLink = \'<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">\';',
   '      html = html',
   '        .replace(/\\$1\\s*(<link rel="stylesheet")/gi, googleFontsLink + "\\n$1")',
   '        .replace(/<link rel="preconnect" href="https:\\/\\/fonts\\.gstatic\\.com" crossorigin>\\s*\\$1/gi, \'<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\\n\' + googleFontsLink)',

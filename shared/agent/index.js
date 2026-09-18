@@ -45,6 +45,13 @@ class ZiaAgentClient {
 
 		const instruction = [
 			`Analyze the following technical/business document for "${businessName}" (project: ${projectName}) and generate structured V1 Customer Showcase content.`,
+			"Writing guidelines:\n" +
+			"- Use simple, concise, and clear English. Avoid heavy jargon and repetitive phrasing.\n" +
+			"- project_summary: 1 to 2 simple sentences explaining what the solution accomplishes (max 35 words).\n" +
+			"- what_we_deliver: 1 clear sentence describing what Spikra builds/configures (max 30 words).\n" +
+			"- spikra_way: 1 clear sentence describing Spikra's methodology (e.g. requirements-first, structured validation; max 30 words).\n" +
+			"- how_we_support: 1 clear sentence describing hands-on training, integration, and post-go-live Hypercare (max 30 words).\n" +
+			"- capabilities: Array of 5 to 7 interactive items. Each item MUST have: title, subtitle, teaser (short punchy phrase), and description (2-3 complete, informative sentences explaining what this capability does and its direct business value - description MUST NOT be empty or generic).",
 			"Return ONLY a single JSON object (no markdown, no prose) with fields: proposal_title, project_summary, what_we_deliver, spikra_way, how_we_support, deliverable_cards (array of {label,value,note}), customer_benefits (array of strings), capabilities (array of {title,subtitle,teaser,description}), timeline_phases (array of {name,duration,items[],note}), rollout_overview (array of 2 {label,value,note}), de_risk_summary (array of 2 {label,value,note}).",
 			"Document content:",
 			text.trim()
@@ -281,9 +288,9 @@ class ZiaAgentClient {
 		const whatWeDeliver = cleanStr(data.what_we_deliver) ||
 			`A configured engagement layer connecting customer touchpoints to core operational systems.`;
 		const spikraWay = cleanStr(data.spikra_way) ||
-			`BRD-aligned delivery. Every assumption is made explicit and every open item flagged for the discovery workshop, so scope is confirmed before detailed design is locked.`;
+			`Clear and structured. We align on requirements first, validate every step, and test thoroughly before launch.`;
 		const howWeSupport = cleanStr(data.how_we_support) ||
-			`Per-system integration decisions, role-based user onboarding, and dedicated Hypercare through go-live.`;
+			`Hands-on team training, seamless system integration, and dedicated Hypercare support after go-live.`;
 
 		const fallbackCards = [
 			{ label: "Platform", value: "Zoho CRM Platform", note: "The central engagement layer connecting customer touchpoints to existing systems." },

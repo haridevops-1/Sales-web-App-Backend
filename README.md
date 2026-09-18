@@ -41,10 +41,8 @@ spikra-catalyst/
 ├── templates/                    # Master Customer Proposal HTML Templates (Design Source of Truth)
 │   └── iSteel_Proposal_Site.html   # Spikra master proposal template
 │
-├── scripts/                      # Build & Verification Tools
-│   ├── deploy_worker.js            # Verifies generated files in Stratus & builds the customer link
-│   ├── verify_flow.js              # End-to-end backend contract & flow verification test suite
-│   └── test_zia_agent_pipeline.js  # Targeted unit test for Zia Agent pipeline & template hydration
+├── scripts/                      # Build Utilities
+│   └── build_slate_index.js        # Compiles Slate proposal shell from master HTML template
 │
 ├── catalyst.json                 # Catalyst project target definitions (Functions, Slate, APIG)
 ├── catalyst-user-rules.json      # Catalyst API Gateway route mappings & throttling rules
@@ -94,28 +92,15 @@ Never put passwords, API keys, access tokens, private keys, or other credentials
 
 ---
 
-## 4. Development & Verification Commands
+## 4. Development & Build Commands
 
-### Run Full Verification Suite
+### Build Slate App Shell
 ```bash
-npm test
+npm run build:slate
 # or
-node scripts/verify_flow.js
+node scripts/build_slate_index.js
 ```
-Runs automated verification checks covering:
-- Handler exports & JavaScript syntax for all 7 functions
-- Function 3 Zia Agent integration (zero direct external AI calls)
-- Function 4 pure template rendering (zero AI calls)
-- Stratus bucket consistency (`spikra-process-documents-698386704` & `spikra-generated-experiences-698386704`)
-- Deterministic storage keys
-- Absence of mock/hardcoded client data
-- Project isolation via distinct experience links on the shared Slate app
-- Master template structure and branding
-
-### Run Targeted Zia Agent Pipeline Test
-```bash
-node scripts/test_zia_agent_pipeline.js
-```
+Compiles and syncs the Slate proposal shell (`slate/spikra-experience/index.html` and `404.html`) from the master HTML template.
 
 ### Test Locally via Catalyst CLI
 ```bash
