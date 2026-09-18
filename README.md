@@ -19,7 +19,7 @@ spikra-catalyst/
 ├── functions/                    # Zoho Catalyst Serverless Functions (Microservices)
 │   ├── spikra_document_upload/     # Function 1: File upload & initial job creation (Advanced I/O)
 │   ├── spikra_document_process/    # Function 2: PDF text extraction & validation (Basic I/O)
-│   ├── spikra_ai_analysis/         # Function 3: Zia Agent orchestration bridge & structured Showcase extraction (Advanced I/O)
+│   ├── spikra_ai_analysis_v2/      # Function 3: Zia Agent orchestration bridge & structured Showcase extraction (Advanced I/O)
 │   ├── spikra_experience_generate/ # Function 4: Pure HTML/CSS/JSON master template renderer (Basic I/O, zero AI calls)
 │   ├── spikra_experience_deploy/   # Function 5: Publishes the experience & returns the customer link (Advanced I/O)
 │   ├── spikra_process_status/      # Function 6: Real-time stage monitoring & status polling (Advanced I/O)
@@ -60,7 +60,7 @@ spikra-catalyst/
 Each function runs as an isolated Node.js 22 service with its own `catalyst-config.json` and dependencies:
 - **`spikra_document_upload`** (Function 1): Validates file types (PDF, Text ≤25MB), sanitizes business/project names, writes raw files to Stratus bucket `spikra-process-documents-698386704`, and queues the `EXTRACT` job in `PROCESSING_JOBS`.
 - **`spikra_document_process`** (Function 2): Extracts plain text from the uploaded document, checks word count, saves `extracted-content.txt` to Stratus, and advances state to `ANALYZE`.
-- **`spikra_ai_analysis`** (Function 3): Orchestrates AI document analysis via the **deployed Zia Agent API**. Passes extracted document content and business metadata, validates the response, extracts structured Customer Showcase JSON, writes `analysis.json` to `spikra-generated-experiences-698386704`, and queues `GENERATE`.
+- **`spikra_ai_analysis_v2`** (Function 3, recreated as Advanced I/O after the original was created as Basic I/O and Catalyst does not support converting an existing function's execution type in place): Orchestrates AI document analysis via the **deployed Zia Agent API**. Passes extracted document content and business metadata, validates the response, extracts structured Customer Showcase JSON, writes `analysis.json` to `spikra-generated-experiences-698386704`, and queues `GENERATE`.
 - **`spikra_experience_generate`** (Function 4): Consumes Function 3's structured JSON (**zero AI calls**), renders the master HTML/CSS/JS bundles adhering strictly to the Spikra fixed design system (`templates/iSteel_Proposal_Site.html` / `template.html`), and stores them in `spikra-generated-experiences-698386704/projects/{id}/experiences/{id}/version-1/`.
 - **`spikra_experience_deploy`** (Function 5): Verifies the generated files exist in Stratus and marks `EXPERIENCES.status = PUBLISHED` with a link into the single shared Slate app, scoped by `experience_id`/`project_id` query params.
 - **`spikra_process_status`** (Function 6): Real-time polling endpoint returning clean salesperson status (`current_stage`, `business_name`, `project_name`, `generated_url` upon publish) without leaking storage internals.
@@ -79,8 +79,8 @@ Each function runs as an isolated Node.js 22 service with its own `catalyst-conf
 The Slate app at `slate/spikra-experience/` is deployed **once** via the Catalyst CLI (`catalyst deploy --only slate`). Its default route is the self-contained iSteel sample proposal template. Function 5 verifies generated files exist in Stratus and returns the link scoped by `experience_id` and `project_id`.
 
 ### D. Environment Configuration
-For local scripts, copy `.env.example` to `.env` and fill in only local values. The `.env` file is ignored by Git and must never be committed. For deployed functions, the same variables are declared in `functions/spikra_ai_analysis/catalyst-config.json` (`deployment.env_variables`) and should be set to their real values in the Catalyst Console for each environment:
-- `ZIA_AGENT_ENDPOINT`: Deployed Zia Agent endpoint URL. **Paste the real deployed Zia Agent URL here** — in both `.env` (local) and `functions/spikra_ai_analysis/catalyst-config.json` (deployed). Defaults to the placeholder `[PASTE ZIA AGENT URL HERE]`, which is treated as "not configured" by `ZiaAgentClient.isConfigured()`.
+For local scripts, copy `.env.example` to `.env` and fill in only local values. The `.env` file is ignored by Git and must never be committed. For deployed functions, the same variables are declared in `functions/spikra_ai_analysis_v2/catalyst-config.json` (`deployment.env_variables`) and should be set to their real values in the Catalyst Console for each environment:
+- `ZIA_AGENT_ENDPOINT`: Deployed Zia Agent endpoint URL. **Paste the real deployed Zia Agent URL here** — in both `.env` (local) and `functions/spikra_ai_analysis_v2/catalyst-config.json` (deployed). Defaults to the placeholder `[PASTE ZIA AGENT URL HERE]`, which is treated as "not configured" by `ZiaAgentClient.isConfigured()`.
 - `ZIA_AGENT_AUTH_TOKEN`: Optional authentication token (if required by the endpoint).
 - `ZIA_AGENT_API_KEY`: Optional API key alias supported by the Zia Agent client (used only if `ZIA_AGENT_AUTH_TOKEN` is not set).
 - `ZIA_AGENT_ID`: Optional. Only needed if your deployed Agent's invocation contract requires an explicit agent id in the request body in addition to the endpoint URL. Leave blank if the endpoint alone is sufficient.
@@ -113,5 +113,5 @@ catalyst deploy --only functions
 ```
 Or deploy a specific function:
 ```bash
-catalyst deploy --only functions:spikra_ai_analysis
+catalyst deploy --only functions:spikra_ai_analysis_v2
 ```

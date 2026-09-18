@@ -3,7 +3,7 @@
     "targets": [
       "spikra_document_upload",
       "spikra_document_process",
-      "spikra_ai_analysis",
+      "spikra_ai_analysis_v2",
       "spikra_experience_generate",
       "spikra_experience_deploy",
       "spikra_process_status",

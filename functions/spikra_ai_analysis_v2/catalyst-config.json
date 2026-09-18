@@ -1,6 +1,6 @@
 {
 	"deployment": {
-		"name": "spikra_ai_analysis",
+		"name": "spikra_ai_analysis_v2",
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {
