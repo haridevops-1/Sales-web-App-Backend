@@ -930,48 +930,14 @@ function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
   }
 </style>`;
 
-	const runtimeScript = `<script id="spikra-runtime-fix-script">
-(function() {
-  function fixProposalInteractions() {
-    var acc = document.getElementById('acc');
-    if (!acc) return;
-    if (acc.dataset.patchApplied === 'true') return;
-    acc.dataset.patchApplied = 'true';
-
-    var items = acc.querySelectorAll('.acc-item');
-    items.forEach(function(item, idx) {
-      var body = item.querySelector('.acc-body');
-      if (body) {
-        var p = body.querySelector('p');
-        if (!p || !p.textContent.trim()) {
-          var titleElem = item.querySelector('.acc-title');
-          var title = titleElem ? titleElem.textContent.trim() : ('Solution Capability ' + (idx + 1));
-          body.innerHTML = '<p>' + title + ' delivers structured workflows, seamless integration, and end-to-end automation to ensure consistent operational outcomes.</p>';
-        }
-      }
-      var clone = item.cloneNode(true);
-      item.parentNode.replaceChild(clone, item);
-    });
-
-    acc.addEventListener('click', function(e) {
-      var item = e.target.closest('.acc-item');
-      if (!item) return;
-      e.preventDefault();
-      var wasOpen = item.classList.contains('open');
-      acc.querySelectorAll('.acc-item').forEach(function(x) { x.classList.remove('open'); });
-      if (!wasOpen) item.classList.add('open');
-    });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', fixProposalInteractions);
-  } else {
-    fixProposalInteractions();
-  }
-  setTimeout(fixProposalInteractions, 150);
-  setTimeout(fixProposalInteractions, 600);
-})();
-</script>`;
+	// No runtime accordion script here anymore: script.js (extracted from the master template)
+	// already binds one delegated click handler to #acc. A second handler was previously added
+	// here as well - both fired on every click and each re-read classList.contains('open') after
+	// the other had already toggled it, so they canceled each other out (a click to open or close
+	// a row visually did nothing). Function 4 already guarantees a non-empty description server
+	// side, so the empty-description fallback that lived alongside that duplicate handler is
+	// removed too - there is nothing left here for it to patch.
+	const runtimeScript = "";
 
 	if (out.includes("</head>")) {
 		out = out.replace("</head>", `${runtimeStyles}\n</head>`);
