@@ -121,6 +121,39 @@ module.exports = async (req, res) => {
 
 		console.log(`Function 3 (Zia Agent Orchestration) processing document_id: ${documentId}, project_id: ${projectId}, content_key: ${contentObjectKey}`);
 
+		// Fast-path duplicate guard using the DOCUMENTS row itself (a direct ROWID read, already
+		// fetched above) rather than the PROCESSING_JOBS lookup below, which is a filtered query and
+		// can lag behind a concurrent request's write by a moment. A tight polling interval from the
+		// client can otherwise land two requests close enough together that the job-based check alone
+		// still reads "not running yet" on both, letting each one call the Agent - this catches that
+		// case immediately, before any Agent call, using a read that is consistent with the write
+		// that set this same status a moment earlier.
+		if (String(documentRow.processing_status || "").toUpperCase() === "PROCESSING") {
+			const modifiedRaw = String(documentRow.MODIFIEDTIME || documentRow.modifiedtime || "").trim();
+			// Catalyst returns "YYYY-MM-DD HH:MM:SS:mmm" (colon before milliseconds), which the
+			// native Date constructor won't parse - normalize to a real ISO string first.
+			const modifiedIso = modifiedRaw ? `${modifiedRaw.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z` : "";
+			const modifiedAt = modifiedIso ? new Date(modifiedIso) : null;
+			// If we can't parse it, default to "just started" (0ms elapsed) rather than "stale" -
+			// safer to over-guard against a duplicate Agent call than to under-guard.
+			const elapsedMs = modifiedAt && !isNaN(modifiedAt.getTime()) ? (Date.now() - modifiedAt.getTime()) : 0;
+			const STILL_RUNNING_THRESHOLD_MS = 5 * 60 * 1000;
+
+			if (elapsedMs < STILL_RUNNING_THRESHOLD_MS) {
+				console.log(`DOCUMENTS row for ${documentId} is already PROCESSING (set ~${Math.round(elapsedMs / 1000)}s ago) - reporting still-processing before even checking PROCESSING_JOBS, to close the race window on fast polling.`);
+				sendJson(res, 200, {
+					success: false,
+					still_processing: true,
+					message: "Analysis is still in progress. Please check back shortly.",
+					document_id: documentId,
+					project_id: projectId,
+					processing_status: "PROCESSING",
+					job_status: "RUNNING"
+				});
+				return;
+			}
+		}
+
 		let projectRow = null;
 		try {
 			projectRow = await projectsTable.getRow(projectId);
