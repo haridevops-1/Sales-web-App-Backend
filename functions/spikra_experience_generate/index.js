@@ -509,7 +509,11 @@ module.exports = async (context, basicIO) => {
 			logoRelativePath
 		});
 		const templateCss = extractTemplateCss(masterTemplate);
-		const templateJs = extractTemplateJs(renderedHtml);
+		// Must read from the original masterTemplate, not renderedHtml: renderMasterTemplate
+		// rewrites the template's inline <script>...</script> into <script src="script.js"> so the
+		// served HTML references the external file - by then the inline content is already gone,
+		// which was producing an empty script.js (Function 5 correctly rejected it as missing).
+		const templateJs = extractTemplateJs(masterTemplate);
 
 		const experienceMetadata = {
 			project_id: projectId,
