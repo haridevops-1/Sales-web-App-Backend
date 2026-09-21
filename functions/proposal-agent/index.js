@@ -154,7 +154,7 @@ async function generateInBackground(app, ctx) {
 		);
 
 		const record = buildProposalRecord(ziaResponse, { packageId, userId, dealValue: 0 });
-		record.proposal_content = JSON.stringify({ ...ziaResponse, sources });
+		record.proposal_content = buildStorableProposalContent(ziaResponse, sources);
 
 		const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
 		const proposalRow = await proposalsTable.insertRow(record);
@@ -199,6 +199,27 @@ async function generateInBackground(app, ctx) {
 		});
 		logEvent("proposal-agent", { requestId, operation: "generate_proposal", packageId, status: "failed", errorCode: safeCode });
 	}
+}
+
+// Catalyst's Data Store "text" column type has a hard 10,000-character cap that can't
+// be raised (confirmed directly against the platform - a request for a 1,000,000-char
+// column silently stayed at 10,000). A detailed proposal's JSON can realistically
+// approach that, and an oversized value would fail the whole insertRow, losing a
+// successful Zia Agent generation over a field that's a convenience copy, not the
+// source of truth (the rendered document published to Stratus always has the full,
+// untruncated text). So this degrades gracefully instead of risking that: drop
+// `sources` first since it's the least essential part, then fall back to null rather
+// than write truncated/invalid JSON - formatProposal already handles a null
+// proposal_content cleanly.
+function buildStorableProposalContent(ziaResponse, sources) {
+	const SAFE_LIMIT = 9500; // margin under Catalyst's 10,000-char cap
+	const withSources = JSON.stringify({ ...ziaResponse, sources });
+	if (withSources.length <= SAFE_LIMIT) return withSources;
+
+	const withoutSources = JSON.stringify(ziaResponse);
+	if (withoutSources.length <= SAFE_LIMIT) return withoutSources;
+
+	return null;
 }
 
 // Workspace 2's equivalent of Workspace 1's Function 4 + Function 5 (render, then
