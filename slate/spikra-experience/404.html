@@ -20,7 +20,7 @@
   var hashSlug = "";
   if (hash) {
     if (hash.indexOf("slug=") >= 0) {
-      var hParams = new URLSearchParams(hash.replace(/^#/?/, ""));
+      var hParams = new URLSearchParams(hash.replace(/^#\/?/, ""));
       hashSlug = hParams.get("slug") || "";
       if (!expId) expId = hParams.get("experience_id") || hParams.get("id") || "";
     } else if (!hash.includes("=") && !hash.includes("&")) {
@@ -31,7 +31,20 @@
   var activeSlug = querySlug || hashSlug || (!isRoot ? slug : "");
 
   if (isRoot && !expId && !activeSlug) {
-    document.title = "iSteel (VIPL) · Zoho CRM & Marketing Automation | Spikra";
+    document.title = "Spikra Proposal Experience";
+    document.write("<style id=\"spikra-experience-styles\">" +
+      "#spikra-default-root { display: none !important; } " +
+      "#spikra-loader-screen { display: flex; } " +
+      "html, body { background: #f8fafc !important; margin: 0; padding: 0; }" +
+      "</style>");
+    window.addEventListener("DOMContentLoaded", function() {
+      var titleEl = document.getElementById("spikra-loader-title");
+      var subEl = document.getElementById("spikra-loader-sub");
+      var spinner = document.querySelector("#spikra-loader-screen > div");
+      if (titleEl) titleEl.textContent = "No Proposal Selected";
+      if (subEl) subEl.textContent = "This link does not include a valid proposal. Please use the link provided by your Spikra representative.";
+      if (spinner) spinner.style.display = "none";
+    });
     return;
   }
 
