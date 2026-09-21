@@ -7,7 +7,12 @@
       "spikra_experience_generate",
       "spikra_experience_deploy",
       "spikra_process_status",
-      "spikra_experience_list"
+      "spikra_experience_list",
+      "proposal-api",
+      "proposal-workdrive-auth-v2",
+      "proposal-discovery",
+      "proposal-processor",
+      "proposal-agent"
     ],
     "ignore": [
       "**/*.log"

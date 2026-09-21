@@ -108,5 +108,126 @@
       "overall": {},
       "ip": {}
     }
+  },
+  {
+    "name": "proposal-workdrive-status-api",
+    "source_endpoint": "/proposal/workdrive/status",
+    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-workdrive-authorize-api",
+    "source_endpoint": "/proposal/workdrive/authorize",
+    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-workdrive-callback-api",
+    "source_endpoint": "/proposal/workdrive/callback",
+    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-workdrive-disconnect-api",
+    "source_endpoint": "/proposal/workdrive/disconnect",
+    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-discovery-get-api",
+    "source_endpoint": "/proposal/discovery",
+    "target_endpoint": "/server/proposal-discovery/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-discovery-post-api",
+    "source_endpoint": "/proposal/discovery",
+    "target_endpoint": "/server/proposal-discovery/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-discovery-delete-api",
+    "source_endpoint": "/proposal/discovery",
+    "target_endpoint": "/server/proposal-discovery/",
+    "target": "advancedio",
+    "method": "DELETE",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-processor-api",
+    "source_endpoint": "/proposal/processor/process",
+    "target_endpoint": "/server/proposal-processor/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-agent-api",
+    "source_endpoint": "/proposal/agent",
+    "target_endpoint": "/server/proposal-agent/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-api-get-api",
+    "source_endpoint": "/proposal/api",
+    "target_endpoint": "/server/proposal-api/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-api-post-api",
+    "source_endpoint": "/proposal/api",
+    "target_endpoint": "/server/proposal-api/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
   }
 ]

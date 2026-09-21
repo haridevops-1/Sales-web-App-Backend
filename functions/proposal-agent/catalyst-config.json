@@ -1,0 +1,15 @@
+{
+	"deployment": {
+		"name": "proposal-agent",
+		"stack": "node22",
+		"type": "advancedio",
+		"env_variables": {
+			"PROPOSAL_ZIA_AGENT_ENDPOINT": "",
+			"PROPOSAL_ZIA_CONNECTION_LINK_NAME": "",
+			"WORKDRIVE_SESSION_SECRET": ""
+		}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}

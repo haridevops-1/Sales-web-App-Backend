@@ -1,0 +1,19 @@
+{
+	"deployment": {
+		"name": "proposal-workdrive-auth-v2",
+		"stack": "node22",
+		"type": "advancedio",
+		"env_variables": {
+			"WORKDRIVE_OAUTH_CLIENT_ID": "",
+			"WORKDRIVE_OAUTH_CLIENT_SECRET": "",
+			"WORKDRIVE_OAUTH_REDIRECT_URI": "",
+			"WORKDRIVE_TOKEN_ENCRYPTION_KEY": "",
+			"WORKDRIVE_SESSION_SECRET": "",
+			"ZOHO_ACCOUNTS_DOMAIN": "https://accounts.zoho.com",
+			"WORKDRIVE_API_DOMAIN": "https://www.zohoapis.com/workdrive/api/v1"
+		}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}

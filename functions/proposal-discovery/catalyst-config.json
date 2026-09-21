@@ -1,0 +1,13 @@
+{
+	"deployment": {
+		"name": "proposal-discovery",
+		"stack": "node22",
+		"type": "advancedio",
+		"env_variables": {
+			"WORKDRIVE_SESSION_SECRET": ""
+		}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}

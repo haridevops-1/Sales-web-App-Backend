@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(NODE_PATH=functions/spikra_document_process/node_modules:workspace2-proposal/node_modules node -e ' *)"
+    ]
+  }
+}

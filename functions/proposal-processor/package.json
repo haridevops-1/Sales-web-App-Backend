@@ -1,0 +1,14 @@
+{
+	"name": "proposal-processor",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "hariharan@spikra.com",
+	"dependencies": {
+		"mammoth": "^1.12.3",
+		"pdf-parse": "^2.4.5",
+		"pdf2json": "^4.1.0",
+		"pdfjs-dist": "^6.3.289",
+		"xlsx": "^0.18.5",
+		"zcatalyst-sdk-node": "latest"
+	}
+}
