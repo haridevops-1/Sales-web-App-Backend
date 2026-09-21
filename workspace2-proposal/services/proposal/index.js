@@ -44,4 +44,15 @@ function buildProposalRecord(ziaResponse, { packageId, userId, dealValue = 0 }) 
 	};
 }
 
-module.exports = { VALID_STATUSES, isValidStatusTransition, buildProposalRecord };
+// Single source of truth for where a proposal's rendered document lives in the
+// spikra-w2-proposal-documents Stratus bucket - defined once and shared by the writer
+// (proposal-agent) and the reader (proposal-api's public view route) so they can never
+// drift apart. Scoped by user then package (the salesperson's WorkDrive-connected
+// email, then the discovery session/package it came from) so the bucket's own folder
+// structure is self-explanatory without needing to open the Data Store to know whose
+// document is whose.
+function buildProposalDocumentKey(userId, packageId, proposalId) {
+	return `proposals/${encodeURIComponent(userId)}/${encodeURIComponent(packageId)}/${encodeURIComponent(proposalId)}/index.html`;
+}
+
+module.exports = { VALID_STATUSES, isValidStatusTransition, buildProposalRecord, buildProposalDocumentKey };

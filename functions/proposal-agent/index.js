@@ -2,20 +2,22 @@
 
 const catalyst = require("zcatalyst-sdk-node");
 
-let requireWorkdriveSession, ProposalError, toErrorResponse, logEvent, newRequestId, getProposalZiaAgentClient, buildProposalRecord;
+let requireWorkdriveSession, ProposalError, toErrorResponse, logEvent, newRequestId, getProposalZiaAgentClient, buildProposalRecord, buildProposalDocumentKey, renderProposalDocument;
 
 try {
 	({ requireWorkdriveSession } = require("./shared/utils/user-context"));
 	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
 	({ logEvent, newRequestId } = require("./shared/utils/logging"));
 	({ getProposalZiaAgentClient } = require("./shared/services/zia"));
-	({ buildProposalRecord } = require("./shared/services/proposal"));
+	({ buildProposalRecord, buildProposalDocumentKey } = require("./shared/services/proposal"));
+	({ renderProposalDocument } = require("./shared/services/document-render"));
 } catch {
 	({ requireWorkdriveSession } = require("../../workspace2-proposal/utils/user-context"));
 	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
 	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
 	({ getProposalZiaAgentClient } = require("../../workspace2-proposal/services/zia"));
-	({ buildProposalRecord } = require("../../workspace2-proposal/services/proposal"));
+	({ buildProposalRecord, buildProposalDocumentKey } = require("../../workspace2-proposal/services/proposal"));
+	({ renderProposalDocument } = require("../../workspace2-proposal/services/document-render"));
 }
 
 const DISCOVERY_PACKAGES_TABLE = "W2_DISCOVERY_PACKAGES";
@@ -23,6 +25,18 @@ const PROPOSALS_TABLE = "W2_PROPOSALS";
 const AI_USAGE_LOG_TABLE = "W2_AI_USAGE_LOG";
 const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "").trim();
 const STILL_RUNNING_THRESHOLD_MS = 5 * 60 * 1000;
+// A Workspace-2-only Stratus bucket for rendered proposal documents - deliberately
+// separate from Workspace 1's spikra-generated-experiences bucket so nothing here can
+// ever touch Workspace 1's storage.
+const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
+// Same gateway domain every other Workspace 2 route already uses (see catalyst-user-rules.json).
+const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
+// Workspace 2's own Slate app (slate/spikra-w2-proposal) - same fetch-and-render pattern
+// as Workspace 1's spikra-experience Slate app, kept as a separate deployment so nothing
+// here touches Workspace 1's. Its real onslate.com domain isn't known until it's deployed,
+// so this stays unset (falling back to the raw API view URL below, which already works)
+// until PROPOSAL_SLATE_APP_URL is filled in with that domain.
+const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim();
 
 // Same lesson as Workspace 1's Function 3: this is invoked synchronously by
 // proposal-processor (via app.functions().execute()), which is itself awaited by the
@@ -144,12 +158,28 @@ async function generateInBackground(app, ctx) {
 
 		const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
 		const proposalRow = await proposalsTable.insertRow(record);
+		const proposalId = String(proposalRow.ROWID);
+
+		// Render + publish is best-effort: a failure here still leaves a valid, storable
+		// proposal record behind (the structured content is the real deliverable) - it just
+		// won't have a shareable link yet. Never let a rendering bug erase a successful
+		// Zia Agent generation.
+		let generatedUrl = null;
+		try {
+			generatedUrl = await renderAndPublishDocument(app, userId, packageId, proposalId, ziaResponse, {
+				customerName: record.customer_name,
+				industry: record.industry
+			});
+			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: generatedUrl });
+		} catch (renderErr) {
+			logEvent("proposal-agent", { requestId, operation: "render_document", packageId, proposalId, status: "failed", errorCode: renderErr.code || "PROCESSING_FAILED" });
+		}
 
 		await setPackageStatus(app, packageId, "PROCESSED");
 		await logUsage(app, {
 			userId,
 			packageId,
-			proposalId: String(proposalRow.ROWID),
+			proposalId,
 			durationMs: Date.now() - startedAt,
 			status: "SUCCESS",
 			usage: client.lastUsage
@@ -169,6 +199,34 @@ async function generateInBackground(app, ctx) {
 		});
 		logEvent("proposal-agent", { requestId, operation: "generate_proposal", packageId, status: "failed", errorCode: safeCode });
 	}
+}
+
+// Workspace 2's equivalent of Workspace 1's Function 4 + Function 5 (render, then
+// publish/verify): renders the validated Zia response into one static page, uploads it
+// to a Workspace-2-only Stratus bucket - keyed by user then package so the bucket's own
+// folder structure says whose document is whose without opening the Data Store - and
+// returns the public URL the frontend shows to the salesperson. Uses the SAME "upload
+// then read back to verify" discipline as Workspace 1's deploy step - never reports a
+// URL as live without confirming the object actually landed in Stratus.
+async function renderAndPublishDocument(app, userId, packageId, proposalId, ziaResponse, { customerName, industry }) {
+	const html = renderProposalDocument(ziaResponse, { customerName, industry, generatedAt: new Date().toISOString() });
+	const objectKey = buildProposalDocumentKey(userId, packageId, proposalId);
+	const bucket = app.stratus().bucket(PROPOSAL_DOCUMENTS_BUCKET_NAME);
+
+	await bucket.putObject(objectKey, Buffer.from(html, "utf8"), {
+		overwrite: true,
+		contentType: "text/html; charset=utf-8",
+		metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, file_type: "html" }
+	});
+
+	const verifyStream = await bucket.getObject(objectKey);
+	if (!verifyStream) {
+		throw new ProposalError("PROCESSING_FAILED", "Uploaded proposal document could not be verified in storage.");
+	}
+
+	return PROPOSAL_SLATE_APP_URL
+		? `${PROPOSAL_SLATE_APP_URL.replace(/\/+$/, "")}/?proposal_id=${encodeURIComponent(proposalId)}`
+		: `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}`;
 }
 
 async function logUsage(app, { userId, packageId, proposalId, durationMs, status, errorCode, usage }) {

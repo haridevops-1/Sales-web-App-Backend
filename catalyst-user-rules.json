@@ -198,17 +198,6 @@
     }
   },
   {
-    "name": "proposal-agent-api",
-    "source_endpoint": "/proposal/agent",
-    "target_endpoint": "/server/proposal-agent/",
-    "target": "advancedio",
-    "method": "POST",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
     "name": "proposal-api-get-api",
     "source_endpoint": "/proposal/api",
     "target_endpoint": "/server/proposal-api/",

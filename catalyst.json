@@ -27,6 +27,10 @@
     {
       "name": "spikra-experience",
       "source": "slate/spikra-experience"
+    },
+    {
+      "name": "spikra-w2-proposal",
+      "source": "slate/spikra-w2-proposal"
     }
   ]
 }

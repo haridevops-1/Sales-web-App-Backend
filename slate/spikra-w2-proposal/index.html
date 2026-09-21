@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solution Proposal | Spikra</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+  html, body { margin: 0; padding: 0; background: #f8fafc; }
+</style>
+</head>
+
+<body>
+
+<div id="spikra-loader-screen" style="position:fixed;inset:0;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0c2c3e;padding:24px;">
+  <div style="width:44px;height:44px;border-radius:50%;border:3px solid #fde3d4;border-top-color:#ff5a1f;animation:spikra-spin 0.8s linear infinite;"></div>
+  <div style="margin-top:18px;font-size:14px;color:#5b6b76;" id="spikra-loader-sub">Loading proposal…</div>
+</div>
+<style>@keyframes spikra-spin { to { transform: rotate(360deg); } }</style>
+
+<script>
+(function() {
+  // Same working pattern as Workspace 1's own Slate shell (slate/spikra-experience/index.html):
+  // read an id from the query string, fetch the generated document from the backend API,
+  // and inject it into a full-screen iframe via srcdoc. Deliberately a much smaller copy -
+  // Workspace 2 has no slug-based routing or default sample template to fall back to, so
+  // that logic is left out entirely rather than carried over unused.
+  var params = new URLSearchParams(window.location.search);
+  var proposalId = params.get("proposal_id") || params.get("id") || "";
+
+  var subElem = document.getElementById("spikra-loader-sub");
+
+  if (!proposalId) {
+    showError("No Proposal Specified", "This link is missing a proposal_id.", null);
+    return;
+  }
+
+  var API_BASE = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
+  var targetUrl = API_BASE + "/proposal/api?resource=view&proposal_id=" + encodeURIComponent(proposalId);
+
+  var controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 14000) : null;
+
+  var t1 = setTimeout(function() {
+    if (subElem) subElem.textContent = "Connecting to secure proposal server…";
+  }, 2500);
+
+  fetch(targetUrl, { signal: controller ? controller.signal : undefined })
+    .then(function(res) {
+      if (timeoutId) clearTimeout(timeoutId);
+      clearTimeout(t1);
+      return res.text().then(function(html) {
+        return { ok: res.ok, status: res.status, html: html };
+      });
+    })
+    .catch(function(err) {
+      if (timeoutId) clearTimeout(timeoutId);
+      clearTimeout(t1);
+      var isTimeout = err && (err.name === "AbortError" || err.message === "The user aborted a request.");
+      return {
+        ok: false,
+        status: isTimeout ? 408 : 0,
+        error: isTimeout ? "Loading the proposal timed out." : (err.message || "Network connection failed.")
+      };
+    })
+    .then(function(result) {
+      if (!result.ok || !result.html) {
+        showError("Unable to Load Proposal", result.error || ("The server returned an error (HTTP " + (result.status || "unknown") + ").") , result.status);
+        return;
+      }
+
+      var html = result.html;
+      var dismissScript = '<script>try{if(window.parent&&window.parent.hideSpikraLoader){window.parent.hideSpikraLoader();}}catch(e){}<\/script>';
+      html = html.indexOf("</body>") !== -1 ? html.replace("</body>", dismissScript + "</body>") : html + dismissScript;
+
+      var frame = document.createElement("iframe");
+      frame.id = "spikra-w2-proposal-frame";
+      frame.title = "Spikra Solution Proposal";
+      frame.style.cssText = "position:fixed;inset:0;width:100%;height:100%;border:none;margin:0;padding:0;z-index:100000;background:#f8fafc;display:block;";
+      frame.onload = function() { hideLoader(); };
+      document.body.appendChild(frame);
+      frame.srcdoc = html;
+
+      setTimeout(hideLoader, 350);
+      setTimeout(hideLoader, 1000);
+    });
+
+  var dismissed = false;
+  function hideLoader() {
+    if (dismissed) return;
+    dismissed = true;
+    var loader = document.getElementById("spikra-loader-screen");
+    if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
+  }
+  window.hideSpikraLoader = hideLoader;
+
+  function showError(title, message, statusCode) {
+    var loader = document.getElementById("spikra-loader-screen");
+    if (!loader) return;
+    loader.innerHTML =
+      '<div style="max-width:440px;width:100%;background:#ffffff;border:1px solid #fee2e2;border-radius:18px;box-shadow:0 12px 36px rgba(220,38,38,0.08);padding:32px 28px;text-align:center;box-sizing:border-box;">' +
+        '<div style="width:52px;height:52px;border-radius:50%;background:#fef2f2;color:#ef4444;display:inline-flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:14px;">&#9888;</div>' +
+        '<h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">' + title + '</h2>' +
+        '<p style="font-size:14px;color:#64748b;margin:0 0 18px;line-height:1.55;">' + message + '</p>' +
+        '<button onclick="window.location.reload()" style="padding:10px 22px;background:#0c2c3e;color:#ffffff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Retry</button>' +
+      '</div>';
+  }
+})();
+</script>
+
+</body>
+</html>

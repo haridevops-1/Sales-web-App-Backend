@@ -47,6 +47,25 @@ isolation, with nothing outside it included.
 - `services/document-processing/` — PDF/DOCX/XLSX extraction. PDF and DOCX reuse the
   exact proven engine chain from `functions/spikra_document_process`; XLSX is new
   (`xlsx` package). Raw audio/video is explicitly unsupported this milestone.
+- `services/document-render/` — renders a validated Zia response into one
+  self-contained static HTML "solution document" (inline CSS, no external JS - the
+  content here is plain text sections, not an interactive showcase, so it doesn't need
+  Workspace 1's multi-asset-file complexity). This is Workspace 2's equivalent of
+  Workspace 1's Function 4 (`spikra_experience_generate`), scoped to a completely
+  different content shape. `proposal-agent` uploads its output to a Workspace-2-only
+  Stratus bucket (`spikra-w2-proposal-documents-698386704` - never Workspace 1's own
+  bucket) and `proposal-api`'s `resource=view` route serves it back publicly, mirroring
+  Workspace 1's Function 5 (`spikra_experience_deploy`) GET behavior. Workspace 2 also
+  has its own Slate app (`slate/spikra-w2-proposal/`) that fetches from that view route
+  and renders it in an iframe - the exact same "thin shell, real content served
+  server-side" pattern as Workspace 1's own Slate app, just a much smaller copy since
+  there's no slug routing or default sample template to carry over.
+- `services/proposal/` also owns `buildProposalDocumentKey(userId, packageId,
+  proposalId)` - the one place the Stratus object key for a proposal's document is
+  computed (`proposals/<user_id>/<package_id>/<proposal_id>/index.html`), shared by
+  the writer (`proposal-agent`) and the reader (`proposal-api`) so they can never
+  drift apart. Scoped by user then package so the bucket's own folder structure says
+  whose document is whose without needing to open the Data Store.
 - `services/proposal/` — status-transition rules and Zia-response-to-`W2_PROPOSALS`-row
   mapping, gated by `utils/validation`'s structural check (never stores an
   invalid/malformed response). There is no separate JSON Schema file for this — the
