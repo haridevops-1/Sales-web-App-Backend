@@ -24,13 +24,52 @@ function isStringArray(val) {
 	return Array.isArray(val) && val.every((item) => typeof item === "string");
 }
 
+function normalizeZiaResponse(raw) {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+	const data = { ...raw };
+
+	if (!data.customer || typeof data.customer !== "object") {
+		data.customer = {
+			company_name: String(data.customer_name || data.company_name || data.client_name || "Customer").trim(),
+			industry: String(data.industry || "").trim(),
+			business_context: String(data.business_context || data.overview || "").trim()
+		};
+	} else {
+		data.customer = {
+			company_name: String(data.customer.company_name || data.customer.name || data.customer.company || "Customer").trim(),
+			industry: String(data.customer.industry || "").trim(),
+			business_context: String(data.customer.business_context || data.customer.context || "").trim()
+		};
+	}
+
+	for (const field of ZIA_RESPONSE_ARRAY_FIELDS) {
+		const val = data[field];
+		if (Array.isArray(val)) {
+			data[field] = val.map((item) => {
+				if (typeof item === "string") return item;
+				if (item && typeof item === "object") {
+					return item.title || item.name || item.text || item.description || JSON.stringify(item);
+				}
+				return String(item || "");
+			}).filter((s) => s.trim().length > 0);
+		} else if (typeof val === "string" && val.trim().length > 0) {
+			data[field] = [val.trim()];
+		} else {
+			data[field] = [];
+		}
+	}
+
+	return data;
+}
+
 // Structural check only (shape, types) - not "is this a good proposal." A structurally
 // valid response with thin content is still valid; an empty/malformed one is not.
-function validateZiaResponse(data) {
+function validateZiaResponse(raw) {
 	const errors = [];
+	const data = normalizeZiaResponse(raw);
 
 	if (!data || typeof data !== "object" || Array.isArray(data)) {
-		return { valid: false, errors: ["Response is not a JSON object."] };
+		return { valid: false, errors: ["Response is not a JSON object."], normalized: null };
 	}
 
 	if (!data.customer || typeof data.customer !== "object") {
@@ -54,7 +93,8 @@ function validateZiaResponse(data) {
 		errors.push("Response has no content in any section.");
 	}
 
-	return { valid: errors.length === 0, errors };
+	return { valid: errors.length === 0, errors, normalized: data };
 }
 
-module.exports = { validateZiaResponse, isNonEmptyString, isStringArray };
+module.exports = { validateZiaResponse, normalizeZiaResponse, isNonEmptyString, isStringArray };
+

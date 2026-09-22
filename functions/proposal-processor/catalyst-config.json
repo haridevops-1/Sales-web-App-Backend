@@ -1,19 +1,22 @@
 {
-	"deployment": {
-		"name": "proposal-processor",
-		"stack": "node22",
-		"type": "advancedio",
-		"env_variables": {
-			"WORKDRIVE_OAUTH_CLIENT_ID": "",
-			"WORKDRIVE_OAUTH_CLIENT_SECRET": "",
-			"WORKDRIVE_OAUTH_REDIRECT_URI": "",
-			"WORKDRIVE_TOKEN_ENCRYPTION_KEY": "",
-			"WORKDRIVE_SESSION_SECRET": "",
-			"ZOHO_ACCOUNTS_DOMAIN": "https://accounts.zoho.com",
-			"WORKDRIVE_API_DOMAIN": "https://www.zohoapis.com/workdrive/api/v1"
-		}
-	},
-	"execution": {
-		"main": "index.js"
-	}
+  "deployment": {
+    "name": "proposal-processor",
+    "stack": "node22",
+    "type": "advancedio",
+    "env_variables": {
+      "WORKDRIVE_OAUTH_CLIENT_ID": "",
+      "WORKDRIVE_OAUTH_CLIENT_SECRET": "",
+      "WORKDRIVE_OAUTH_REDIRECT_URI": "",
+      "WORKDRIVE_TOKEN_ENCRYPTION_KEY": "",
+      "WORKDRIVE_SESSION_SECRET": "",
+      "ZOHO_ACCOUNTS_DOMAIN": "https://accounts.zoho.com",
+      "WORKDRIVE_API_DOMAIN": "https://www.zohoapis.com/workdrive/api/v1",
+      "PROPOSAL_ZIA_AGENT_ENDPOINT": "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000166001/trigger",
+      "PROPOSAL_ZIA_CONNECTION_LINK_NAME": "internalsaleshub",
+      "PROPOSAL_SLATE_APP_URL": ""
+    }
+  },
+  "execution": {
+    "main": "index.js"
+  }
 }

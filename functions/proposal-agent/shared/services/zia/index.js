@@ -15,10 +15,10 @@ const DEFAULT_TIMEOUT_MS = 280000;
 
 class ProposalZiaAgentClient {
 	constructor(config = {}) {
-		const rawEndpoint = config.endpoint || process.env.PROPOSAL_ZIA_AGENT_ENDPOINT || "";
+		const rawEndpoint = config.endpoint || process.env.PROPOSAL_ZIA_AGENT_ENDPOINT || "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000166001/trigger";
 		this.endpoint = String(rawEndpoint).trim();
 		this.connectionLinkName = String(
-			config.connectionLinkName || process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || ""
+			config.connectionLinkName || process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "internalsaleshub"
 		).trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.PROPOSAL_ZIA_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.lastSessionId = null;
@@ -28,7 +28,7 @@ class ProposalZiaAgentClient {
 	}
 
 	isConfigured() {
-		return Boolean(this.endpoint) && Boolean(this.connectionLinkName);
+		return Boolean(this.endpoint);
 	}
 
 	async generateProposal(discoveryText, { businessName, industry } = {}, connectionCredentials) {
@@ -38,7 +38,7 @@ class ProposalZiaAgentClient {
 		if (!this.isConfigured()) {
 			throw new ProposalError(
 				"ZIA_AGENT_FAILED",
-				"Workspace 2 Zia Agent is not configured (PROPOSAL_ZIA_AGENT_ENDPOINT / PROPOSAL_ZIA_CONNECTION_LINK_NAME)."
+				"Workspace 2 Zia Agent endpoint is not configured (PROPOSAL_ZIA_AGENT_ENDPOINT)."
 			);
 		}
 
@@ -63,6 +63,10 @@ class ProposalZiaAgentClient {
 			Accept: "application/json, text/plain, */*",
 			...(connectionCredentials && connectionCredentials.headers ? connectionCredentials.headers : {})
 		};
+		const authToken = process.env.PROPOSAL_ZIA_AUTH_TOKEN || process.env.ZIA_AGENT_AUTH_TOKEN || "";
+		if (!headers["Authorization"] && authToken) {
+			headers["Authorization"] = `Zoho-oauthtoken ${authToken.trim()}`;
+		}
 		headers["Content-Length"] = Buffer.byteLength(payloadString);
 
 		const options = {

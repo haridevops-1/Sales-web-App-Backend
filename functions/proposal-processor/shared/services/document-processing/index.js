@@ -1,5 +1,14 @@
 "use strict";
 
+// Polyfill DOMMatrix for environments where it is not available in Node
+if (typeof globalThis.DOMMatrix === "undefined") {
+	globalThis.DOMMatrix = class DOMMatrix {
+		constructor() {
+			this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+		}
+	};
+}
+
 // Extraction + normalization for discovery package files. PDF and DOCX reuse the exact
 // engine chain already proven in functions/spikra_document_process/index.js (Workspace 1) -
 // not reimplemented, just generalized into a router. XLSX is new for Workspace 2.
@@ -9,24 +18,38 @@
 
 const path = require("path");
 const mammoth = require("mammoth");
-const pdfParse = require("pdf-parse");
 const PDFParser = require("pdf2json");
 const XLSX = require("xlsx");
 const { ProposalError } = require("../../utils/errors");
 
-const SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"];
+let pdfParse = null;
+function getPdfParse() {
+	if (!pdfParse) {
+		if (typeof globalThis.DOMMatrix === "undefined") {
+			globalThis.DOMMatrix = class DOMMatrix {
+				constructor() {
+					this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+				}
+			};
+		}
+		pdfParse = require("pdf-parse");
+	}
+	return pdfParse;
+}
+
+const SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".csv", ".md"];
 
 function getFileKind(fileName, mimeType) {
 	const ext = path.extname(String(fileName || "")).toLowerCase();
 	if (ext === ".pdf") return "PDF";
 	if (ext === ".docx" || ext === ".doc") return "WORD";
 	if (ext === ".xlsx" || ext === ".xls") return "EXCEL";
-	if (ext === ".txt") return "TEXT";
+	if (ext === ".txt" || ext === ".csv" || ext === ".md") return "TEXT";
 
 	const mime = String(mimeType || "").toLowerCase();
 	if (mime.includes("pdf")) return "PDF";
 	if (mime.includes("wordprocessingml") || mime.includes("msword")) return "WORD";
-	if (mime.includes("spreadsheetml") || mime.includes("ms-excel")) return "EXCEL";
+	if (mime.includes("spreadsheetml") || mime.includes("ms-excel") || mime.includes("csv")) return "TEXT";
 	if (mime.startsWith("text/")) return "TEXT";
 
 	return null;
@@ -91,7 +114,8 @@ async function extractPdfText(pdfBuffer) {
 	}
 
 	try {
-		const parsed = await pdfParse(pdfBuffer);
+		const parse = getPdfParse();
+		const parsed = await parse(pdfBuffer);
 		if (parsed && parsed.text && parsed.text.trim()) return parsed.text;
 		attempts.push({ engine: "pdf-parse", error: null });
 	} catch (e) {

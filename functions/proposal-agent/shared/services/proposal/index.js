@@ -24,13 +24,14 @@ function isValidStatusTransition(fromStatus, toStatus) {
 // row payload. Throws INVALID_ZIA_RESPONSE rather than storing a malformed/empty result -
 // same anti-hallucination discipline as Workspace 1's SchemaValidationError.
 function buildProposalRecord(ziaResponse, { packageId, userId, dealValue = 0 }) {
-	const { valid, errors } = validateZiaResponse(ziaResponse);
+	const { valid, errors, normalized } = validateZiaResponse(ziaResponse);
 	if (!valid) {
 		throw new ProposalError("INVALID_ZIA_RESPONSE", `Zia response failed validation: ${errors.join(" ")}`);
 	}
+	const responseData = normalized || ziaResponse;
 
-	const companyName = String(ziaResponse.customer.company_name || "").trim();
-	const industry = String(ziaResponse.customer.industry || "").trim();
+	const companyName = String(responseData.customer.company_name || "").trim();
+	const industry = String(responseData.customer.industry || "").trim();
 
 	return {
 		package_id: packageId,
@@ -40,7 +41,7 @@ function buildProposalRecord(ziaResponse, { packageId, userId, dealValue = 0 }) 
 		proposal_title: companyName ? `${companyName} — Solution Proposal` : "Solution Proposal",
 		status: "Draft",
 		deal_value: Number(dealValue) || 0,
-		proposal_content: JSON.stringify(ziaResponse)
+		proposal_content: JSON.stringify(responseData)
 	};
 }
 

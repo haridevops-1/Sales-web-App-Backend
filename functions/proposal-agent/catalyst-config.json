@@ -5,7 +5,7 @@
 		"type": "advancedio",
 		"env_variables": {
 			"PROPOSAL_ZIA_AGENT_ENDPOINT": "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000166001/trigger",
-			"PROPOSAL_ZIA_CONNECTION_LINK_NAME": "",
+			"PROPOSAL_ZIA_CONNECTION_LINK_NAME": "internalsaleshub",
 			"WORKDRIVE_SESSION_SECRET": "",
 			"PROPOSAL_SLATE_APP_URL": ""
 		}

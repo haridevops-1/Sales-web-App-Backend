@@ -218,5 +218,27 @@
       "overall": {},
       "ip": {}
     }
+  },
+  {
+    "name": "proposal-agent-api",
+    "source_endpoint": "/proposal/agent",
+    "target_endpoint": "/server/proposal-agent/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-agent-options-api",
+    "source_endpoint": "/proposal/agent",
+    "target_endpoint": "/server/proposal-agent/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
   }
 ]
