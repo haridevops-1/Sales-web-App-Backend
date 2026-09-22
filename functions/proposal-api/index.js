@@ -163,18 +163,26 @@ module.exports = async (req, res) => {
 			return;
 		}
 
-		// resource === "proposals" (default)
+		// resource === "proposals" or "proposal" (default)
 		const proposalId = urlObj.searchParams.get("proposal_id");
-		const packageIdFilter = urlObj.searchParams.get("package_id");
+		const sessionId = urlObj.searchParams.get("session_id") || urlObj.searchParams.get("package_id");
 
 		if (req.method === "GET") {
 			if (proposalId) {
 				operation = "get_proposal";
 				const proposal = await getProposalRow(app, proposalId);
 				sendJson(res, 200, { success: true, proposal: formatProposal(proposal) });
+			} else if (sessionId) {
+				operation = "get_proposal_by_session";
+				const proposal = await findProposalByPackage(app, sessionId);
+				if (proposal) {
+					sendJson(res, 200, { success: true, proposal: formatProposal(proposal) });
+				} else {
+					sendJson(res, 200, { success: false, message: "No proposal generated yet for this session.", session_id: sessionId });
+				}
 			} else {
 				operation = "list_proposals";
-				const proposals = await listProposals(app, packageIdFilter);
+				const proposals = await listProposals(app, sessionId);
 				sendJson(res, 200, { success: true, proposals });
 			}
 			logEvent("proposal-api", { requestId, operation, status: "success" });
@@ -325,6 +333,17 @@ async function updateProposalStatus(app, proposalId, userId, newStatus) {
 	return { ...row, status: newStatus };
 }
 
+async function findProposalByPackage(app, packageId) {
+	const query = `SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
+	try {
+		const result = await app.zcql().executeZCQLQuery(query);
+		if (result && result.length > 0) {
+			return result[0][PROPOSALS_TABLE] || result[0];
+		}
+	} catch {}
+	return null;
+}
+
 function formatProposal(row) {
 	let content = null;
 	try {
@@ -332,16 +351,25 @@ function formatProposal(row) {
 	} catch {
 		content = null;
 	}
+	const id = String(row.ROWID || "");
+	const status = row.status || "Draft";
 	return {
-		proposal_id: String(row.ROWID || ""),
+		proposal_id: id,
+		session_id: row.package_id,
 		package_id: row.package_id,
+		user_id: row.user_id,
 		customer_name: row.customer_name,
 		industry: row.industry,
 		proposal_title: row.proposal_title,
-		status: row.status,
-		deal_value: row.deal_value,
+		status: status,
+		proposal_status: status,
+		deal_value: row.deal_value || 0,
 		generated_url: row.generated_url || null,
+		proposal_url: row.generated_url || null,
+		proposal_data: content,
 		content,
+		source_document_count: row.source_document_count || (content && Array.isArray(content.sources) ? content.sources.length : null),
+		model_name: row.model_name || "Customer Proposal Generation Agent",
 		created_at: row.CREATEDTIME || null,
 		updated_at: row.MODIFIEDTIME || null
 	};

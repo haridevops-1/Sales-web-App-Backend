@@ -32,7 +32,7 @@ const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalysts
 // here touches Workspace 1's. Its real onslate.com domain isn't known until it's deployed,
 // so this stays unset (falling back to the raw API view URL below, which already works)
 // until PROPOSAL_SLATE_APP_URL is filled in with that domain.
-const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim();
+const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-customer-prop-msdrrgbk.onslate.com").trim();
 
 // Same lesson as Workspace 1's Function 3: this is invoked synchronously by
 // proposal-processor (via app.functions().execute()), which is itself awaited by the

@@ -18,17 +18,13 @@ const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
 const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
 const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "internalsaleshub").trim();
 const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
-const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim();
+const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-customer-prop-msdrrgbk.onslate.com").trim();
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-// Conservative default under the Zia Agent's own MORE_THAN_MAX_LENGTH cutoff - tune via
-// env var once the real limit is confirmed empirically (start low, raise only after a
-// successful test at a higher value; the failure mode for going too high is a full
-// generation failure, not a partial one).
 const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS || 8000);
 
 module.exports = async (req, res) => {
 	const requestId = newRequestId();
-	const operation = "process_package";
+	let operation = "unknown";
 	let packageId = null;
 
 	try {
@@ -39,28 +35,45 @@ module.exports = async (req, res) => {
 			res.end();
 			return;
 		}
-		if (req.method !== "POST") {
-			sendJson(res, 405, { success: false, error: { code: "VALIDATION_FAILED", message: "Only POST requests are supported." } });
-			return;
-		}
 
 		const app = catalyst.initialize(req);
 		const user = await requireWorkdriveSession(req);
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
-		packageId = urlObj.searchParams.get("package_id");
+		packageId = urlObj.searchParams.get("session_id") || urlObj.searchParams.get("package_id");
+
+		// GET /proposal/processor/status?session_id=<id>
+		if (req.method === "GET") {
+			operation = "get_processing_status";
+			if (!packageId) {
+				throw new ProposalError("VALIDATION_FAILED", "session_id or package_id is required.");
+			}
+			const statusData = await getProcessingStatus(app, packageId, user.userId);
+			sendJson(res, 200, statusData);
+			logEvent("proposal-processor", { requestId, operation, packageId, status: "success" });
+			return;
+		}
+
+		// POST /proposal/processor/process?session_id=<id>
+		if (req.method !== "POST") {
+			sendJson(res, 405, { success: false, error: { code: "VALIDATION_FAILED", message: "Only GET and POST requests are supported." } });
+			return;
+		}
+
+		operation = "process_session";
 		if (!packageId) {
-			throw new ProposalError("VALIDATION_FAILED", "package_id is required.");
+			throw new ProposalError("VALIDATION_FAILED", "session_id or package_id is required.");
 		}
 
 		const { packageRow, fileRows } = await getOwnedPackageWithFiles(app, packageId, user.userId);
 		if (fileRows.length === 0) {
-			throw new ProposalError("VALIDATION_FAILED", "This discovery package has no files to process.");
+			throw new ProposalError("VALIDATION_FAILED", "This discovery session has no documents to process.");
 		}
 
-		await setPackageStatus(app, packageId, "PROCESSING");
+		await setPackageStatus(app, packageId, "EXTRACTING");
 
 		const sourceBlocks = [];
 		const sources = [];
+		const normalizedDocuments = [];
 		let anySucceeded = false;
 
 		for (const fileRow of fileRows) {
@@ -70,15 +83,23 @@ module.exports = async (req, res) => {
 				if (fileBuffer.length > MAX_FILE_SIZE_BYTES) {
 					throw new ProposalError(
 						"VALIDATION_FAILED",
-						`'${fileRow.file_name}' exceeds the ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB limit for discovery files.`
+						`'${fileRow.file_name}' exceeds the ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB limit for discovery documents.`
 					);
 				}
 				const { text } = await documentProcessing.extractContent(fileBuffer, {
 					fileName: fileRow.file_name,
 					mimeType: fileRow.mime_type
 				});
+
 				sourceBlocks.push(`=== Source: ${fileRow.file_name} ===\n${text}`);
 				sources.push({ file_name: fileRow.file_name, workdrive_file_id: fileRow.workdrive_file_id });
+				normalizedDocuments.push({
+					document_id: fileId,
+					file_name: fileRow.file_name,
+					file_type: fileRow.file_type,
+					content: text
+				});
+
 				await updateFileStatus(app, fileId, "EXTRACTED");
 				anySucceeded = true;
 			} catch (fileErr) {
@@ -89,15 +110,9 @@ module.exports = async (req, res) => {
 
 		if (!anySucceeded) {
 			await setPackageStatus(app, packageId, "FAILED");
-			throw new ProposalError("PROCESSING_FAILED", "None of the files in this package could be processed.");
+			throw new ProposalError("PROCESSING_FAILED", "None of the documents in this session could be extracted.");
 		}
 
-		// The Zia Agent trigger API enforces its own hard input-size limit and rejects
-		// anything over it with MORE_THAN_MAX_LENGTH (confirmed directly from a live
-		// failure - large packages with spreadsheets converted to CSV text routinely
-		// exceed it). Cap the total, but distribute the budget across every source
-		// proportionally rather than silently dropping later files entirely, so each
-		// document is still represented (truncated, clearly marked) instead of missing.
 		const consolidatedContent = capDiscoveryContent(sourceBlocks, MAX_DISCOVERY_CONTENT_CHARS);
 
 		let connectionCredentials = null;
@@ -109,12 +124,18 @@ module.exports = async (req, res) => {
 			}
 		}
 
+		await setPackageStatus(app, packageId, "ANALYZING");
+
 		sendJson(res, 200, {
 			success: true,
+			session_id: packageId,
 			package_id: packageId,
-			status: "PROCESSED",
+			status: "PROCESSING",
+			stage: "ANALYZING",
+			document_count: fileRows.length,
+			documents: sources,
 			sources,
-			agent_handoff: { success: true, message: "Proposal generation started." }
+			agent_handoff: { success: true, message: "Document extraction complete. Proposal generation started." }
 		});
 		logEvent("proposal-processor", { requestId, operation, packageId, status: "success" });
 
@@ -138,19 +159,57 @@ module.exports = async (req, res) => {
 	}
 };
 
+async function getProcessingStatus(app, packageId, userId) {
+	const { packageRow, fileRows } = await getOwnedPackageWithFiles(app, packageId, userId);
+	const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
+
+	let proposalRow = null;
+	try {
+		const q = `SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
+		const res = await app.zcql().executeZCQLQuery(q);
+		if (res && res.length > 0) {
+			proposalRow = res[0][PROPOSALS_TABLE] || res[0];
+		}
+	} catch {}
+
+	let effectiveStatus = String(packageRow.status || "PROCESSING").toUpperCase();
+	if (proposalRow && proposalRow.generated_url) {
+		effectiveStatus = "COMPLETED";
+	}
+
+	return {
+		success: true,
+		session_id: packageId,
+		package_id: packageId,
+		session_name: packageRow.package_name,
+		package_name: packageRow.package_name,
+		status: effectiveStatus,
+		stage: effectiveStatus,
+		document_count: fileRows.length,
+		extracted_count: fileRows.filter((f) => f.processing_status === "EXTRACTED").length,
+		proposal_id: proposalRow ? String(proposalRow.ROWID) : null,
+		proposal_url: proposalRow ? proposalRow.generated_url : null,
+		customer_name: proposalRow ? proposalRow.customer_name : packageRow.package_name,
+		created_at: packageRow.CREATEDTIME || null,
+		updated_at: packageRow.MODIFIEDTIME || null
+	};
+}
+
 async function generateProposalInBackground(app, ctx) {
 	const { requestId, packageId, packageRow, userId, discoveryContent, sources, customerNameHint, connectionCredentials } = ctx;
 	const startedAt = Date.now();
 	const client = getProposalZiaAgentClient();
 
 	try {
-		await setPackageStatus(app, packageId, "GENERATING");
+		await setPackageStatus(app, packageId, "ANALYZING");
 
 		const ziaResponse = await client.generateProposal(
 			discoveryContent,
 			{ businessName: customerNameHint || packageRow.package_name, industry: "" },
 			connectionCredentials
 		);
+
+		await setPackageStatus(app, packageId, "GENERATING");
 
 		const record = buildProposalRecord(ziaResponse, { packageId, userId, dealValue: 0 });
 		record.proposal_content = buildStorableProposalContent(ziaResponse, sources);
@@ -165,12 +224,12 @@ async function generateProposalInBackground(app, ctx) {
 				customerName: record.customer_name,
 				industry: record.industry
 			});
-			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: generatedUrl });
+			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: generatedUrl, status: "COMPLETED" });
 		} catch (renderErr) {
 			console.warn("Render document failed:", renderErr && renderErr.message);
 		}
 
-		await setPackageStatus(app, packageId, "PROCESSED");
+		await setPackageStatus(app, packageId, "COMPLETED");
 		await logUsage(app, {
 			userId,
 			packageId,
@@ -199,10 +258,6 @@ async function generateProposalInBackground(app, ctx) {
 	}
 }
 
-// Splits the char budget evenly across every source block first, so a package with
-// many small files loses nothing (each fits under its share) while a package with a
-// few huge files (e.g. spreadsheets converted to CSV text) gets each one trimmed
-// rather than the whole request rejected outright or later files dropped entirely.
 function capDiscoveryContent(sourceBlocks, maxChars) {
 	const joined = sourceBlocks.join("\n\n");
 	if (joined.length <= maxChars) return joined;
@@ -272,7 +327,6 @@ async function streamToBuffer(stream) {
 async function retrieveFileBuffer(app, user, fileRow) {
 	const idOrKey = String(fileRow.workdrive_file_id || "");
 
-	// Check if this is a Stratus object key
 	if (idOrKey.includes("/") || idOrKey.startsWith("discovery")) {
 		const stratus = app.stratus();
 		let cleanKey = idOrKey;
@@ -301,7 +355,6 @@ async function retrieveFileBuffer(app, user, fileRow) {
 		throw new ProposalError("NOT_FOUND", `Could not retrieve file from storage (${cleanKey}): ${(lastErr && lastErr.message) || "Not found"}`);
 	}
 
-	// Fallback to WorkDrive if workdrive client is configured
 	return await workdrive.downloadFile(app, user.userId, idOrKey);
 }
 
@@ -313,13 +366,13 @@ async function getOwnedPackageWithFiles(app, packageId, userId) {
 	try {
 		packageRow = await packagesTable.getRow(packageId);
 	} catch {
-		throw new ProposalError("NOT_FOUND", "Discovery package not found.", 404);
+		throw new ProposalError("NOT_FOUND", "Discovery session not found.", 404);
 	}
 	if (!packageRow) {
-		throw new ProposalError("NOT_FOUND", "Discovery package not found.", 404);
+		throw new ProposalError("NOT_FOUND", "Discovery session not found.", 404);
 	}
 	if (packageRow.user_id && packageRow.user_id !== "local-user" && packageRow.user_id !== "hariharan@spikra.com" && userId !== "local-user" && userId !== "hariharan@spikra.com" && String(packageRow.user_id) !== String(userId)) {
-		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery package.", 403);
+		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery session.", 403);
 	}
 
 	const query = `SELECT * FROM ${DISCOVERY_FILES_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME ASC`;
@@ -355,7 +408,7 @@ function setCorsHeaders(req, res) {
 	if (origin !== "https://spikra-ai-proposal-app.onslate.com") {
 		res.setHeader("Access-Control-Allow-Origin", origin || "*");
 	}
-	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 

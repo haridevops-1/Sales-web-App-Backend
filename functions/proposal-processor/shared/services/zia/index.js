@@ -125,9 +125,9 @@ function buildQuery(discoveryText, { businessName, industry }) {
 
 	return [
 		context,
-		"Analyze the following consolidated customer discovery content (from documents, MOM, and notes) and generate structured proposal content. Do a single pass - do not plan or use multiple reasoning steps.",
-		"Ground every field in the content below. Never invent customer facts, requirements, pain points, systems, or decisions. Use an empty array where the content genuinely doesn't cover a section.",
-		'Return ONLY this JSON object, no markdown, no wrapper key: { "customer": {"company_name","industry","business_context"}, "goals": [], "requirements": [], "pain_points": [], "existing_process": [], "proposed_solution": [], "zoho_solutions": [], "expected_outcomes": [] }',
+		"You are the Solution Proposal Agent for Spikra. Analyze the following consolidated customer discovery content (from documents, MOM, and notes) and generate comprehensive structured proposal content. Do a single pass - do not plan or use multiple reasoning steps.",
+		"Ground every field in the content below. Never invent customer facts, requirements, pain points, systems, or decisions. If a section is not mentioned, use an empty array or null.",
+		'Return ONLY this JSON object, no markdown, no wrapper key:\n{\n  "customer": {"company_name": "", "industry": "", "business_context": ""},\n  "goals": [],\n  "requirements": [],\n  "pain_points": [],\n  "existing_process": [],\n  "proposed_solution": [],\n  "zoho_solutions": [],\n  "expected_outcomes": [],\n  "deliverables": [{"title": "", "description": "", "scope": ""}],\n  "implementation_milestones": [{"phase_name": "", "timeline": "", "milestones": ""}],\n  "license_cost_info": null,\n  "payment_terms": null,\n  "assumptions": [],\n  "support_hypercare": null\n}',
 		"Discovery content:",
 		discoveryText.trim()
 	].filter(Boolean).join("\n\n");
@@ -163,22 +163,45 @@ function extractStructuredData(response) {
 	if (!response || typeof response !== "object") {
 		throw new ProposalError("INVALID_ZIA_RESPONSE", "Zia Agent returned an invalid response structure.");
 	}
-	if (response.customer || response.goals || response.requirements) return response;
+
+	let target = response;
 	if (response.data && typeof response.data === "object") {
-		if (response.data.customer || response.data.goals) return response.data;
-		if (response.data.response) {
-			if (typeof response.data.response === "object") return response.data.response;
-			if (typeof response.data.response === "string") {
+		if (response.data.customer || response.data.goals || response.data.requirements) {
+			target = response.data;
+		} else if (response.data.response) {
+			if (typeof response.data.response === "object") target = response.data.response;
+			else if (typeof response.data.response === "string") {
 				const inner = extractJsonFromString(response.data.response);
-				if (inner) return inner;
+				if (inner) target = inner;
 			}
 		}
-	}
-	if (typeof response.output === "string") {
+	} else if (typeof response.output === "string") {
 		const inner = extractJsonFromString(response.output);
-		if (inner) return inner;
+		if (inner) target = inner;
 	}
-	return response;
+
+	// Normalize customer fields
+	const customer = target.customer && typeof target.customer === "object" ? target.customer : {};
+	return {
+		customer: {
+			company_name: String(customer.company_name || "").trim(),
+			industry: String(customer.industry || "").trim(),
+			business_context: String(customer.business_context || "").trim()
+		},
+		goals: Array.isArray(target.goals) ? target.goals : [],
+		requirements: Array.isArray(target.requirements) ? target.requirements : [],
+		pain_points: Array.isArray(target.pain_points) ? target.pain_points : [],
+		existing_process: Array.isArray(target.existing_process) ? target.existing_process : [],
+		proposed_solution: Array.isArray(target.proposed_solution) ? target.proposed_solution : [],
+		zoho_solutions: Array.isArray(target.zoho_solutions) ? target.zoho_solutions : [],
+		expected_outcomes: Array.isArray(target.expected_outcomes) ? target.expected_outcomes : [],
+		deliverables: Array.isArray(target.deliverables) ? target.deliverables : [],
+		implementation_milestones: Array.isArray(target.implementation_milestones) ? target.implementation_milestones : [],
+		license_cost_info: target.license_cost_info || null,
+		payment_terms: target.payment_terms || null,
+		assumptions: Array.isArray(target.assumptions) ? target.assumptions : [],
+		support_hypercare: target.support_hypercare || null
+	};
 }
 
 function extractJsonFromString(str) {

@@ -42,18 +42,18 @@ module.exports = async (req, res) => {
 		const app = catalyst.initialize(req);
 		const user = await requireWorkdriveSession(req);
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
-		packageId = urlObj.searchParams.get("package_id");
+		packageId = urlObj.searchParams.get("package_id") || urlObj.searchParams.get("session_id");
 		const action = String(urlObj.searchParams.get("action") || "").toLowerCase();
 
 		if (req.method === "GET") {
 			if (packageId) {
-				operation = "get_package";
+				operation = "get_session";
 				const result = await getPackageWithFiles(app, packageId, user.userId);
-				sendJson(res, 200, { success: true, package: result });
+				sendJson(res, 200, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
 			} else {
-				operation = "list_packages";
+				operation = "list_sessions";
 				const result = await listPackages(app, user.userId);
-				sendJson(res, 200, { success: true, packages: result });
+				sendJson(res, 200, { success: true, sessions: result, packages: result });
 			}
 			logEvent("proposal-discovery", { requestId, operation, status: "success" });
 			return;
@@ -71,32 +71,33 @@ module.exports = async (req, res) => {
 				const formData = parseMultipartFormData(bodyBuffer, boundary);
 
 				const effectiveAction = (action || formData.fields.action || "").toLowerCase();
-				const effectivePackageId = packageId || formData.fields.package_id || null;
+				const effectivePackageId = packageId || formData.fields.package_id || formData.fields.session_id || null;
 
 				if (effectivePackageId && effectiveAction === "add_files") {
 					operation = "add_files_upload";
 					const result = await addUploadedFilesToPackage(app, effectivePackageId, user.userId, formData.allFiles);
-					sendJson(res, 200, { success: true, package: result });
+					sendJson(res, 200, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
 				} else {
-					operation = "create_package_upload";
-					const defaultPkgName = formData.allFiles[0] ? path.parse(formData.allFiles[0].fileName).name : "Discovery Package";
-					const packageName = formData.fields.package_name || defaultPkgName;
-					const result = await createPackageFromUpload(app, user.userId, packageName, formData.allFiles);
-					sendJson(res, 201, { success: true, package: result });
+					operation = "create_session_upload";
+					const defaultPkgName = formData.allFiles[0] ? path.parse(formData.allFiles[0].fileName).name : "Discovery Session";
+					const sessionName = formData.fields.session_name || formData.fields.package_name || defaultPkgName;
+					const result = await createPackageFromUpload(app, user.userId, sessionName, formData.allFiles);
+					sendJson(res, 201, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
 				}
 			} else {
-				// JSON request body (legacy / direct JSON)
+				// JSON request body (direct JSON)
 				const rawBody = await readRequestBody(req, 4 * 1024 * 1024);
 				const body = parseJsonBody(rawBody);
 
-				if (packageId && action === "add_files") {
+				const effectivePackageId = packageId || body.package_id || body.session_id || null;
+				if (effectivePackageId && action === "add_files") {
 					operation = "add_files";
-					const result = await addFilesToPackage(app, packageId, user.userId, body.files);
-					sendJson(res, 200, { success: true, package: result });
+					const result = await addFilesToPackage(app, effectivePackageId, user.userId, body.files);
+					sendJson(res, 200, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
 				} else {
-					operation = "create_package";
+					operation = "create_session";
 					const result = await createPackage(app, user.userId, body);
-					sendJson(res, 201, { success: true, package: result });
+					sendJson(res, 201, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
 				}
 			}
 
@@ -384,12 +385,17 @@ async function getPackageWithFiles(app, packageId, userId, preloadedRow) {
 	} catch {}
 
 	return {
+		session_id: String(packageRow.ROWID || packageId),
 		package_id: String(packageRow.ROWID || packageId),
-		user_id: packageRow.user_id,
+		session_name: packageRow.package_name,
 		package_name: packageRow.package_name,
+		user_id: packageRow.user_id,
+		user_email: packageRow.user_id,
 		status: packageRow.status,
+		document_count: fileRows.length,
 		created_at: packageRow.CREATEDTIME || null,
 		updated_at: packageRow.MODIFIEDTIME || null,
+		documents: fileRows.map(formatFileRow),
 		files: fileRows.map(formatFileRow)
 	};
 }
@@ -405,7 +411,9 @@ async function listPackages(app, userId) {
 	} catch {}
 
 	return rows.map((row) => ({
+		session_id: String(row.ROWID),
 		package_id: String(row.ROWID),
+		session_name: row.package_name,
 		package_name: row.package_name,
 		status: row.status,
 		created_at: row.CREATEDTIME || null,
@@ -414,14 +422,21 @@ async function listPackages(app, userId) {
 }
 
 function formatFileRow(row) {
+	const id = String(row.ROWID || "");
 	return {
-		package_file_id: String(row.ROWID || ""),
+		document_id: id,
+		package_file_id: id,
+		session_id: row.package_id,
 		package_id: row.package_id,
-		workdrive_file_id: row.workdrive_file_id,
 		file_name: row.file_name,
 		file_type: row.file_type,
 		mime_type: row.mime_type,
 		file_size: row.file_size,
+		source_type: "LOCAL_STORAGE",
+		source_reference: row.workdrive_file_id,
+		workdrive_file_id: row.workdrive_file_id,
+		upload_status: "UPLOADED",
+		extraction_status: row.processing_status || "PENDING",
 		processing_status: row.processing_status || "PENDING"
 	};
 }
