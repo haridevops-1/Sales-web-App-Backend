@@ -69,6 +69,50 @@ module.exports = async (req, res) => {
 			throw new ProposalError("VALIDATION_FAILED", "This discovery session has no documents to process.");
 		}
 
+		// Idempotency: proposal already exists for this package - return it immediately
+		const existingProposal = await findProposalByPackage(app, packageId);
+		if (existingProposal && existingProposal.generated_url) {
+			sendJson(res, 200, {
+				success: true,
+				session_id: packageId,
+				package_id: packageId,
+				status: "COMPLETED",
+				proposal_id: String(existingProposal.ROWID),
+				proposal_url: existingProposal.generated_url,
+				customer_name: existingProposal.customer_name,
+				proposal: {
+					proposal_id: String(existingProposal.ROWID),
+					session_id: packageId,
+					package_id: packageId,
+					customer_name: existingProposal.customer_name,
+					industry: existingProposal.industry,
+					status: existingProposal.status || "COMPLETED",
+					proposal_url: existingProposal.generated_url,
+					generated_url: existingProposal.generated_url
+				}
+			});
+			logEvent("proposal-processor", { requestId, operation, packageId, status: "success", existing: true });
+			return;
+		}
+
+		// Concurrency guard: if generation already in flight, do not trigger Agent again
+		if (["ANALYZING", "GENERATING"].includes(String(packageRow.status || "").toUpperCase())) {
+			const modifiedRaw = String(packageRow.MODIFIEDTIME || "").trim();
+			const modifiedIso = modifiedRaw ? `${modifiedRaw.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z` : "";
+			const modifiedAt = modifiedIso ? new Date(modifiedIso) : null;
+			const elapsedMs = modifiedAt && !isNaN(modifiedAt.getTime()) ? Date.now() - modifiedAt.getTime() : 0;
+			if (elapsedMs < 300000) {
+				sendJson(res, 200, {
+					success: true,
+					session_id: packageId,
+					package_id: packageId,
+					status: packageRow.status,
+					message: "Proposal generation already in progress."
+				});
+				return;
+			}
+		}
+
 		await setPackageStatus(app, packageId, "EXTRACTING");
 
 		const sourceBlocks = [];
@@ -124,31 +168,75 @@ module.exports = async (req, res) => {
 			}
 		}
 
+		// Stage 1: Document extraction done -> Trigger Agent (ONCE)
 		await setPackageStatus(app, packageId, "ANALYZING");
 
+		const startedAt = Date.now();
+		const client = getProposalZiaAgentClient();
+
+		const ziaResponse = await client.generateProposal(
+			consolidatedContent,
+			{ businessName: packageRow.package_name, industry: "" },
+			connectionCredentials
+		);
+
+		// Stage 2: Agent finished -> Hydrate Spikra Master Proposal Template
+		await setPackageStatus(app, packageId, "GENERATING");
+
+		const record = buildProposalRecord(ziaResponse, { packageId, userId: user.userId, dealValue: 0 });
+		record.proposal_content = buildStorableProposalContent(ziaResponse, sources);
+
+		const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
+		const proposalRow = await proposalsTable.insertRow(record);
+		const proposalId = String(proposalRow.ROWID);
+
+		let generatedUrl = null;
+		try {
+			generatedUrl = await renderAndPublishDocument(app, user.userId, packageId, proposalId, ziaResponse, {
+				customerName: record.customer_name,
+				industry: record.industry
+			});
+			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: generatedUrl, status: "COMPLETED" });
+		} catch (renderErr) {
+			console.warn("Render document failed:", renderErr && renderErr.message);
+			generatedUrl = `${PROPOSAL_SLATE_APP_URL}/?proposal_id=${proposalId}`;
+		}
+
+		// Stage 3: Complete session and log usage
+		await setPackageStatus(app, packageId, "COMPLETED");
+		await logUsage(app, {
+			userId: user.userId,
+			packageId,
+			proposalId,
+			durationMs: Date.now() - startedAt,
+			status: "SUCCESS",
+			usage: client.lastUsage
+		});
+
+		// Return clean complete proposal payload to frontend
 		sendJson(res, 200, {
 			success: true,
 			session_id: packageId,
 			package_id: packageId,
-			status: "PROCESSING",
-			stage: "ANALYZING",
-			document_count: fileRows.length,
-			documents: sources,
-			sources,
-			agent_handoff: { success: true, message: "Document extraction complete. Proposal generation started." }
+			status: "COMPLETED",
+			proposal_id: proposalId,
+			proposal_url: generatedUrl,
+			customer_name: record.customer_name,
+			proposal: {
+				proposal_id: proposalId,
+				session_id: packageId,
+				package_id: packageId,
+				customer_name: record.customer_name,
+				industry: record.industry,
+				status: "COMPLETED",
+				proposal_url: generatedUrl,
+				generated_url: generatedUrl,
+				content: ziaResponse,
+				source_document_count: sources.length,
+				model_name: "Customer Proposal Generation Agent"
+			}
 		});
-		logEvent("proposal-processor", { requestId, operation, packageId, status: "success" });
-
-		await generateProposalInBackground(app, {
-			requestId,
-			packageId,
-			packageRow,
-			userId: user.userId,
-			discoveryContent: consolidatedContent,
-			sources,
-			customerNameHint: packageRow.package_name,
-			connectionCredentials
-		});
+		logEvent("proposal-processor", { requestId, operation, packageId, proposalId, status: "success" });
 	} catch (error) {
 		if (packageId) {
 			await setPackageStatus(catalyst.initialize(req), packageId, "FAILED").catch(() => {});
@@ -193,69 +281,6 @@ async function getProcessingStatus(app, packageId, userId) {
 		created_at: packageRow.CREATEDTIME || null,
 		updated_at: packageRow.MODIFIEDTIME || null
 	};
-}
-
-async function generateProposalInBackground(app, ctx) {
-	const { requestId, packageId, packageRow, userId, discoveryContent, sources, customerNameHint, connectionCredentials } = ctx;
-	const startedAt = Date.now();
-	const client = getProposalZiaAgentClient();
-
-	try {
-		await setPackageStatus(app, packageId, "ANALYZING");
-
-		const ziaResponse = await client.generateProposal(
-			discoveryContent,
-			{ businessName: customerNameHint || packageRow.package_name, industry: "" },
-			connectionCredentials
-		);
-
-		await setPackageStatus(app, packageId, "GENERATING");
-
-		const record = buildProposalRecord(ziaResponse, { packageId, userId, dealValue: 0 });
-		record.proposal_content = buildStorableProposalContent(ziaResponse, sources);
-
-		const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
-		const proposalRow = await proposalsTable.insertRow(record);
-		const proposalId = String(proposalRow.ROWID);
-
-		let generatedUrl = null;
-		try {
-			generatedUrl = await renderAndPublishDocument(app, userId, packageId, proposalId, ziaResponse, {
-				customerName: record.customer_name,
-				industry: record.industry
-			});
-			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: generatedUrl, status: "COMPLETED" });
-		} catch (renderErr) {
-			console.warn("Render document failed:", renderErr && renderErr.message);
-		}
-
-		await setPackageStatus(app, packageId, "COMPLETED");
-		await logUsage(app, {
-			userId,
-			packageId,
-			proposalId,
-			durationMs: Date.now() - startedAt,
-			status: "SUCCESS",
-			usage: client.lastUsage
-		});
-		logEvent("proposal-processor", { requestId, operation: "generate_proposal", packageId, status: "success" });
-	} catch (err) {
-		console.error("GENERATE PROPOSAL FAILED:", err);
-		const safeCode = err instanceof ProposalError ? err.code : "ZIA_AGENT_FAILED";
-		const errMsg = String((err && (err.message || err)) || "Unknown error");
-		await setPackageStatus(app, packageId, "FAILED");
-		await logUsage(app, {
-			userId,
-			packageId,
-			proposalId: null,
-			durationMs: Date.now() - startedAt,
-			status: "FAILED",
-			errorCode: safeCode,
-			modelName: errMsg,
-			usage: null
-		});
-		logEvent("proposal-processor", { requestId, operation: "generate_proposal", packageId, status: "failed", errorCode: safeCode, errorMessage: errMsg });
-	}
 }
 
 function capDiscoveryContent(sourceBlocks, maxChars) {
@@ -397,6 +422,17 @@ async function updateFileStatus(app, fileRowId, status, errorMessage) {
 		if (errorMessage) payload.error_message = String(errorMessage).slice(0, 2000);
 		await app.datastore().table(DISCOVERY_FILES_TABLE).updateRow(payload);
 	} catch {}
+}
+
+async function findProposalByPackage(app, packageId) {
+	const query = `SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
+	try {
+		const result = await app.zcql().executeZCQLQuery(query);
+		if (result && result.length > 0) {
+			return result[0][PROPOSALS_TABLE] || result[0];
+		}
+	} catch {}
+	return null;
 }
 
 function escapeQueryValue(value) {
