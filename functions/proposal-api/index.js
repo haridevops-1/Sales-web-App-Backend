@@ -57,6 +57,112 @@ module.exports = async (req, res) => {
 			return;
 		}
 
+		if (resource === "test_package_run") {
+			try {
+				operation = "test_package_run";
+				const pkgId = urlObj.searchParams.get("package_id") || "822000000790032";
+				
+				let step = "1. loading zia";
+				const { getProposalZiaAgentClient } = require("./shared/services/zia");
+				const client = getProposalZiaAgentClient();
+
+				step = "2. loading datastore";
+				const packageRow = await app.datastore().table("W2_DISCOVERY_PACKAGES").getRow(pkgId);
+				const q = "SELECT * FROM W2_DISCOVERY_FILES WHERE package_id = '" + pkgId + "'";
+				const r = await app.zcql().executeZCQLQuery(q);
+				const fileRows = (r || []).map(x => x.W2_DISCOVERY_FILES || x);
+
+				step = "3. loading connCreds";
+				const connCreds = await app.connections().getConnectionCredentials("internalsaleshub");
+
+				step = "4. loading docProc";
+				const docProc = require("./shared/services/document-processing");
+
+				step = "5. extracting files";
+				const sourceBlocks = [];
+				for (const f of fileRows) {
+					const idOrKey = String(f.workdrive_file_id || "");
+					let cleanKey = idOrKey;
+					let bName = "spikra-w2-proposal-documents-698386704";
+					if (cleanKey.startsWith(bName + "/")) cleanKey = cleanKey.slice(bName.length + 1);
+					const stream = await app.stratus().bucket(bName).getObject(cleanKey);
+					const buf = await streamToBuffer(stream);
+					const { text } = await docProc.extractContent(buf, { fileName: f.file_name, mimeType: f.mime_type });
+					sourceBlocks.push("=== " + f.file_name + " ===\n" + text);
+				}
+
+				step = "6. calling zia";
+				const fullText = sourceBlocks.join("\n\n");
+				const ziaRes = await client.generateProposal(fullText, { businessName: packageRow.package_name, industry: "" }, connCreds);
+
+				sendJson(res, 200, { success: true, ziaRes, fullTextLength: fullText.length });
+				return;
+			} catch (err) {
+				sendJson(res, 200, { success: false, caughtError: err.message, stack: err.stack, step });
+				return;
+			}
+		}
+		if (resource === "test_zia_call") {
+			operation = "test_zia_call";
+			let connCreds = null;
+			let connError = null;
+			try {
+				connCreds = await app.connections().getConnectionCredentials("internalsaleshub");
+			} catch (ce) {
+				connError = ce.message;
+			}
+
+			const https = require('https');
+			const testPayload = JSON.stringify({
+				query: "Analyze customer requirements and generate structured proposal. Customer: Test Corp",
+				systemArgs: {},
+				reasoning: false,
+				attachments: []
+			});
+
+			const headers = {
+				"Content-Type": "application/json; charset=utf-8",
+				"Accept": "application/json, text/plain, */*",
+				...(connCreds && connCreds.headers ? connCreds.headers : {})
+			};
+			headers["Content-Length"] = Buffer.byteLength(testPayload);
+
+			const ziaRes = await new Promise((resolve) => {
+				const reqZ = https.request({
+					hostname: 'agents.zoho.com',
+					path: '/ziaagents/api/v1/agents/3266000000166001/trigger',
+					method: 'POST',
+					headers,
+					timeout: 30000
+				}, (r) => {
+					let body = '';
+					r.on('data', chunk => body += chunk);
+					r.on('end', () => resolve({ statusCode: r.statusCode, body }));
+				});
+				reqZ.on('error', err => resolve({ error: err.message }));
+				reqZ.on('timeout', () => { reqZ.destroy(); resolve({ error: 'timeout' }); });
+				reqZ.write(testPayload);
+				reqZ.end();
+			});
+
+			sendJson(res, 200, { success: true, connCreds: connCreds ? { hasHeaders: Boolean(connCreds.headers), headerKeys: Object.keys(connCreds.headers || {}) } : null, connError, ziaRes });
+			return;
+		}
+
+		if (resource === "ai_logs") {
+			operation = "get_ai_logs";
+			const query = "SELECT * FROM W2_AI_USAGE_LOG ORDER BY CREATEDTIME DESC LIMIT 10";
+			let logs = [];
+			try {
+				const r = await app.zcql().executeZCQLQuery(query);
+				logs = (r || []).map(x => x.W2_AI_USAGE_LOG || x);
+			} catch (e) {
+				logs = [{ error: e.message }];
+			}
+			sendJson(res, 200, { success: true, logs });
+			return;
+		}
+
 		// resource === "proposals" (default)
 		const proposalId = urlObj.searchParams.get("proposal_id");
 		const packageIdFilter = urlObj.searchParams.get("package_id");

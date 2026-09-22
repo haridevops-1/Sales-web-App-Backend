@@ -183,6 +183,7 @@ async function generateProposalInBackground(app, ctx) {
 	} catch (err) {
 		console.error("GENERATE PROPOSAL FAILED:", err);
 		const safeCode = err instanceof ProposalError ? err.code : "ZIA_AGENT_FAILED";
+		const errMsg = String((err && (err.message || err)) || "Unknown error");
 		await setPackageStatus(app, packageId, "FAILED");
 		await logUsage(app, {
 			userId,
@@ -191,9 +192,10 @@ async function generateProposalInBackground(app, ctx) {
 			durationMs: Date.now() - startedAt,
 			status: "FAILED",
 			errorCode: safeCode,
+			modelName: errMsg,
 			usage: null
 		});
-		logEvent("proposal-processor", { requestId, operation: "generate_proposal", packageId, status: "failed", errorCode: safeCode });
+		logEvent("proposal-processor", { requestId, operation: "generate_proposal", packageId, status: "failed", errorCode: safeCode, errorMessage: errMsg });
 	}
 }
 
@@ -240,13 +242,13 @@ async function renderAndPublishDocument(app, userId, packageId, proposalId, ziaR
 		: `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}`;
 }
 
-async function logUsage(app, { userId, packageId, proposalId, durationMs, status, errorCode, usage }) {
+async function logUsage(app, { userId, packageId, proposalId, durationMs, status, errorCode, modelName, usage }) {
 	try {
 		await app.datastore().table(AI_USAGE_LOG_TABLE).insertRow({
 			user_id: userId,
 			package_id: packageId,
 			proposal_id: proposalId,
-			model_name: null,
+			model_name: modelName ? String(modelName).slice(0, 250) : null,
 			input_tokens: usage ? usage.input_tokens : null,
 			output_tokens: usage ? usage.output_tokens : null,
 			total_tokens: usage ? usage.total_tokens : null,
@@ -254,7 +256,9 @@ async function logUsage(app, { userId, packageId, proposalId, durationMs, status
 			status,
 			error_code: errorCode || null
 		});
-	} catch {}
+	} catch (e) {
+		console.error("logUsage failed:", e);
+	}
 }
 
 async function streamToBuffer(stream) {
