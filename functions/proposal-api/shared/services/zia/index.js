@@ -164,29 +164,82 @@ function extractStructuredData(response) {
 		throw new ProposalError("INVALID_ZIA_RESPONSE", "Zia Agent returned an invalid response structure.");
 	}
 
-	let target = response;
+	console.log("[W2 Zia] Raw response keys:", JSON.stringify(Object.keys(response)));
 	if (response.data && typeof response.data === "object") {
+		console.log("[W2 Zia] response.data keys:", JSON.stringify(Object.keys(response.data)));
+	}
+
+	let target = response;
+
+	if (response.customer || response.goals || response.requirements) {
+		target = response;
+	}
+	else if (response.data && typeof response.data === "object") {
 		if (response.data.customer || response.data.goals || response.data.requirements) {
 			target = response.data;
 		} else if (response.data.response) {
-			if (typeof response.data.response === "object") target = response.data.response;
-			else if (typeof response.data.response === "string") {
+			if (typeof response.data.response === "object") {
+				target = response.data.response;
+			} else if (typeof response.data.response === "string") {
 				const inner = extractJsonFromString(response.data.response);
 				if (inner) target = inner;
 			}
 		}
-	} else if (typeof response.output === "string") {
-		const inner = extractJsonFromString(response.output);
+	} else if (typeof response.data === "string") {
+		const inner = extractJsonFromString(response.data);
 		if (inner) target = inner;
 	}
 
-	// Normalize customer fields
+	if (target === response && response.output) {
+		if (typeof response.output === "object") target = response.output;
+		else if (typeof response.output === "string") {
+			const inner = extractJsonFromString(response.output);
+			if (inner) target = inner;
+		}
+	}
+
+	if (target === response && response.response) {
+		if (typeof response.response === "object") target = response.response;
+		else if (typeof response.response === "string") {
+			const inner = extractJsonFromString(response.response);
+			if (inner) target = inner;
+		}
+	}
+
+	if (target === response && response.result) {
+		if (typeof response.result === "object") target = response.result;
+		else if (typeof response.result === "string") {
+			const inner = extractJsonFromString(response.result);
+			if (inner) target = inner;
+		}
+	}
+
+	if (target === response && response.message && typeof response.message === "string") {
+		const inner = extractJsonFromString(response.message);
+		if (inner) target = inner;
+	}
+
+	if (target === response && response.text && typeof response.text === "string") {
+		const inner = extractJsonFromString(response.text);
+		if (inner) target = inner;
+	}
+
+	if (target === response && response.content) {
+		if (typeof response.content === "object") target = response.content;
+		else if (typeof response.content === "string") {
+			const inner = extractJsonFromString(response.content);
+			if (inner) target = inner;
+		}
+	}
+
+	console.log("[W2 Zia] Extracted target keys:", target ? JSON.stringify(Object.keys(target).slice(0, 15)) : "null");
+
 	const customer = target.customer && typeof target.customer === "object" ? target.customer : {};
 	return {
 		customer: {
-			company_name: String(customer.company_name || "").trim(),
-			industry: String(customer.industry || "").trim(),
-			business_context: String(customer.business_context || "").trim()
+			company_name: String(customer.company_name || target.company_name || target.customer_name || "").trim(),
+			industry: String(customer.industry || target.industry || "").trim(),
+			business_context: String(customer.business_context || target.business_context || target.overview || "").trim()
 		},
 		goals: Array.isArray(target.goals) ? target.goals : [],
 		requirements: Array.isArray(target.requirements) ? target.requirements : [],

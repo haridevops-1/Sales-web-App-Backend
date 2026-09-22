@@ -180,6 +180,19 @@ module.exports = async (req, res) => {
 			connectionCredentials
 		);
 
+		// Debug: log what the Agent returned (keys only, no sensitive data)
+		console.log("[W2 Processor] Zia response received. Keys:", JSON.stringify(Object.keys(ziaResponse || {})));
+		console.log("[W2 Processor] customer:", JSON.stringify(ziaResponse.customer || "missing"));
+		console.log("[W2 Processor] Array field lengths:", JSON.stringify({
+			goals: (ziaResponse.goals || []).length,
+			requirements: (ziaResponse.requirements || []).length,
+			pain_points: (ziaResponse.pain_points || []).length,
+			proposed_solution: (ziaResponse.proposed_solution || []).length,
+			zoho_solutions: (ziaResponse.zoho_solutions || []).length,
+			deliverables: (ziaResponse.deliverables || []).length,
+			milestones: (ziaResponse.implementation_milestones || []).length
+		}));
+
 		// Stage 2: Agent finished -> Hydrate Spikra Master Proposal Template
 		await setPackageStatus(app, packageId, "GENERATING");
 
