@@ -20,6 +20,11 @@ const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNEC
 const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
 const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim();
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+// Conservative default under the Zia Agent's own MORE_THAN_MAX_LENGTH cutoff - tune via
+// env var once the real limit is confirmed empirically (start low, raise only after a
+// successful test at a higher value; the failure mode for going too high is a full
+// generation failure, not a partial one).
+const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS || 8000);
 
 module.exports = async (req, res) => {
 	const requestId = newRequestId();
@@ -87,7 +92,13 @@ module.exports = async (req, res) => {
 			throw new ProposalError("PROCESSING_FAILED", "None of the files in this package could be processed.");
 		}
 
-		const consolidatedContent = sourceBlocks.join("\n\n");
+		// The Zia Agent trigger API enforces its own hard input-size limit and rejects
+		// anything over it with MORE_THAN_MAX_LENGTH (confirmed directly from a live
+		// failure - large packages with spreadsheets converted to CSV text routinely
+		// exceed it). Cap the total, but distribute the budget across every source
+		// proportionally rather than silently dropping later files entirely, so each
+		// document is still represented (truncated, clearly marked) instead of missing.
+		const consolidatedContent = capDiscoveryContent(sourceBlocks, MAX_DISCOVERY_CONTENT_CHARS);
 
 		let connectionCredentials = null;
 		if (PROPOSAL_ZIA_CONNECTION_LINK_NAME) {
@@ -184,6 +195,22 @@ async function generateProposalInBackground(app, ctx) {
 		});
 		logEvent("proposal-processor", { requestId, operation: "generate_proposal", packageId, status: "failed", errorCode: safeCode });
 	}
+}
+
+// Splits the char budget evenly across every source block first, so a package with
+// many small files loses nothing (each fits under its share) while a package with a
+// few huge files (e.g. spreadsheets converted to CSV text) gets each one trimmed
+// rather than the whole request rejected outright or later files dropped entirely.
+function capDiscoveryContent(sourceBlocks, maxChars) {
+	const joined = sourceBlocks.join("\n\n");
+	if (joined.length <= maxChars) return joined;
+
+	const perBlockBudget = Math.max(200, Math.floor(maxChars / sourceBlocks.length));
+	const truncatedBlocks = sourceBlocks.map((block) => {
+		if (block.length <= perBlockBudget) return block;
+		return `${block.slice(0, perBlockBudget)}\n... [truncated - this source exceeds the size limit for a single request]`;
+	});
+	return truncatedBlocks.join("\n\n");
 }
 
 function buildStorableProposalContent(ziaResponse, sources) {
