@@ -32,7 +32,7 @@ const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalysts
 // here touches Workspace 1's. Its real onslate.com domain isn't known until it's deployed,
 // so this stays unset (falling back to the raw API view URL below, which already works)
 // until PROPOSAL_SLATE_APP_URL is filled in with that domain.
-const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-customer-prop-msdrrgbk.onslate.com").trim();
+const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-w2-proposal-jmdbymcs.onslate.com").trim();
 
 // Same lesson as Workspace 1's Function 3: this is invoked synchronously by
 // proposal-processor (via app.functions().execute()), which is itself awaited by the
@@ -177,6 +177,7 @@ async function generateInBackground(app, ctx) {
 			proposalId,
 			durationMs: Date.now() - startedAt,
 			status: "SUCCESS",
+			modelName: client.lastModel || "Customer Proposal Generation Agent",
 			usage: client.lastUsage
 		});
 		logEvent("proposal-agent", { requestId, operation: "generate_proposal", packageId, status: "success" });
@@ -245,16 +246,16 @@ async function renderAndPublishDocument(app, userId, packageId, proposalId, ziaR
 		: `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}`;
 }
 
-async function logUsage(app, { userId, packageId, proposalId, durationMs, status, errorCode, usage }) {
+async function logUsage(app, { userId, packageId, proposalId, durationMs, status, errorCode, modelName, usage }) {
 	try {
 		await app.datastore().table(AI_USAGE_LOG_TABLE).insertRow({
 			user_id: userId,
 			package_id: packageId,
 			proposal_id: proposalId,
-			model_name: null, // not returned by the Agent response - see services/zia extractUsage notes
-			input_tokens: usage ? usage.input_tokens : null,
-			output_tokens: usage ? usage.output_tokens : null,
-			total_tokens: usage ? usage.total_tokens : null,
+			model_name: modelName ? String(modelName).slice(0, 250) : "Customer Proposal Generation Agent",
+			input_tokens: usage && typeof usage.input_tokens === "number" ? usage.input_tokens : null,
+			output_tokens: usage && typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+			total_tokens: usage && typeof usage.total_tokens === "number" ? usage.total_tokens : null,
 			processing_time_ms: durationMs,
 			status,
 			error_code: errorCode || null

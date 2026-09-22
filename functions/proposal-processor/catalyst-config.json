@@ -13,7 +13,7 @@
       "WORKDRIVE_API_DOMAIN": "https://www.zohoapis.com/workdrive/api/v1",
       "PROPOSAL_ZIA_AGENT_ENDPOINT": "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000166001/trigger",
       "PROPOSAL_ZIA_CONNECTION_LINK_NAME": "internalsaleshub",
-      "PROPOSAL_SLATE_APP_URL": "https://spikra-customer-prop-msdrrgbk.onslate.com"
+      "PROPOSAL_SLATE_APP_URL": "https://spikra-w2-proposal-jmdbymcs.onslate.com"
     }
   },
   "execution": {

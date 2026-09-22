@@ -210,6 +210,8 @@ async function createPackageFromUpload(app, userId, packageName, files) {
 		const fileRow = await filesTable.insertRow({
 			package_id: packageId,
 			workdrive_file_id: storageKey,
+			storage_object_key: storageKey,
+			source_type: "LOCAL_STORAGE",
 			file_name: file.fileName,
 			file_type: ext.replace(".", "").toUpperCase(),
 			mime_type: file.contentType || "application/octet-stream",
@@ -249,6 +251,8 @@ async function addUploadedFilesToPackage(app, packageId, userId, files) {
 		await filesTable.insertRow({
 			package_id: packageId,
 			workdrive_file_id: storageKey,
+			storage_object_key: storageKey,
+			source_type: "LOCAL_STORAGE",
 			file_name: file.fileName,
 			file_type: ext.replace(".", "").toUpperCase(),
 			mime_type: file.contentType || "application/octet-stream",
@@ -292,6 +296,8 @@ async function createPackage(app, userId, body) {
 		const fileRow = await filesTable.insertRow({
 			package_id: packageId,
 			workdrive_file_id: storageKey,
+			storage_object_key: storageKey,
+			source_type: "LOCAL_STORAGE",
 			file_name: String(file.file_name),
 			file_type: String(file.file_type || "").trim(),
 			mime_type: String(file.mime_type || "").trim(),
@@ -323,7 +329,9 @@ async function addFilesToPackage(app, packageId, userId, files) {
 	for (const file of files) {
 		await filesTable.insertRow({
 			package_id: packageId,
-			workdrive_file_id: String(file.workdrive_file_id),
+			workdrive_file_id: String(file.workdrive_file_id || ""),
+			storage_object_key: String(file.storage_object_key || file.workdrive_file_id || ""),
+			source_type: String(file.source_type || "LOCAL_STORAGE"),
 			file_name: String(file.file_name),
 			file_type: String(file.file_type || "").trim(),
 			mime_type: String(file.mime_type || "").trim(),
@@ -432,9 +440,10 @@ function formatFileRow(row) {
 		file_type: row.file_type,
 		mime_type: row.mime_type,
 		file_size: row.file_size,
-		source_type: "LOCAL_STORAGE",
-		source_reference: row.workdrive_file_id,
-		workdrive_file_id: row.workdrive_file_id,
+		source_type: row.source_type || "LOCAL_STORAGE",
+		storage_object_key: row.storage_object_key || row.workdrive_file_id,
+		source_reference: row.storage_object_key || row.workdrive_file_id,
+		workdrive_file_id: row.workdrive_file_id || row.storage_object_key,
 		upload_status: "UPLOADED",
 		extraction_status: row.processing_status || "PENDING",
 		processing_status: row.processing_status || "PENDING"

@@ -18,7 +18,7 @@ const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
 const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
 const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "internalsaleshub").trim();
 const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
-const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-customer-prop-msdrrgbk.onslate.com").trim();
+const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-w2-proposal-jmdbymcs.onslate.com").trim();
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS || 8000);
 
@@ -144,11 +144,27 @@ module.exports = async (req, res) => {
 					content: text
 				});
 
-				await updateFileStatus(app, fileId, "EXTRACTED");
+				const extraFields = {};
+				const resolvedKey = fileRow.storage_object_key || fileRow.workdrive_file_id || "";
+				if (!fileRow.storage_object_key && resolvedKey) {
+					extraFields.storage_object_key = resolvedKey;
+				}
+				if (!fileRow.source_type) {
+					extraFields.source_type = "LOCAL_STORAGE";
+				}
+				await updateFileStatus(app, fileId, "EXTRACTED", null, extraFields);
 				anySucceeded = true;
 			} catch (fileErr) {
 				const code = fileErr instanceof ProposalError ? fileErr.code : "EXTRACTION_FAILED";
-				await updateFileStatus(app, fileId, code === "UNSUPPORTED_FILE_TYPE" ? "UNSUPPORTED" : "FAILED", fileErr.message);
+				const extraFields = {};
+				const resolvedKey = fileRow.storage_object_key || fileRow.workdrive_file_id || "";
+				if (!fileRow.storage_object_key && resolvedKey) {
+					extraFields.storage_object_key = resolvedKey;
+				}
+				if (!fileRow.source_type) {
+					extraFields.source_type = "LOCAL_STORAGE";
+				}
+				await updateFileStatus(app, fileId, code === "UNSUPPORTED_FILE_TYPE" ? "UNSUPPORTED" : "FAILED", fileErr.message, extraFields);
 			}
 		}
 
@@ -223,6 +239,7 @@ module.exports = async (req, res) => {
 			proposalId,
 			durationMs: Date.now() - startedAt,
 			status: "SUCCESS",
+			modelName: client.lastModel || "Customer Proposal Generation Agent",
 			usage: client.lastUsage
 		});
 
@@ -246,7 +263,8 @@ module.exports = async (req, res) => {
 				generated_url: generatedUrl,
 				content: ziaResponse,
 				source_document_count: sources.length,
-				model_name: "Customer Proposal Generation Agent"
+				model_name: client.lastModel || "Customer Proposal Generation Agent",
+				usage: client.lastUsage
 			}
 		});
 		logEvent("proposal-processor", { requestId, operation, packageId, proposalId, status: "success" });
@@ -341,10 +359,10 @@ async function logUsage(app, { userId, packageId, proposalId, durationMs, status
 			user_id: userId,
 			package_id: packageId,
 			proposal_id: proposalId,
-			model_name: modelName ? String(modelName).slice(0, 250) : null,
-			input_tokens: usage ? usage.input_tokens : null,
-			output_tokens: usage ? usage.output_tokens : null,
-			total_tokens: usage ? usage.total_tokens : null,
+			model_name: modelName ? String(modelName).slice(0, 250) : "Customer Proposal Generation Agent",
+			input_tokens: usage && typeof usage.input_tokens === "number" ? usage.input_tokens : null,
+			output_tokens: usage && typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+			total_tokens: usage && typeof usage.total_tokens === "number" ? usage.total_tokens : null,
 			processing_time_ms: durationMs,
 			status,
 			error_code: errorCode || null
@@ -429,9 +447,9 @@ async function setPackageStatus(app, packageId, status) {
 	} catch {}
 }
 
-async function updateFileStatus(app, fileRowId, status, errorMessage) {
+async function updateFileStatus(app, fileRowId, status, errorMessage, extraFields = {}) {
 	try {
-		const payload = { ROWID: fileRowId, processing_status: status };
+		const payload = { ROWID: fileRowId, processing_status: status, ...extraFields };
 		if (errorMessage) payload.error_message = String(errorMessage).slice(0, 2000);
 		await app.datastore().table(DISCOVERY_FILES_TABLE).updateRow(payload);
 	} catch {}
