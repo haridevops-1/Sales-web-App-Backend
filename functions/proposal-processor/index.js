@@ -427,7 +427,7 @@ async function getOwnedPackageWithFiles(app, packageId, userId) {
 	if (!packageRow) {
 		throw new ProposalError("NOT_FOUND", "Discovery session not found.", 404);
 	}
-	if (packageRow.user_id && packageRow.user_id !== "local-user" && packageRow.user_id !== "hariharan@spikra.com" && userId !== "local-user" && userId !== "hariharan@spikra.com" && String(packageRow.user_id) !== String(userId)) {
+	if (packageRow.user_id && String(packageRow.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery session.", 403);
 	}
 

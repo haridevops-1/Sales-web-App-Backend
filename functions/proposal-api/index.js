@@ -23,6 +23,7 @@ try {
 const PROPOSALS_TABLE = "W2_PROPOSALS";
 const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
 const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
+const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
 
 module.exports = async (req, res) => {
 	const requestId = newRequestId();
@@ -54,166 +55,6 @@ module.exports = async (req, res) => {
 			operation = "workdrive_browse";
 			sendJson(res, 200, { success: true, folders: [], files: [] });
 			logEvent("proposal-api", { requestId, operation, status: "success" });
-			return;
-		}
-
-		if (resource === "test_package_run") {
-			try {
-				operation = "test_package_run";
-				const pkgId = urlObj.searchParams.get("package_id") || "822000000790032";
-				
-				let step = "1. loading zia";
-				const { getProposalZiaAgentClient } = require("./shared/services/zia");
-				const client = getProposalZiaAgentClient();
-
-				step = "2. loading datastore";
-				const packageRow = await app.datastore().table("W2_DISCOVERY_PACKAGES").getRow(pkgId);
-				const q = "SELECT * FROM W2_DISCOVERY_FILES WHERE package_id = '" + pkgId + "'";
-				const r = await app.zcql().executeZCQLQuery(q);
-				const fileRows = (r || []).map(x => x.W2_DISCOVERY_FILES || x);
-
-				step = "3. loading connCreds";
-				const connCreds = await app.connections().getConnectionCredentials("internalsaleshub");
-
-				step = "4. loading docProc";
-				const docProc = require("./shared/services/document-processing");
-
-				step = "5. extracting files";
-				const sourceBlocks = [];
-				for (const f of fileRows) {
-					const idOrKey = String(f.workdrive_file_id || "");
-					let cleanKey = idOrKey;
-					let bName = "spikra-w2-proposal-documents-698386704";
-					if (cleanKey.startsWith(bName + "/")) cleanKey = cleanKey.slice(bName.length + 1);
-					const stream = await app.stratus().bucket(bName).getObject(cleanKey);
-					const buf = await streamToBuffer(stream);
-					const { text } = await docProc.extractContent(buf, { fileName: f.file_name, mimeType: f.mime_type });
-					sourceBlocks.push("=== " + f.file_name + " ===\n" + text);
-				}
-
-				step = "6. calling zia";
-				const fullText = sourceBlocks.join("\n\n");
-				const ziaRes = await client.generateProposal(fullText, { businessName: packageRow.package_name, industry: "" }, connCreds);
-
-				sendJson(res, 200, { success: true, ziaRes, fullTextLength: fullText.length });
-				return;
-			} catch (err) {
-				sendJson(res, 200, { success: false, caughtError: err.message, stack: err.stack, step });
-				return;
-			}
-		}
-		if (resource === "test_zia_call") {
-			operation = "test_zia_call";
-			let connCreds = null;
-			let connError = null;
-			try {
-				connCreds = await app.connections().getConnectionCredentials("internalsaleshub");
-			} catch (ce) {
-				connError = ce.message;
-			}
-
-			const https = require('https');
-			const testPayload = JSON.stringify({
-				query: "Analyze customer requirements and generate structured proposal. Customer: Test Corp",
-				systemArgs: {},
-				reasoning: false,
-				attachments: []
-			});
-
-			const headers = {
-				"Content-Type": "application/json; charset=utf-8",
-				"Accept": "application/json, text/plain, */*",
-				...(connCreds && connCreds.headers ? connCreds.headers : {})
-			};
-			headers["Content-Length"] = Buffer.byteLength(testPayload);
-
-			const ziaRes = await new Promise((resolve) => {
-				const reqZ = https.request({
-					hostname: 'agents.zoho.com',
-					path: '/ziaagents/api/v1/agents/3266000000166001/trigger',
-					method: 'POST',
-					headers,
-					timeout: 30000
-				}, (r) => {
-					let body = '';
-					r.on('data', chunk => body += chunk);
-					r.on('end', () => resolve({ statusCode: r.statusCode, body }));
-				});
-				reqZ.on('error', err => resolve({ error: err.message }));
-				reqZ.on('timeout', () => { reqZ.destroy(); resolve({ error: 'timeout' }); });
-				reqZ.write(testPayload);
-				reqZ.end();
-			});
-
-			sendJson(res, 200, { success: true, connCreds: connCreds ? { hasHeaders: Boolean(connCreds.headers), headerKeys: Object.keys(connCreds.headers || {}) } : null, connError, ziaRes });
-			return;
-		}
-
-		if (resource === "ai_logs") {
-			operation = "get_ai_logs";
-			const query = "SELECT * FROM W2_AI_USAGE_LOG ORDER BY CREATEDTIME DESC LIMIT 20";
-			let logs = [];
-			try {
-				const r = await app.zcql().executeZCQLQuery(query);
-				logs = (r || []).map(x => x.W2_AI_USAGE_LOG || x);
-
-				// Auto-backfill empty legacy rows in W2_AI_USAGE_LOG
-				const table = app.datastore().table("W2_AI_USAGE_LOG");
-				for (const row of logs) {
-					if (!row.model_name || !row.input_tokens || !row.output_tokens) {
-						const updatedFields = {
-							ROWID: row.ROWID,
-							model_name: row.model_name || "Customer Proposal Generation Agent",
-							input_tokens: row.input_tokens || 1240,
-							output_tokens: row.output_tokens || 950,
-							total_tokens: row.total_tokens || 2190
-						};
-						await table.updateRow(updatedFields).catch(() => {});
-						Object.assign(row, updatedFields);
-					}
-				}
-			} catch (e) {
-				logs = [{ error: e.message }];
-			}
-			sendJson(res, 200, { success: true, logs });
-			return;
-		}
-
-		if (resource === "discovery_files") {
-			operation = "get_discovery_files";
-			const query = "SELECT * FROM W2_DISCOVERY_FILES ORDER BY CREATEDTIME DESC LIMIT 50";
-			let files = [];
-			let backfilledCount = 0;
-			try {
-				const r = await app.zcql().executeZCQLQuery(query);
-				files = (r || []).map(x => x.W2_DISCOVERY_FILES || x);
-				const table = app.datastore().table("W2_DISCOVERY_FILES");
-				for (const row of files) {
-					let needsUpdate = false;
-					const updatedFields = { ROWID: row.ROWID };
-					const resolvedKey = row.storage_object_key || row.workdrive_file_id || "";
-					if (!row.storage_object_key && resolvedKey) {
-						updatedFields.storage_object_key = resolvedKey;
-						needsUpdate = true;
-					}
-					if (!row.source_type) {
-						updatedFields.source_type = "LOCAL_STORAGE";
-						needsUpdate = true;
-					}
-					if (needsUpdate) {
-						try {
-							await table.updateRow(updatedFields);
-							Object.assign(row, updatedFields);
-							backfilledCount++;
-						} catch (err) {
-							console.error("Backfill failed for", row.ROWID, err.message);
-						}
-					}
-				}
-			} catch (e) {
-				files = [{ error: e.message }];
-			}
-			sendJson(res, 200, { success: true, count: files.length, backfilledCount, sampleRow: files[0] || null, files });
 			return;
 		}
 
@@ -377,7 +218,7 @@ async function updateProposalStatus(app, proposalId, userId, newStatus) {
 		throw new ProposalError("VALIDATION_FAILED", `status must be one of: ${VALID_STATUSES.join(", ")}.`);
 	}
 	const row = await getProposalRow(app, proposalId);
-	if (row.user_id && row.user_id !== "local-user" && row.user_id !== "hariharan@spikra.com" && userId !== "local-user" && userId !== "hariharan@spikra.com" && String(row.user_id) !== String(userId)) {
+	if (row.user_id && String(row.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "Only the proposal creator can change its status.", 403);
 	}
 	if (!isValidStatusTransition(row.status, newStatus)) {
@@ -429,15 +270,14 @@ function formatProposal(row) {
 	};
 }
 
+// Falls back to the real API view route (never a hardcoded onslate.com domain) when a
+// proposal has no stored generated_url yet - the Slate app's own domain is read from
+// PROPOSAL_SLATE_APP_URL wherever a URL first gets built (proposal-processor), so this
+// function never needs to know or hardcode it.
 function sanitizeProposalUrl(url, proposalId) {
-	const defaultUrl = `https://spikra-w2-proposal-jmdbymcs.onslate.com/?proposal_id=${encodeURIComponent(proposalId || '')}`;
-	if (!url || typeof url !== "string") return defaultUrl;
-	const trimmed = url.trim();
-	if (!trimmed) return defaultUrl;
-	if (trimmed.includes("spikra-customer-prop-msdrrgbk.onslate.com")) {
-		return trimmed.replace("spikra-customer-prop-msdrrgbk.onslate.com", "spikra-w2-proposal-jmdbymcs.onslate.com");
-	}
-	return trimmed;
+	const trimmed = String(url || "").trim();
+	if (trimmed) return trimmed;
+	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId || "")}`;
 }
 
 function escapeQueryValue(value) {

@@ -377,7 +377,7 @@ async function getOwnedPackageRow(app, packageId, userId) {
 	if (!row) {
 		throw new ProposalError("NOT_FOUND", "Discovery package not found.", 404);
 	}
-	if (row.user_id && row.user_id !== "local-user" && row.user_id !== "hariharan@spikra.com" && userId !== "local-user" && userId !== "hariharan@spikra.com" && String(row.user_id) !== String(userId)) {
+	if (row.user_id && String(row.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery package.", 403);
 	}
 	return row;
@@ -409,9 +409,7 @@ async function getPackageWithFiles(app, packageId, userId, preloadedRow) {
 }
 
 async function listPackages(app, userId) {
-	const query = (userId === "local-user")
-		? `SELECT * FROM ${DISCOVERY_PACKAGES_TABLE} ORDER BY CREATEDTIME DESC`
-		: `SELECT * FROM ${DISCOVERY_PACKAGES_TABLE} WHERE user_id = '${escapeQueryValue(userId)}' ORDER BY CREATEDTIME DESC`;
+	const query = `SELECT * FROM ${DISCOVERY_PACKAGES_TABLE} WHERE user_id = '${escapeQueryValue(userId)}' ORDER BY CREATEDTIME DESC`;
 	let rows = [];
 	try {
 		const result = await app.zcql().executeZCQLQuery(query);

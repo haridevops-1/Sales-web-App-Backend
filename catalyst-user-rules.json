@@ -187,39 +187,6 @@
     }
   },
   {
-    "name": "proposal-discovery-session-post-api",
-    "source_endpoint": "/proposal/discovery/session",
-    "target_endpoint": "/server/proposal-discovery/",
-    "target": "advancedio",
-    "method": "POST",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "proposal-discovery-session-get-api",
-    "source_endpoint": "/proposal/discovery/session",
-    "target_endpoint": "/server/proposal-discovery/",
-    "target": "advancedio",
-    "method": "GET",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "proposal-processor-status-api",
-    "source_endpoint": "/proposal/processor/status",
-    "target_endpoint": "/server/proposal-processor/",
-    "target": "advancedio",
-    "method": "GET",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
     "name": "proposal-processor-api",
     "source_endpoint": "/proposal/processor/process",
     "target_endpoint": "/server/proposal-processor/",
