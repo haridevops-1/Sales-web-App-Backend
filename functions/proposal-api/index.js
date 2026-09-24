@@ -124,6 +124,9 @@ async function handleViewProposal(app, urlObj, res) {
 		row = null;
 	}
 	if (!row) {
+		row = await findProposalByPackage(app, proposalId);
+	}
+	if (!row) {
 		sendNotFoundHtml(res, "This proposal could not be found.");
 		return;
 	}
@@ -131,14 +134,21 @@ async function handleViewProposal(app, urlObj, res) {
 	try {
 		let buffer = null;
 		if (row.user_id && row.package_id) {
-			const objectKey = buildProposalDocumentKey(row.user_id, row.package_id, proposalId);
+			const realProposalId = String(row.ROWID || proposalId);
+			const objectKeys = [
+				buildProposalDocumentKey(row.user_id, row.package_id, realProposalId),
+				buildProposalDocumentKey(row.user_id, row.package_id, proposalId)
+			];
 			const bucketCandidates = [PROPOSAL_DOCUMENTS_BUCKET_NAME, PROCESS_DOCUMENTS_BUCKET_NAME];
 			for (const bName of bucketCandidates) {
-				try {
-					const stream = await app.stratus().bucket(bName).getObject(objectKey);
-					buffer = await streamToBuffer(stream);
-					if (buffer && buffer.length > 0) break;
-				} catch {}
+				for (const objectKey of objectKeys) {
+					try {
+						const stream = await app.stratus().bucket(bName).getObject(objectKey);
+						buffer = await streamToBuffer(stream);
+						if (buffer && buffer.length > 0) break;
+					} catch {}
+				}
+				if (buffer && buffer.length > 0) break;
 			}
 		}
 
@@ -193,12 +203,11 @@ function escapeHtmlText(str) {
 async function getProposalRow(app, proposalId) {
 	try {
 		const row = await app.datastore().table(PROPOSALS_TABLE).getRow(proposalId);
-		if (!row) throw new ProposalError("NOT_FOUND", "Proposal not found.", 404);
-		return row;
-	} catch (err) {
-		if (err instanceof ProposalError) throw err;
-		throw new ProposalError("NOT_FOUND", "Proposal not found.", 404);
-	}
+		if (row) return row;
+	} catch {}
+	const byPkg = await findProposalByPackage(app, proposalId);
+	if (byPkg) return byPkg;
+	throw new ProposalError("NOT_FOUND", "Proposal not found.", 404);
 }
 
 async function listProposals(app, packageId) {

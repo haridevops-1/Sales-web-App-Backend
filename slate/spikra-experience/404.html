@@ -1151,9 +1151,6 @@
   </div>
   <div id="spikra-loader-title" style="font-size:17px;font-weight:600;letter-spacing:-0.01em;color:#0c2c3e;margin-bottom:6px;">Loading Proposal Experience</div>
   <div id="spikra-loader-sub" style="font-size:13.5px;color:#6B7C87;transition:all 0.3s ease;">Preparing personalized presentation…</div>
-  <div id="spikra-loader-fallback-prompt" style="display:none;margin-top:24px;text-align:center;font-size:13px;color:#64748b;">
-    Taking longer than usual? <a id="spikra-direct-link" href="#" target="_blank" rel="noopener" style="color:#f4611f;font-weight:600;text-decoration:underline;margin-left:4px;">Open Direct View ↗</a>
-  </div>
   <style>
     @keyframes spikra-orbit-cw { to { transform: rotate(360deg); } }
     @keyframes spikra-orbit-ccw { to { transform: rotate(-360deg); } }
@@ -1672,7 +1669,6 @@
   var activeSlug = window.__spikraActiveSlug || "";
 
   var subElem = document.getElementById("spikra-loader-sub");
-  var promptElem = document.getElementById("spikra-loader-fallback-prompt");
   var directLinkElem = document.getElementById("spikra-direct-link");
   if (directLinkElem) directLinkElem.href = targetUrl;
 
@@ -1684,14 +1680,9 @@
     if (subElem) subElem.textContent = "Rendering proposal layout and components…";
   }, 5000);
 
-  var t3 = setTimeout(function() {
-    if (promptElem) promptElem.style.display = "block";
-  }, 7500);
-
   function clearProgressTimers() {
     clearTimeout(t1);
     clearTimeout(t2);
-    clearTimeout(t3);
   }
 
   var isLoaderDismissed = false;

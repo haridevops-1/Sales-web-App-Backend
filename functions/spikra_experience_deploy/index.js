@@ -339,7 +339,7 @@ module.exports = async (req, res) => {
 			decodeURIComponent(friendlySlugMatch[1]).endsWith("_proposal");
 
 		if (currentStatus === "PUBLISHED" && existingGeneratedUrl && isValidHttpUrl(existingGeneratedUrl) && isFriendlyUrl) {
-			const isLive = await verifyUrlAccessible(existingGeneratedUrl, 2);
+			const isLive = await verifyUrlAccessible(existingGeneratedUrl);
 			if (isLive) {
 				if (rawExistingGeneratedUrl !== existingGeneratedUrl) {
 					try {

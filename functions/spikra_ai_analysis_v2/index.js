@@ -238,11 +238,11 @@ module.exports = async (req, res) => {
 			const STILL_RUNNING_THRESHOLD_MS = 5 * 60 * 1000;
 
 			if (elapsedMs < STILL_RUNNING_THRESHOLD_MS) {
-				console.log(`AI_ANALYSIS job ${jobId} is still RUNNING (started ${Math.round(elapsedMs / 1000)}s ago) - reporting still-processing instead of re-invoking the Agent.`);
+				console.log(`AI_ANALYSIS job ${jobId} is still RUNNING (started ${Math.round(elapsedMs / 1000)}s ago) - reporting still-processing and halting.`);
 				sendJson(res, 200, {
 					success: false,
 					still_processing: true,
-					message: "Analysis is still in progress. Please check back shortly.",
+					message: "Analysis is already in progress. No duplicate executions allowed.",
 					document_id: documentId,
 					project_id: projectId,
 					job_id: jobId,
@@ -252,7 +252,19 @@ module.exports = async (req, res) => {
 				return;
 			}
 
-			console.log(`AI_ANALYSIS job ${jobId} has been RUNNING for ${Math.round(elapsedMs / 1000)}s - treating as abandoned and retrying.`);
+			// Do not retry abandoned jobs: halt immediately to prevent runaway API invocations
+			console.log(`AI_ANALYSIS job ${jobId} exceeded time threshold. Halting without retrying.`);
+			sendJson(res, 200, {
+				success: false,
+				still_processing: false,
+				message: "Analysis job exceeded execution window. Repeated calls are prevented.",
+				document_id: documentId,
+				project_id: projectId,
+				job_id: jobId,
+				processing_status: "FAILED",
+				job_status: "FAILED"
+			});
+			return;
 		}
 
 		await documentsTable.updateRow({

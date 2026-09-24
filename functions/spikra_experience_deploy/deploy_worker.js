@@ -121,28 +121,23 @@ function formatProposalUrl(rawUrl, experienceId = "", projectId = "") {
 	}
 }
 
-async function verifyUrlAccessible(testUrl, maxAttempts = 3) {
-	for (let i = 1; i <= maxAttempts; i++) {
-		try {
-			const res = await new Promise((resolve) => {
-				const parsed = new URL(testUrl);
-				const client = parsed.protocol === "https:" ? https : http;
-				const req = client.get(testUrl, { timeout: 5000 }, (r) => resolve(r));
-				req.on("error", () => resolve(null));
-				req.on("timeout", () => {
-					req.destroy();
-					resolve(null);
-				});
+async function verifyUrlAccessible(testUrl) {
+	try {
+		const res = await new Promise((resolve) => {
+			const parsed = new URL(testUrl);
+			const client = parsed.protocol === "https:" ? https : http;
+			const req = client.get(testUrl, { timeout: 3000 }, (r) => resolve(r));
+			req.on("error", () => resolve(null));
+			req.on("timeout", () => {
+				req.destroy();
+				resolve(null);
 			});
+		});
 
-			if (res && res.statusCode >= 200 && res.statusCode < 400) {
-				return true;
-			}
-		} catch {}
-		if (i < maxAttempts) {
-			await new Promise((r) => setTimeout(r, 2000));
+		if (res && res.statusCode >= 200 && res.statusCode < 400) {
+			return true;
 		}
-	}
+	} catch {}
 	return false;
 }
 
