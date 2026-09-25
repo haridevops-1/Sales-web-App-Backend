@@ -22,8 +22,10 @@ class ProposalZiaAgentClient {
 		).trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.PROPOSAL_ZIA_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.lastSessionId = null;
+		this.lastModel = null;
+		// Populated only if the raw response actually contains usage data - never invented.
+		// See utils around AI_USAGE_LOG: null fields mean "not returned," not "zero."
 		this.lastUsage = null;
-		this.lastModel = "Customer Proposal Generation Agent";
 	}
 
 	isConfigured() {
@@ -47,7 +49,7 @@ class ProposalZiaAgentClient {
 		const responseData = await this._callAgentEndpoint(payload, connectionCredentials);
 		this.lastSessionId = extractSessionId(responseData);
 		this.lastModel = extractModelName(responseData);
-		this.lastUsage = extractUsage(responseData, query);
+		this.lastUsage = extractUsage(responseData);
 
 		return extractStructuredData(responseData);
 	}
@@ -140,8 +142,10 @@ function extractSessionId(response) {
 	return candidate ? String(candidate).trim() : null;
 }
 
+// Real model name/id as reported by the Agent response, if present - otherwise null.
+// Used for per-model token accounting (W2_AI_USAGE_LOG.model_name); never guessed.
 function extractModelName(response) {
-	if (!response || typeof response !== "object") return "Customer Proposal Generation Agent";
+	if (!response || typeof response !== "object") return null;
 	const candidates = [
 		response.model,
 		response.model_name,
@@ -153,11 +157,13 @@ function extractModelName(response) {
 		response.data && response.data.agentName
 	];
 	const found = candidates.find((c) => typeof c === "string" && c.trim());
-	return found ? found.trim() : "Customer Proposal Generation Agent";
+	return found ? found.trim() : null;
 }
 
-function extractUsage(response, queryText) {
-	if (!response || typeof response !== "object") response = {};
+// Only returns a value if the raw response actually contains usage data under one of
+// these commonly-used field names - otherwise null. Never fabricated (Section 14).
+function extractUsage(response) {
+	if (!response || typeof response !== "object") return null;
 	const candidates = [
 		response.usage,
 		response.data && response.data.usage,
@@ -166,39 +172,18 @@ function extractUsage(response, queryText) {
 		response.data && response.data.tokens,
 		response.metrics
 	];
-	const rawUsage = candidates.find((c) => c && typeof c === "object");
+	const usage = candidates.find((c) => c && typeof c === "object");
+	if (!usage) return null;
 
-	let inputTokens = rawUsage ? (rawUsage.input_tokens ?? rawUsage.prompt_tokens ?? rawUsage.inputTokens ?? null) : null;
-	let outputTokens = rawUsage ? (rawUsage.output_tokens ?? rawUsage.completion_tokens ?? rawUsage.outputTokens ?? null) : null;
-	let totalTokens = rawUsage ? (rawUsage.total_tokens ?? rawUsage.totalTokens ?? null) : null;
-
-	if (typeof inputTokens !== "number") {
-		const inStr = typeof queryText === "string" ? queryText : JSON.stringify(queryText || "");
-		inputTokens = Math.max(12, Math.round(inStr.length / 3.8));
-	}
-
-	if (typeof outputTokens !== "number") {
-		let outStr = "";
-		if (response.data && response.data.response) {
-			outStr = typeof response.data.response === "string" ? response.data.response : JSON.stringify(response.data.response);
-		} else if (response.response) {
-			outStr = typeof response.response === "string" ? response.response : JSON.stringify(response.response);
-		} else if (response.output) {
-			outStr = typeof response.output === "string" ? response.output : JSON.stringify(response.output);
-		} else {
-			outStr = JSON.stringify(response);
-		}
-		outputTokens = Math.max(15, Math.round(outStr.length / 3.8));
-	}
-
-	if (typeof totalTokens !== "number") {
-		totalTokens = inputTokens + outputTokens;
-	}
+	const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? usage.inputTokens ?? null;
+	const outputTokens = usage.output_tokens ?? usage.completion_tokens ?? usage.outputTokens ?? null;
+	if (inputTokens === null && outputTokens === null) return null;
 
 	return {
 		input_tokens: inputTokens,
 		output_tokens: outputTokens,
-		total_tokens: totalTokens
+		total_tokens: usage.total_tokens ?? usage.totalTokens ??
+			(typeof inputTokens === "number" && typeof outputTokens === "number" ? inputTokens + outputTokens : null)
 	};
 }
 
@@ -207,28 +192,16 @@ function extractStructuredData(response) {
 		throw new ProposalError("INVALID_ZIA_RESPONSE", "Zia Agent returned an invalid response structure.");
 	}
 
-	// Log the raw response shape for debugging (keys only, no sensitive data)
-	console.log("[W2 Zia] Raw response keys:", JSON.stringify(Object.keys(response)));
-	if (response.data && typeof response.data === "object") {
-		console.log("[W2 Zia] response.data keys:", JSON.stringify(Object.keys(response.data)));
-	}
-
 	// Comprehensive extraction: check every path the Zia Agent Trigger API might use
-	// (mirrors Workspace 1's proven _extractStructuredData logic)
+	// (mirrors Workspace 1's proven _extractStructuredData logic).
 	let target = response;
 
-	// Direct top-level match (agent returned the JSON directly)
 	if (response.customer || response.goals || response.requirements) {
 		target = response;
-	}
-	// Nested under response.data
-	else if (response.data && typeof response.data === "object") {
+	} else if (response.data && typeof response.data === "object") {
 		if (response.data.customer || response.data.goals || response.data.requirements) {
 			target = response.data;
-		}
-		// Zoho's documented Zia Agents API response shape nests the agent's generated
-		// output at data.response (see the official API reference)
-		else if (response.data.response) {
+		} else if (response.data.response) {
 			if (typeof response.data.response === "object") {
 				target = response.data.response;
 			} else if (typeof response.data.response === "string") {
@@ -241,7 +214,6 @@ function extractStructuredData(response) {
 		if (inner) target = inner;
 	}
 
-	// Check response.output
 	if (target === response && response.output) {
 		if (typeof response.output === "object") {
 			target = response.output;
@@ -251,7 +223,6 @@ function extractStructuredData(response) {
 		}
 	}
 
-	// Check response.response
 	if (target === response && response.response) {
 		if (typeof response.response === "object") {
 			target = response.response;
@@ -261,7 +232,6 @@ function extractStructuredData(response) {
 		}
 	}
 
-	// Check response.result
 	if (target === response && response.result) {
 		if (typeof response.result === "object") {
 			target = response.result;
@@ -271,19 +241,16 @@ function extractStructuredData(response) {
 		}
 	}
 
-	// Check response.message (some agents return content here)
 	if (target === response && response.message && typeof response.message === "string") {
 		const inner = extractJsonFromString(response.message);
 		if (inner) target = inner;
 	}
 
-	// Check response.text
 	if (target === response && response.text && typeof response.text === "string") {
 		const inner = extractJsonFromString(response.text);
 		if (inner) target = inner;
 	}
 
-	// Check response.content
 	if (target === response && response.content) {
 		if (typeof response.content === "object") {
 			target = response.content;
@@ -292,8 +259,6 @@ function extractStructuredData(response) {
 			if (inner) target = inner;
 		}
 	}
-
-	console.log("[W2 Zia] Extracted target keys:", target ? JSON.stringify(Object.keys(target).slice(0, 15)) : "null");
 
 	// Normalize customer fields
 	const customer = target.customer && typeof target.customer === "object" ? target.customer : {};

@@ -4,6 +4,7 @@ const catalyst = require("zcatalyst-sdk-node");
 const { requireWorkdriveSession } = require("./shared/utils/user-context");
 const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
 const { logEvent, newRequestId } = require("./shared/utils/logging");
+const { setAllowOriginHeader } = require("./shared/utils/cors");
 const documentProcessing = require("./shared/services/document-processing");
 const workdrive = require("./shared/services/workdrive");
 const { getProposalZiaAgentClient } = require("./shared/services/zia");
@@ -471,10 +472,7 @@ function escapeQueryValue(value) {
 }
 
 function setCorsHeaders(req, res) {
-	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (origin !== "https://spikra-ai-proposal-app.onslate.com") {
-		res.setHeader("Access-Control-Allow-Origin", origin || "*");
-	}
+	setAllowOriginHeader(req, res);
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }

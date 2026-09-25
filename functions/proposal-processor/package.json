@@ -9,6 +9,6 @@
 		"pdf2json": "^4.1.0",
 		"pdfjs-dist": "^6.3.289",
 		"xlsx": "^0.18.5",
-		"zcatalyst-sdk-node": "latest"
+		"zcatalyst-sdk-node": "^3.4.0"
 	}
 }

@@ -22,6 +22,7 @@ class ProposalZiaAgentClient {
 		).trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.PROPOSAL_ZIA_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.lastSessionId = null;
+		this.lastModel = null;
 		// Populated only if the raw response actually contains usage data - never invented.
 		// See utils around AI_USAGE_LOG: null fields mean "not returned," not "zero."
 		this.lastUsage = null;
@@ -47,6 +48,7 @@ class ProposalZiaAgentClient {
 
 		const responseData = await this._callAgentEndpoint(payload, connectionCredentials);
 		this.lastSessionId = extractSessionId(responseData);
+		this.lastModel = extractModelName(responseData);
 		this.lastUsage = extractUsage(responseData);
 
 		return extractStructuredData(responseData);
@@ -140,11 +142,36 @@ function extractSessionId(response) {
 	return candidate ? String(candidate).trim() : null;
 }
 
+// Real model name/id as reported by the Agent response, if present - otherwise null.
+// Used for per-model token accounting (W2_AI_USAGE_LOG.model_name); never guessed.
+function extractModelName(response) {
+	if (!response || typeof response !== "object") return null;
+	const candidates = [
+		response.model,
+		response.model_name,
+		response.agent_name,
+		response.agentName,
+		response.data && response.data.model,
+		response.data && response.data.model_name,
+		response.data && response.data.agent_name,
+		response.data && response.data.agentName
+	];
+	const found = candidates.find((c) => typeof c === "string" && c.trim());
+	return found ? found.trim() : null;
+}
+
 // Only returns a value if the raw response actually contains usage data under one of
 // these commonly-used field names - otherwise null. Never fabricated (Section 14).
 function extractUsage(response) {
 	if (!response || typeof response !== "object") return null;
-	const candidates = [response.usage, response.data && response.data.usage, response.token_usage];
+	const candidates = [
+		response.usage,
+		response.data && response.data.usage,
+		response.token_usage,
+		response.tokens,
+		response.data && response.data.tokens,
+		response.metrics
+	];
 	const usage = candidates.find((c) => c && typeof c === "object");
 	if (!usage) return null;
 
@@ -155,7 +182,8 @@ function extractUsage(response) {
 	return {
 		input_tokens: inputTokens,
 		output_tokens: outputTokens,
-		total_tokens: usage.total_tokens ?? (typeof inputTokens === "number" && typeof outputTokens === "number" ? inputTokens + outputTokens : null)
+		total_tokens: usage.total_tokens ?? usage.totalTokens ??
+			(typeof inputTokens === "number" && typeof outputTokens === "number" ? inputTokens + outputTokens : null)
 	};
 }
 
@@ -164,29 +192,81 @@ function extractStructuredData(response) {
 		throw new ProposalError("INVALID_ZIA_RESPONSE", "Zia Agent returned an invalid response structure.");
 	}
 
+	// Comprehensive extraction: check every path the Zia Agent Trigger API might use
+	// (mirrors Workspace 1's proven _extractStructuredData logic).
 	let target = response;
-	if (response.data && typeof response.data === "object") {
+
+	if (response.customer || response.goals || response.requirements) {
+		target = response;
+	} else if (response.data && typeof response.data === "object") {
 		if (response.data.customer || response.data.goals || response.data.requirements) {
 			target = response.data;
 		} else if (response.data.response) {
-			if (typeof response.data.response === "object") target = response.data.response;
-			else if (typeof response.data.response === "string") {
+			if (typeof response.data.response === "object") {
+				target = response.data.response;
+			} else if (typeof response.data.response === "string") {
 				const inner = extractJsonFromString(response.data.response);
 				if (inner) target = inner;
 			}
 		}
-	} else if (typeof response.output === "string") {
-		const inner = extractJsonFromString(response.output);
+	} else if (typeof response.data === "string") {
+		const inner = extractJsonFromString(response.data);
 		if (inner) target = inner;
+	}
+
+	if (target === response && response.output) {
+		if (typeof response.output === "object") {
+			target = response.output;
+		} else if (typeof response.output === "string") {
+			const inner = extractJsonFromString(response.output);
+			if (inner) target = inner;
+		}
+	}
+
+	if (target === response && response.response) {
+		if (typeof response.response === "object") {
+			target = response.response;
+		} else if (typeof response.response === "string") {
+			const inner = extractJsonFromString(response.response);
+			if (inner) target = inner;
+		}
+	}
+
+	if (target === response && response.result) {
+		if (typeof response.result === "object") {
+			target = response.result;
+		} else if (typeof response.result === "string") {
+			const inner = extractJsonFromString(response.result);
+			if (inner) target = inner;
+		}
+	}
+
+	if (target === response && response.message && typeof response.message === "string") {
+		const inner = extractJsonFromString(response.message);
+		if (inner) target = inner;
+	}
+
+	if (target === response && response.text && typeof response.text === "string") {
+		const inner = extractJsonFromString(response.text);
+		if (inner) target = inner;
+	}
+
+	if (target === response && response.content) {
+		if (typeof response.content === "object") {
+			target = response.content;
+		} else if (typeof response.content === "string") {
+			const inner = extractJsonFromString(response.content);
+			if (inner) target = inner;
+		}
 	}
 
 	// Normalize customer fields
 	const customer = target.customer && typeof target.customer === "object" ? target.customer : {};
 	return {
 		customer: {
-			company_name: String(customer.company_name || "").trim(),
-			industry: String(customer.industry || "").trim(),
-			business_context: String(customer.business_context || "").trim()
+			company_name: String(customer.company_name || target.company_name || target.customer_name || "").trim(),
+			industry: String(customer.industry || target.industry || "").trim(),
+			business_context: String(customer.business_context || target.business_context || target.overview || "").trim()
 		},
 		goals: Array.isArray(target.goals) ? target.goals : [],
 		requirements: Array.isArray(target.requirements) ? target.requirements : [],

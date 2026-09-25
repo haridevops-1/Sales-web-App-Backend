@@ -68,9 +68,6 @@ function validateZiaResponse(raw) {
 	const errors = [];
 	const data = normalizeZiaResponse(raw);
 
-	// Debug: log what the validator receives
-	console.log("[W2 Validation] Normalized data keys:", data ? JSON.stringify(Object.keys(data)) : "null");
-
 	if (!data || typeof data !== "object" || Array.isArray(data)) {
 		return { valid: false, errors: ["Response is not a JSON object."], normalized: null };
 	}
@@ -78,28 +75,31 @@ function validateZiaResponse(raw) {
 	if (!data.customer || typeof data.customer !== "object") {
 		errors.push("Missing or invalid 'customer' object.");
 	} else {
-		// Company name is flexible — if missing, normalization sets "Customer"
+		// Company name is flexible - normalizeZiaResponse() already defaults it to
+		// "Customer" when absent, so it's never actually missing by this point.
 		if (typeof data.customer.industry !== "string") errors.push("customer.industry must be a string.");
 		if (typeof data.customer.business_context !== "string") errors.push("customer.business_context must be a string.");
 	}
 
 	for (const field of ZIA_RESPONSE_ARRAY_FIELDS) {
 		if (!Array.isArray(data[field])) {
-			// Non-fatal: force it to empty array
 			data[field] = [];
 		} else if (!isStringArray(data[field])) {
-			// Normalization should have already coerced items to strings, but log it
-			console.warn(`[W2 Validation] '${field}' contains non-string items after normalization — forcing string coercion.`);
-			data[field] = data[field].map(item => {
-				if (typeof item === "string") return item;
-				if (item && typeof item === "object") return item.title || item.name || item.text || item.description || JSON.stringify(item);
-				return String(item || "");
-			}).filter(s => s.trim().length > 0);
+			data[field] = data[field]
+				.map((item) => {
+					if (typeof item === "string") return item;
+					if (item && typeof item === "object") return item.title || item.name || item.text || item.description || JSON.stringify(item);
+					return String(item || "");
+				})
+				.filter((s) => s.trim().length > 0);
 		}
 	}
 
-	// Content gate: at least one substantive section must have data. Check both
-	// string-array fields AND object-array fields (deliverables, milestones).
+	// At least one substantive section - mirrors Workspace 1's minimum-content gate so a
+	// near-empty response is rejected rather than stored as a "successful" proposal. Checks
+	// both string-array fields and object-array fields (deliverables, milestones), plus a
+	// real (non-default) customer name/context, since a response can be substantive without
+	// populating every array field.
 	const hasStringContent = ZIA_RESPONSE_ARRAY_FIELDS.some((field) => Array.isArray(data[field]) && data[field].length > 0);
 	const hasDeliverables = Array.isArray(data.deliverables) && data.deliverables.length > 0;
 	const hasMilestones = Array.isArray(data.implementation_milestones) && data.implementation_milestones.length > 0;
@@ -108,9 +108,6 @@ function validateZiaResponse(raw) {
 	const hasContent = hasStringContent || hasDeliverables || hasMilestones || hasCustomerName || hasContext;
 
 	if (errors.length === 0 && !hasContent) {
-		console.warn("[W2 Validation] No content found. Array lengths:", JSON.stringify(
-			ZIA_RESPONSE_ARRAY_FIELDS.reduce((acc, f) => { acc[f] = (data[f] || []).length; return acc; }, {})
-		));
 		errors.push("Response has no content in any section.");
 	}
 

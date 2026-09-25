@@ -4,16 +4,18 @@ const catalyst = require("zcatalyst-sdk-node");
 const path = require("path");
 const crypto = require("crypto");
 
-let requireWorkdriveSession, ProposalError, toErrorResponse, logEvent, newRequestId;
+let requireWorkdriveSession, ProposalError, toErrorResponse, logEvent, newRequestId, setAllowOriginHeader;
 
 try {
 	({ requireWorkdriveSession } = require("./shared/utils/user-context"));
 	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
 	({ logEvent, newRequestId } = require("./shared/utils/logging"));
+	({ setAllowOriginHeader } = require("./shared/utils/cors"));
 } catch {
 	({ requireWorkdriveSession } = require("../../workspace2-proposal/utils/user-context"));
 	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
 	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
+	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
 }
 
 const DISCOVERY_PACKAGES_TABLE = "W2_DISCOVERY_PACKAGES";
@@ -559,10 +561,7 @@ function parseJsonBody(bodyString) {
 }
 
 function setCorsHeaders(req, res) {
-	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (origin !== "https://spikra-ai-proposal-app.onslate.com") {
-		res.setHeader("Access-Control-Allow-Origin", origin || "*");
-	}
+	setAllowOriginHeader(req, res);
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }

@@ -75,20 +75,38 @@ function validateZiaResponse(raw) {
 	if (!data.customer || typeof data.customer !== "object") {
 		errors.push("Missing or invalid 'customer' object.");
 	} else {
-		if (!isNonEmptyString(data.customer.company_name)) errors.push("customer.company_name is required.");
+		// Company name is flexible - normalizeZiaResponse() already defaults it to
+		// "Customer" when absent, so it's never actually missing by this point.
 		if (typeof data.customer.industry !== "string") errors.push("customer.industry must be a string.");
 		if (typeof data.customer.business_context !== "string") errors.push("customer.business_context must be a string.");
 	}
 
 	for (const field of ZIA_RESPONSE_ARRAY_FIELDS) {
-		if (!isStringArray(data[field])) {
-			errors.push(`'${field}' must be an array of strings.`);
+		if (!Array.isArray(data[field])) {
+			data[field] = [];
+		} else if (!isStringArray(data[field])) {
+			data[field] = data[field]
+				.map((item) => {
+					if (typeof item === "string") return item;
+					if (item && typeof item === "object") return item.title || item.name || item.text || item.description || JSON.stringify(item);
+					return String(item || "");
+				})
+				.filter((s) => s.trim().length > 0);
 		}
 	}
 
-	// At least a title and one substantive section - mirrors Workspace 1's minimum-content
-	// gate so a near-empty response is rejected rather than stored as a "successful" proposal.
-	const hasContent = ZIA_RESPONSE_ARRAY_FIELDS.some((field) => Array.isArray(data[field]) && data[field].length > 0);
+	// At least one substantive section - mirrors Workspace 1's minimum-content gate so a
+	// near-empty response is rejected rather than stored as a "successful" proposal. Checks
+	// both string-array fields and object-array fields (deliverables, milestones), plus a
+	// real (non-default) customer name/context, since a response can be substantive without
+	// populating every array field.
+	const hasStringContent = ZIA_RESPONSE_ARRAY_FIELDS.some((field) => Array.isArray(data[field]) && data[field].length > 0);
+	const hasDeliverables = Array.isArray(data.deliverables) && data.deliverables.length > 0;
+	const hasMilestones = Array.isArray(data.implementation_milestones) && data.implementation_milestones.length > 0;
+	const hasCustomerName = data.customer && isNonEmptyString(data.customer.company_name) && data.customer.company_name !== "Customer";
+	const hasContext = data.customer && isNonEmptyString(data.customer.business_context);
+	const hasContent = hasStringContent || hasDeliverables || hasMilestones || hasCustomerName || hasContext;
+
 	if (errors.length === 0 && !hasContent) {
 		errors.push("Response has no content in any section.");
 	}

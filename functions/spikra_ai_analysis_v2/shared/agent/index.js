@@ -267,191 +267,79 @@ class ZiaAgentClient {
 		return response;
 	}
 
+	// Structural normalization only - never injects unrelated generic business content.
+	// hasMeaningfulShowcaseContent() has already gated out empty/unusable responses before
+	// this runs, so everything reaching here is real Agent output; this only enforces
+	// shape (trims strings, caps array lengths, drops malformed entries) and fills a
+	// missing/short field with null or an empty array rather than fabricated filler.
 	normalizeShowcaseContent(data = {}, { businessName = "Spikra", projectName = "Customer Proposal", text = "" }) {
-		const cleanStr = (val, def = "") => {
+		const cleanStr = (val) => {
 			if (typeof val !== "string" || !val.trim() || val.trim().toLowerCase() === "not specified in the source document") {
-				return def;
+				return null;
 			}
 			return val.trim();
 		};
 
-		let title = cleanStr(data.proposal_title);
-		if (!title || title.length > 80) {
-			title = projectName && projectName !== "Customer Proposal" ? projectName : "Zoho CRM & Digital Transformation";
-		}
-
-		let summary = cleanStr(data.project_summary);
-		if (!summary) {
-			summary = `A configured digital platform designed for ${businessName} to unify customer engagement, field workflows, and operational insights.`;
-		}
-
-		const whatWeDeliver = cleanStr(data.what_we_deliver) ||
-			`A configured engagement layer connecting customer touchpoints to core operational systems.`;
-		const spikraWay = cleanStr(data.spikra_way) ||
-			`Clear and structured. We align on requirements first, validate every step, and test thoroughly before launch.`;
-		const howWeSupport = cleanStr(data.how_we_support) ||
-			`Hands-on team training, seamless system integration, and dedicated Hypercare support after go-live.`;
-
-		const fallbackCards = [
-			{ label: "Platform", value: "Zoho CRM Platform", note: "The central engagement layer connecting customer touchpoints to existing systems." },
-			{ label: "Scope", value: "Phased Delivery", note: "Structured rollout across agreed operational milestones to verify success early." },
-			{ label: "Phase 1 Focus", value: "Core Engagement", note: "Streamlined communication and engagement journeys across channels." },
-			{ label: "Core Workflow", value: "Field & Operations", note: "Connected operations, role routing, and automated activity tracking." },
-			{ label: "Integrations", value: "Unified Ecosystem", note: "Bi-directional data exchange with core business applications and databases." },
-			{ label: "Governance", value: "Hypercare & Training", note: "Role-based training, milestone sign-offs, and dedicated post-launch support." }
-		];
+		const title = cleanStr(data.proposal_title && data.proposal_title.length <= 80 ? data.proposal_title : null) ||
+			cleanStr(projectName !== "Customer Proposal" ? projectName : null);
+		const summary = cleanStr(data.project_summary);
+		const whatWeDeliver = cleanStr(data.what_we_deliver);
+		const spikraWay = cleanStr(data.spikra_way);
+		const howWeSupport = cleanStr(data.how_we_support);
 
 		let deliverableCards = [];
-		if (Array.isArray(data.deliverable_cards) && data.deliverable_cards.length > 0) {
-			deliverableCards = data.deliverable_cards.slice(0, 6).map((c, idx) => ({
-				label: cleanStr(c.label, fallbackCards[idx]?.label || "Capability"),
-				value: cleanStr(c.value, fallbackCards[idx]?.value || "Phase Focus"),
-				note: cleanStr(c.note, fallbackCards[idx]?.note || "Configured workflow.")
-			}));
+		if (Array.isArray(data.deliverable_cards)) {
+			deliverableCards = data.deliverable_cards
+				.map((c) => ({ label: cleanStr(c && c.label), value: cleanStr(c && c.value), note: cleanStr(c && c.note) }))
+				.filter((c) => c.label || c.value || c.note)
+				.slice(0, 6);
 		}
-
-		while (deliverableCards.length < 6) {
-			deliverableCards.push(fallbackCards[deliverableCards.length]);
-		}
-
-		const fallbackBenefits = [
-			"Eliminates manual handoffs across sales, field engineering, and service teams.",
-			"Real-time visibility into customer interaction history and project milestones.",
-			"Automated routing ensures prompt follow-up on every customer inquiry.",
-			"Configured security controls maintain role-based access across departments.",
-			"Reduced cycle times from initial inquiry to final execution.",
-			"Centralized reporting delivers actionable metrics directly to leadership."
-		];
 
 		let customerBenefits = [];
-		if (Array.isArray(data.customer_benefits) && data.customer_benefits.length > 0) {
+		if (Array.isArray(data.customer_benefits)) {
 			customerBenefits = data.customer_benefits
-				.map(b => (typeof b === "string" ? b.trim() : (b.text || b.title || b.description || "")).trim())
-				.filter(Boolean);
+				.map((b) => cleanStr(typeof b === "string" ? b : (b && (b.text || b.title || b.description))))
+				.filter(Boolean)
+				.slice(0, 8);
 		}
-
-		if (customerBenefits.length < 6) {
-			for (const fb of fallbackBenefits) {
-				if (customerBenefits.length >= 6) break;
-				if (!customerBenefits.includes(fb)) customerBenefits.push(fb);
-			}
-		}
-		if (customerBenefits.length > 8) customerBenefits = customerBenefits.slice(0, 8);
-
-		const fallbackCapabilities = [
-			{
-				title: "Centralized Customer View",
-				subtitle: "360° Account Management",
-				teaser: "Unified engagement record",
-				description: "Provides a single operational record for all customer accounts, contacts, interactions, and historical requests."
-			},
-			{
-				title: "Field Workflow Automation",
-				subtitle: "Mobile & Site Visits",
-				teaser: "Fast site updates",
-				description: "Enables field teams to capture site details, classify requirements, and update progress in real time."
-			},
-			{
-				title: "Automated Communication",
-				subtitle: "Multi-Channel Alerts",
-				teaser: "Timely notifications",
-				description: "Triggers targeted updates and reminders via email and messaging at each stage of the project lifecycle."
-			},
-			{
-				title: "Ecosystem Integration",
-				subtitle: "System Interoperability",
-				teaser: "Connected platforms",
-				description: "Synchronizes customer data with backend ERP, finance, and operational databases without manual re-entry."
-			},
-			{
-				title: "Executive Insights",
-				subtitle: "Analytics & Governance",
-				teaser: "Data-driven decisions",
-				description: "Delivers comprehensive dashboards tracking lead velocity, conversion rates, and operational SLA adherence."
-			}
-		];
 
 		let capabilities = [];
-		if (Array.isArray(data.capabilities) && data.capabilities.length > 0) {
-			capabilities = data.capabilities.map((cap, idx) => ({
-				title: cleanStr(cap.title, fallbackCapabilities[idx % fallbackCapabilities.length].title),
-				subtitle: cleanStr(cap.subtitle, fallbackCapabilities[idx % fallbackCapabilities.length].subtitle),
-				teaser: cleanStr(cap.teaser, fallbackCapabilities[idx % fallbackCapabilities.length].teaser),
-				description: cleanStr(cap.description, fallbackCapabilities[idx % fallbackCapabilities.length].description)
-			}));
+		if (Array.isArray(data.capabilities)) {
+			capabilities = data.capabilities
+				.map((cap) => ({
+					title: cleanStr(cap && cap.title),
+					subtitle: cleanStr(cap && cap.subtitle),
+					teaser: cleanStr(cap && cap.teaser),
+					description: cleanStr(cap && cap.description)
+				}))
+				.filter((c) => c.title || c.description)
+				.slice(0, 8);
 		}
-
-		while (capabilities.length < 5) {
-			capabilities.push(fallbackCapabilities[capabilities.length]);
-		}
-		if (capabilities.length > 8) capabilities = capabilities.slice(0, 8);
-
-		const fallbackTimeline = [
-			{
-				name: "Discovery & Alignment",
-				duration: "1–2 weeks",
-				items: ["Finalize requirement specifications", "Confirm integration touchpoints", "Lock detailed project scope"],
-				note: "Establishes validated technical baseline before configuration."
-			},
-			{
-				name: "Phase 1 — Core Build",
-				duration: "4–6 weeks",
-				items: ["Configure core modules & pipelines", "Implement role-based access", "Build automated communication workflows"],
-				note: "Delivers the foundational engagement platform."
-			},
-			{
-				name: "Phase 2 — Integrations & Testing",
-				duration: "3–4 weeks",
-				items: ["Connect third-party endpoints", "Perform end-to-end UAT", "Execute data migration and validation"],
-				note: "Ensures seamless interoperability across systems."
-			},
-			{
-				name: "Go-Live & Hypercare",
-				duration: "2–3 weeks",
-				items: ["Role-based user onboarding", "Production deployment", "Dedicated Hypercare support"],
-				note: "Guarantees smooth adoption and rapid resolution of launch questions."
-			}
-		];
 
 		let timelinePhases = [];
-		if (Array.isArray(data.timeline_phases) && data.timeline_phases.length >= 3) {
-			timelinePhases = data.timeline_phases.slice(0, 5).map((p, idx) => ({
-				name: cleanStr(p.name, fallbackTimeline[idx % fallbackTimeline.length].name),
-				duration: cleanStr(p.duration, fallbackTimeline[idx % fallbackTimeline.length].duration),
-				items: Array.isArray(p.items) && p.items.length > 0
-					? p.items.map(it => cleanStr(it)).filter(Boolean)
-					: fallbackTimeline[idx % fallbackTimeline.length].items,
-				note: cleanStr(p.note, fallbackTimeline[idx % fallbackTimeline.length].note)
-			}));
-		} else {
-			timelinePhases = fallbackTimeline;
+		if (Array.isArray(data.timeline_phases)) {
+			timelinePhases = data.timeline_phases
+				.map((p) => ({
+					name: cleanStr(p && p.name),
+					duration: cleanStr(p && p.duration),
+					items: Array.isArray(p && p.items) ? p.items.map(cleanStr).filter(Boolean) : [],
+					note: cleanStr(p && p.note)
+				}))
+				.filter((p) => p.name || p.items.length > 0)
+				.slice(0, 5);
 		}
 
-		const fallbackRollout = [
-			{ label: "Phase 1 Rollout", value: "Core Workflow Launch", note: "Deploy the foundational CRM engagement layer for early operational feedback." },
-			{ label: "Phase 2 Rollout", value: "Full Ecosystem Connect", note: "Activate advanced integrations, reporting dashboards, and extended automation." }
-		];
-
-		let rolloutOverview = fallbackRollout;
+		let rolloutOverview = [];
 		if (Array.isArray(data.rollout_overview) && data.rollout_overview.length === 2) {
-			rolloutOverview = data.rollout_overview.map((r, idx) => ({
-				label: cleanStr(r.label, fallbackRollout[idx].label),
-				value: cleanStr(r.value, fallbackRollout[idx].value),
-				note: cleanStr(r.note, fallbackRollout[idx].note)
+			rolloutOverview = data.rollout_overview.map((r) => ({
+				label: cleanStr(r && r.label), value: cleanStr(r && r.value), note: cleanStr(r && r.note)
 			}));
 		}
 
-		const fallbackDeRisk = [
-			{ label: "Dedicated Hypercare", value: "Zero Disruption", note: "Hands-on post-launch engineering support ensures immediate resolution of any operational queries." },
-			{ label: "BRD Validation", value: "Confirmed Scope", note: "Every technical requirement and assumption is verified during discovery before locked design." }
-		];
-
-		let deRiskSummary = fallbackDeRisk;
+		let deRiskSummary = [];
 		if (Array.isArray(data.de_risk_summary) && data.de_risk_summary.length === 2) {
-			deRiskSummary = data.de_risk_summary.map((d, idx) => ({
-				label: cleanStr(d.label, fallbackDeRisk[idx].label),
-				value: cleanStr(d.value, fallbackDeRisk[idx].value),
-				note: cleanStr(d.note, fallbackDeRisk[idx].note)
+			deRiskSummary = data.de_risk_summary.map((d) => ({
+				label: cleanStr(d && d.label), value: cleanStr(d && d.value), note: cleanStr(d && d.note)
 			}));
 		}
 

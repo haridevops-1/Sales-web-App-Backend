@@ -706,357 +706,53 @@ module.exports = async (context, basicIO) => {
 	}
 };
 
+// Direct, structural consumption of Function 3's already-normalized analysis.json - no
+// second independent normalization/defaulting layer here. Function 3's
+// normalizeShowcaseContent() is the single source of truth for turning Agent output
+// into Showcase-ready content (real values or null/empty, never fabricated); this just
+// makes the fields render-safe (empty string/array instead of null) so the template's
+// string interpolation never prints the literal word "null" - it does not invent content.
 function prepareCustomerContent({ analysisJson = {}, businessName, projectName }) {
-	if (
-		analysisJson &&
-		(analysisJson.deliverable_cards || analysisJson.capabilities || analysisJson.customer_benefits)
-	) {
-		return normalizeExperienceContent(analysisJson, { analysisJson, businessName, projectName });
-	}
+	const hasAnyContent = analysisJson && (
+		(Array.isArray(analysisJson.deliverable_cards) && analysisJson.deliverable_cards.length > 0) ||
+		(Array.isArray(analysisJson.capabilities) && analysisJson.capabilities.length > 0) ||
+		(Array.isArray(analysisJson.customer_benefits) && analysisJson.customer_benefits.length > 0) ||
+		(Array.isArray(analysisJson.timeline_phases) && analysisJson.timeline_phases.length > 0)
+	);
 
-	return fallbackSimplifyContent({ analysisJson, businessName, projectName });
-}
-
-async function simplifyCustomerContent(args) {
-	return prepareCustomerContent(args);
-}
-
-function fallbackSimplifyContent({ analysisJson = {}, businessName, projectName }) {
-	const cleanStr = (val, def = "") => {
-		if (typeof val !== "string" || !val.trim() || val.trim().toLowerCase() === "not specified in the source document") {
-			return def;
-		}
-		return val.trim();
-	};
-
-	const firstSentence = (val, maxWords = 18) => {
-		const s = cleanStr(val);
-		if (!s) return "";
-		const first = s.split(/[.!?](?:\s|$)/)[0].trim();
-		const words = first.split(/\s+/);
-		if (words.length > maxWords) {
-			return words.slice(0, maxWords).join(" ") + "...";
-		}
-		return first + (first.endsWith(".") ? "" : ".");
-	};
-
-	let title = cleanStr(analysisJson.proposal_title);
-	if (!title || title.length > 80) {
-		title = projectName && projectName !== "Customer Proposal" ? projectName : "Zoho CRM & Digital Transformation";
-	}
-
-	let summary = cleanStr(analysisJson.project_summary);
-	if (!summary) {
-		const solDesc = cleanStr(analysisJson.recommended_solution && analysisJson.recommended_solution.description);
-		summary = solDesc || `A configured digital platform designed for ${businessName} to unify customer engagement, field workflows, and operational insights.`;
-	}
-
-	const solDesc = cleanStr(analysisJson.recommended_solution && analysisJson.recommended_solution.description);
-	const whatWeDeliver = solDesc ? firstSentence(solDesc, 22) : `A configured engagement layer connecting customer touchpoints to core operational systems.`;
-	const spikraWay = "Clear and structured. We align on requirements first, validate every step, and test thoroughly before launch.";
-	const howWeSupport = "Hands-on team training, seamless system integration, and dedicated Hypercare support after go-live.";
-
-	const cards = [];
-	const techList = Array.isArray(analysisJson.technical_ecosystem) ? analysisJson.technical_ecosystem : [];
-	const mainPlatform = techList.length > 0 ? techList.slice(0, 2).join(" + ") : "Zoho CRM Platform";
-
-	cards.push({
-		label: "Platform",
-		value: mainPlatform,
-		note: "The central engagement layer connecting customer touchpoints to existing systems."
-	});
-
-	cards.push({
-		label: "Scope",
-		value: "Phased Delivery",
-		note: "Structured rollout across agreed operational milestones to verify success early."
-	});
-
-	const modules = Array.isArray(analysisJson.modules) ? analysisJson.modules : [];
-	const caps = Array.isArray(analysisJson.core_capabilities) ? analysisJson.core_capabilities : [];
-
-	if (modules.length > 0) {
-		cards.push({
-			label: "Phase 1 Focus",
-			value: modules[0].title || modules[0].name || "Customer Journeys",
-			note: firstSentence(modules[0].description, 16) || "Streamlined communication and engagement journeys."
-		});
-	} else {
-		cards.push({
-			label: "Phase 1 Focus",
-			value: "Communication Journeys",
-			note: "Automated engagement and communication workflows across all channels."
-		});
-	}
-
-	if (modules.length > 1) {
-		cards.push({
-			label: "Core Workflow",
-			value: modules[1].title || modules[1].name || "Field & Sales Ops",
-			note: firstSentence(modules[1].description, 16) || "Connected field operations and sales routing."
-		});
-	} else {
-		cards.push({
-			label: "Core Workflow",
-			value: "Opportunity Tracking",
-			note: "Structured pipeline visibility from initial lead to final conversion."
-		});
-	}
-
-	const integrations = Array.isArray(analysisJson.integrations) ? analysisJson.integrations : [];
-	if (integrations.length > 0) {
-		const intItem = integrations[0];
-		const intName = typeof intItem === "string" ? intItem : (intItem.name || "System Handshake");
-		const intDesc = typeof intItem === "string" ? "Synchronized data exchange with core business systems." : (firstSentence(intItem.description, 16) || "Synchronized data exchange with core business systems.");
-		cards.push({
-			label: "Integration",
-			value: intName,
-			note: intDesc
-		});
-	} else {
-		cards.push({
-			label: "Integration",
-			value: "Connected Endpoints",
-			note: "Seamless data synchronization across all business platforms."
-		});
-	}
-
-	cards.push({
-		label: "Governance",
-		value: "Audit & Visibility",
-		note: "Role-based visibility, field history, and verifiable progress tracking."
-	});
-
-	let rawBenefits = Array.isArray(analysisJson.business_benefits) ? [...analysisJson.business_benefits] : [];
-	if (rawBenefits.length < 6 && Array.isArray(analysisJson.business_goals)) {
-		rawBenefits.push(...analysisJson.business_goals);
-	}
-	if (rawBenefits.length === 0) {
-		rawBenefits = [
-			`Structured, lifecycle-tailored operational workflows configured for ${businessName}.`,
-			"Automated synchronization across operational platforms with complete audit trail.",
-			"Real-time pipeline visibility and role-based tracking across all stages.",
-			"Simplified onboarding flows that reduce administrative and field friction.",
-			"Data-backed performance metrics and comprehensive management dashboards.",
-			"Dedicated support and Hypercare to ensure high adoption and smooth launch."
-		];
-	}
-
-	const customerBenefits = rawBenefits.slice(0, 8).map(b => {
-		const text = typeof b === "string" ? b : (b.title || b.description || "");
-		return firstSentence(text, 22);
-	}).filter(Boolean);
-
-	const capabilities = [];
-	const sourceCaps = modules.length >= 5 ? modules : (caps.length >= 5 ? caps : [...modules, ...caps]);
-
-	if (sourceCaps.length > 0) {
-		sourceCaps.slice(0, 8).forEach((item, idx) => {
-			const itemTitle = cleanStr(item.title || item.name || `Solution Capability ${idx + 1}`);
-			const itemDesc = cleanStr(item.description);
-			capabilities.push({
-				title: itemTitle,
-				subtitle: item.features && Array.isArray(item.features) && item.features.length > 0 ? item.features[0] : "Spikra capability",
-				teaser: firstSentence(itemDesc, 6).replace(/\.$/, "") || "Streamlined operational workflow",
-				description: itemDesc || `Configured ${itemTitle} functionality supporting ${businessName} business objectives.`
-			});
-		});
-	} else {
-		capabilities.push(
-			{
-				title: "Customer Communication Journeys",
-				subtitle: "Multi-channel automated outreach",
-				teaser: "Every customer nurtured, start to close",
-				description: `Automated communication journeys across preferred channels with structured follow-ups and stage-based nurturing for ${businessName}.`
-			},
-			{
-				title: "Streamlined Digital Onboarding",
-				subtitle: "Frictionless digital registration",
-				teaser: "Fast onboarding without field visits",
-				description: "Partners and customers can register themselves through simple digital flows, accelerating onboarding and reducing manual effort."
-			},
-			{
-				title: "Audience Segmentation & Outreach",
-				subtitle: "Targeted category campaigns",
-				teaser: "The right message for each segment",
-				description: "Tailored communication streams based on customer profile, purchase patterns, and lifecycle stage."
-			},
-			{
-				title: "Opportunity & Pipeline Tracking",
-				subtitle: "Real-time visibility at source",
-				teaser: "Every opportunity mapped accurately",
-				description: "Field teams capture project data directly on mobile, classifying opportunities and maintaining complete stage history."
-			},
-			{
-				title: "Territory Routing & Governance",
-				subtitle: "Automated owner assignment",
-				teaser: "Right opportunity to the right owner",
-				description: "Qualified opportunities route automatically by geography to the right owner, with mandatory loss capture building market intelligence."
-			}
+	if (!hasAnyContent) {
+		throw new ProcessingError(
+			"Analysis data has no recognizable Showcase content (no deliverable cards, capabilities, " +
+			"customer benefits, or timeline phases). Cannot render an experience from this."
 		);
 	}
 
-	const timelinePhases = [];
-	const workflowSteps = Array.isArray(analysisJson.workflow_steps) ? analysisJson.workflow_steps : [];
-	const milestones = Array.isArray(analysisJson.milestones) ? analysisJson.milestones : [];
-
-	if (workflowSteps.length >= 3) {
-		workflowSteps.slice(0, 4).forEach((step, idx) => {
-			const phaseName = cleanStr(step.title || `Phase ${idx + 1}`);
-			const phaseDesc = cleanStr(step.description);
-			timelinePhases.push({
-				name: phaseName,
-				duration: idx === 0 ? "2–3 weeks" : idx === 1 ? "1–2 weeks" : "4–6 weeks",
-				items: [
-					firstSentence(phaseDesc, 14) || "Detailed requirements and technical configuration.",
-					"Scope sign-off and milestone verification."
-				],
-				note: idx === 0 ? "Open items become confirmed scope before detailed design is locked." : null
-			});
-		});
-	} else if (milestones.length >= 3) {
-		milestones.slice(0, 4).forEach((m, idx) => {
-			timelinePhases.push({
-				name: cleanStr(m.title || `Stage ${idx + 1}`),
-				duration: idx === 0 ? "2–3 weeks" : "4–6 weeks",
-				items: [
-					firstSentence(m.description, 14) || "Milestone deliverables and configuration.",
-					"Quality assurance and review."
-				],
-				note: null
-			});
-		});
-	} else {
-		timelinePhases.push(
-			{
-				name: "Discovery Workshop",
-				duration: "2–3 weeks",
-				items: [
-					`Evaluate solution requirements against ${businessName} business criteria`,
-					"Discovery workshop to close open technical dependencies and confirm integration mechanism",
-					"Confirm API availability and data models before locking detailed design"
-				],
-				note: "Open items become confirmed scope before detailed design is signed off."
-			},
-			{
-				name: "Contract & Kickoff",
-				duration: "1–2 weeks",
-				items: [
-					"Commercial agreement and project mobilization",
-					"Team onboarding and environment provisioning",
-					"Detailed design sign-off on the confirmed scope"
-				],
-				note: null
-			},
-			{
-				name: "Phase 1 — Core Build & Journeys",
-				duration: "4–6 weeks",
-				items: [
-					"Configure engagement platform and core communication journeys",
-					"Automated segmentation, notification triggers, and user roles",
-					"User acceptance testing, data validation, and Phase 1 go-live"
-				],
-				note: "Runs alongside existing operations to ensure seamless transition."
-			},
-			{
-				name: "Phase 2 — Advanced Workflows & Integration",
-				duration: "4–6 weeks",
-				items: [
-					"Field capture data models, opportunity routing, and mandatory loss tracking",
-					"Bi-directional system integration and reporting dashboards",
-					"Role-based end-user training, UAT sign-off, and full go-live"
-				],
-				note: "Backed by dedicated Hypercare support through initial operation."
-			}
-		);
-	}
-
-	const rolloutOverview = [
-		{
-			label: "Phase 1",
-			value: "Foundation & Journeys",
-			note: "Structured communication and core platform configuration established first, running alongside existing operations."
-		},
-		{
-			label: "Phase 2",
-			value: "Operations & Workflows",
-			note: "Advanced field-to-sales routing, custom data models, integration handshakes, and executive reporting."
-		}
-	];
-
-	const deRiskSummary = [
-		{
-			label: "Through go-live",
-			value: "Hypercare on hand",
-			note: "Adoption is the real risk. Spikra validates field workflows, conducts role-based training, and stays hands-on through dedicated Hypercare."
-		},
-		{
-			label: "Integration",
-			value: "Confirmed per system",
-			note: "Integration mechanisms are decided per system on their merits, starting with validated handshakes and upgrading to APIs once confirmed."
-		}
-	];
+	const str = (val) => (typeof val === "string" ? val.trim() : "");
 
 	return {
-		proposal_title: title,
-		project_summary: summary,
-		what_we_deliver: whatWeDeliver,
-		spikra_way: spikraWay,
-		how_we_support: howWeSupport,
-		deliverable_cards: cards,
-		customer_benefits: customerBenefits,
-		capabilities,
-		timeline_phases: timelinePhases,
-		rollout_overview: rolloutOverview,
-		de_risk_summary: deRiskSummary
-	};
-}
-
-function normalizeExperienceContent(rawContent, fallbackContext) {
-	const fallback = fallbackSimplifyContent(fallbackContext);
-	if (!rawContent || typeof rawContent !== "object") {
-		return fallback;
-	}
-
-	const title = (rawContent.proposal_title && String(rawContent.proposal_title).trim()) || fallback.proposal_title;
-	const summary = (rawContent.project_summary && String(rawContent.project_summary).trim()) || fallback.project_summary;
-	const whatWeDeliver = (rawContent.what_we_deliver && String(rawContent.what_we_deliver).trim()) || fallback.what_we_deliver;
-	const spikraWay = (rawContent.spikra_way && String(rawContent.spikra_way).trim()) || fallback.spikra_way;
-	const howWeSupport = (rawContent.how_we_support && String(rawContent.how_we_support).trim()) || fallback.how_we_support;
-
-	let cards = Array.isArray(rawContent.deliverable_cards) && rawContent.deliverable_cards.length > 0 ? rawContent.deliverable_cards : fallback.deliverable_cards;
-	if (cards.length > 6) cards = cards.slice(0, 6);
-	while (cards.length < 6) {
-		cards.push(fallback.deliverable_cards[cards.length]);
-	}
-
-	let benefits = Array.isArray(rawContent.customer_benefits) && rawContent.customer_benefits.length >= 4 ? rawContent.customer_benefits : fallback.customer_benefits;
-	if (benefits.length > 8) benefits = benefits.slice(0, 8);
-
-	let capabilities = Array.isArray(rawContent.capabilities) && rawContent.capabilities.length >= 4 ? rawContent.capabilities : fallback.capabilities;
-	if (capabilities.length > 8) capabilities = capabilities.slice(0, 8);
-	while (capabilities.length < 5 && fallback.capabilities[capabilities.length]) {
-		capabilities.push(fallback.capabilities[capabilities.length]);
-	}
-
-	let timeline = Array.isArray(rawContent.timeline_phases) && rawContent.timeline_phases.length >= 3 ? rawContent.timeline_phases : fallback.timeline_phases;
-	if (timeline.length > 5) timeline = timeline.slice(0, 5);
-
-	const rollout = Array.isArray(rawContent.rollout_overview) && rawContent.rollout_overview.length === 2 ? rawContent.rollout_overview : fallback.rollout_overview;
-	const deRisk = Array.isArray(rawContent.de_risk_summary) && rawContent.de_risk_summary.length === 2 ? rawContent.de_risk_summary : fallback.de_risk_summary;
-
-	return {
-		proposal_title: title,
-		project_summary: summary,
-		what_we_deliver: whatWeDeliver,
-		spikra_way: spikraWay,
-		how_we_support: howWeSupport,
-		deliverable_cards: cards,
-		customer_benefits: benefits,
-		capabilities,
-		timeline_phases: timeline,
-		rollout_overview: rollout,
-		de_risk_summary: deRisk
+		proposal_title: str(analysisJson.proposal_title) || projectName || businessName,
+		project_summary: str(analysisJson.project_summary),
+		what_we_deliver: str(analysisJson.what_we_deliver),
+		spikra_way: str(analysisJson.spikra_way),
+		how_we_support: str(analysisJson.how_we_support),
+		deliverable_cards: (Array.isArray(analysisJson.deliverable_cards) ? analysisJson.deliverable_cards : []).map((c) => ({
+			label: str(c && c.label), value: str(c && c.value), note: str(c && c.note)
+		})),
+		customer_benefits: (Array.isArray(analysisJson.customer_benefits) ? analysisJson.customer_benefits : []).map(str).filter(Boolean),
+		capabilities: (Array.isArray(analysisJson.capabilities) ? analysisJson.capabilities : []).map((cap) => ({
+			title: str(cap && cap.title), subtitle: str(cap && cap.subtitle), teaser: str(cap && cap.teaser), description: str(cap && cap.description)
+		})),
+		timeline_phases: (Array.isArray(analysisJson.timeline_phases) ? analysisJson.timeline_phases : []).map((p) => ({
+			name: str(p && p.name), duration: str(p && p.duration),
+			items: Array.isArray(p && p.items) ? p.items.map(str).filter(Boolean) : [],
+			note: str(p && p.note) || null
+		})),
+		rollout_overview: (Array.isArray(analysisJson.rollout_overview) ? analysisJson.rollout_overview : []).map((r) => ({
+			label: str(r && r.label), value: str(r && r.value), note: str(r && r.note)
+		})),
+		de_risk_summary: (Array.isArray(analysisJson.de_risk_summary) ? analysisJson.de_risk_summary : []).map((d) => ({
+			label: str(d && d.label), value: str(d && d.value), note: str(d && d.note)
+		}))
 	};
 }
 
@@ -1188,10 +884,12 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		return `<button class="tl-chip${onClass}" data-phase="${idx}"><div class="tl-wk">${escapeHtml(phase.duration)}</div><div class="tl-name">${escapeHtml(phase.name)}</div></button>`;
 	}).join("\n      ");
 
-	const phase0 = phases[0] || { name: "Discovery & Requirements", duration: "2–3 weeks", items: ["Finalize architecture", "Validate milestones"], note: null };
-	const phase0DetailHtml = `<h3>${escapeHtml(phase0.name)}</h3><div class="wk">${escapeHtml(phase0.duration)}</div>
-    <ul>${phase0.items.map(it => `<li>${escapeHtml(it)}</li>`).join("")}</ul>
-    ${phase0.note ? `<div class="tl-note">${escapeHtml(phase0.note)}</div>` : ""}`;
+	const phase0 = phases[0] || null;
+	const phase0DetailHtml = phase0
+		? `<h3>${escapeHtml(phase0.name)}</h3><div class="wk">${escapeHtml(phase0.duration)}</div>
+    <ul>${(phase0.items || []).map(it => `<li>${escapeHtml(it)}</li>`).join("")}</ul>
+    ${phase0.note ? `<div class="tl-note">${escapeHtml(phase0.note)}</div>` : ""}`
+		: "";
 
 	const rolloutCardsHtml = (content.rollout_overview || []).map((card, idx) => {
 		const accentClass = idx === 0 ? " accent" : "";
@@ -1355,8 +1053,6 @@ class ProcessingError extends Error {
 }
 
 module.exports.prepareCustomerContent = prepareCustomerContent;
-module.exports.simplifyCustomerContent = simplifyCustomerContent;
-module.exports.fallbackSimplifyContent = fallbackSimplifyContent;
 module.exports.loadMasterTemplate = loadMasterTemplate;
 module.exports.renderMasterTemplate = renderMasterTemplate;
 module.exports.extractTemplateCss = extractTemplateCss;

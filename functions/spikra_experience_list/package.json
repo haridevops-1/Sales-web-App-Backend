@@ -4,6 +4,6 @@
 	"main": "index.js",
 	"author": "hariharan@spikra.com",
 	"dependencies": {
-		"zcatalyst-sdk-node": "latest"
+		"zcatalyst-sdk-node": "^3.4.0"
 	}
 }
