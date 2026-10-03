@@ -11,7 +11,7 @@ Both pipelines share the same core shape (upload/gather → extract → analyze 
 
 ## 1. Workspace 1 — Business Flow
 
-1. Sales rep uploads a technical document (PDF, ≤25MB) + business name + optional logo through the Slate web app.
+1. Sales rep uploads a technical document (PDF, ≤25MB) + business name + optional logo through the Slate web app — either a local file, or a file picked from their own connected Zoho WorkDrive.
 2. The document is stored in Stratus and its text extracted.
 3. **Deployed Zia Agent ("Customer Showcase Agent")** analyzes the complete extracted text and returns structured Customer Showcase data (deliverables, benefits, capabilities, timeline) via Function 3.
 4. **Function 4 (Pure Renderer)** hydrates that structured data into the fixed Spikra HTML/CSS/JS master template (`templates/iSteel_Proposal_Site.html` / `template.html`) with zero AI calls.
@@ -22,17 +22,17 @@ Both pipelines share the same core shape (upload/gather → extract → analyze 
 ```
 spikra-catalyst/
 ├── functions/                    # Zoho Catalyst Serverless Functions (Microservices)
-│   ├── spikra_document_upload/     # W1 Function 1: File upload & initial job creation (Advanced I/O)
+│   ├── spikra_document_upload/     # W1 Function 1: File upload (local or picked from WorkDrive) & initial job creation (Advanced I/O)
 │   ├── spikra_document_process/    # W1 Function 2: PDF text extraction & validation (Basic I/O)
 │   ├── spikra_ai_analysis_v2/      # W1 Function 3: Zia Agent orchestration bridge & structured Showcase extraction (Advanced I/O)
 │   ├── spikra_experience_generate/ # W1 Function 4: Pure HTML/CSS/JSON master template renderer (Basic I/O, zero AI calls)
 │   ├── spikra_experience_deploy/   # W1 Function 5: Publishes the experience & returns the customer link (Advanced I/O)
 │   ├── spikra_process_status/      # W1 Function 6: Real-time stage monitoring & status polling (Basic I/O)
 │   ├── spikra_experience_list/     # W1 Function 7: Paginated experience listing & search (Basic I/O)
-│   ├── proposal-workdrive-auth-v2/ # W2: Per-user Zoho WorkDrive OAuth (authorize/callback/status/disconnect)
 │   ├── proposal-discovery/         # W2: Discovery package/file CRUD, private per salesperson
 │   ├── proposal-processor/         # W2: Extracts discovery files, calls the Zia Agent, builds & renders the proposal
-│   └── proposal-api/               # W2: Shared proposal list/detail/status-transition + public document view
+│   ├── proposal-api/               # W2: Shared proposal list/detail/status-transition + public document view
+│   └── workdrive-auth/             # Shared (W1 + W2): Zoho WorkDrive OAuth + file browsing (authorize/callback/status/disconnect/list/metadata)
 │
 ├── shared/                       # Workspace 1 shared source of truth (copied into each W1 function)
 │   ├── agent/                      # Zia Agent client layer
@@ -43,8 +43,12 @@ spikra-catalyst/
 │       └── index.js                  # `streamToBuffer`, `escapeHtml`, error sanitization
 │
 ├── workspace2-proposal/          # Workspace 2 shared source of truth (copied into each W2 function)
-│   ├── utils/                      # user-context (session auth), errors, logging, validation, cors
-│   └── services/                   # auth, workdrive, document-processing, zia, proposal, document-render
+│   ├── utils/                      # errors, logging, validation, cors
+│   └── services/                   # document-processing, zia, proposal, document-render
+│
+├── shared-workdrive/              # Shared (W1 + W2) WorkDrive source of truth (copied into every function that needs it)
+│   ├── utils/                      # session (auth, throws on missing/invalid token), errors
+│   └── services/                   # auth (Zoho OAuth 2.0), workdrive (API client + file browsing)
 │
 ├── slate/                        # Catalyst Slate Web Applications — each deployed ONCE
 │   ├── spikra-experience/          # W1: self-contained default Spikra showcase template
@@ -81,10 +85,12 @@ Each function runs as an isolated Node.js 22 service with its own `catalyst-conf
 - **`spikra_experience_list`** (Function 7, Basic I/O): Lists and filters generated experiences across projects with pagination.
 
 ### B. Workspace 2 Functions (`functions/proposal-*`)
-- **`proposal-workdrive-auth-v2`** (Advanced I/O): Real per-user Zoho WorkDrive OAuth — `authorize`/`callback`/`status`/`disconnect`. No Catalyst login involved; a successful Zoho OAuth consent **is** the identity check. Issues a signed session token the frontend stores and sends back as `Authorization: Bearer <token>`.
-- **`proposal-discovery`** (Advanced I/O): Create/list/get/delete a "discovery package" (one or more files, ≤25MB each, ≤120MB total) ahead of proposal generation. Private per salesperson email, resolved from the session token — never trusted from the request body.
+- **`proposal-discovery`** (Advanced I/O): Create/list/get/delete a "discovery package" (one or more files, ≤25MB each, ≤120MB total) ahead of proposal generation, either uploaded directly or picked from Zoho WorkDrive (`action=add_from_workdrive`). Private per salesperson email, resolved from the session token — never trusted from the request body.
 - **`proposal-processor`** (Advanced I/O): Extracts text from a discovery package's files, calls the **deployed "Solution Proposal" Zia Agent** (same Connection-based auth pattern as Workspace 1), builds and stores the `W2_PROPOSALS` row, and renders + publishes the proposal document. Idempotent (returns the existing proposal if one was already generated for that package) with a 5-minute concurrency guard against duplicate Agent calls for the same package.
 - **`proposal-api`** (Advanced I/O): Shared, org-wide proposal list/detail and status-transition (Draft → In Review → Approved, restricted to the creator), plus the public `resource=view` document route (no session required — this is the shareable link).
+
+### B2. Shared WorkDrive Function (`functions/workdrive-auth`)
+- **`workdrive-auth`** (Advanced I/O): Real per-user Zoho WorkDrive OAuth 2.0 (not a Catalyst Connection — a Connection returns one shared credential set for every caller, which can't represent per-salesperson access) — `authorize`/`callback`/`status`/`disconnect`, plus real file browsing — `list`/`metadata`. No Catalyst login involved; a successful Zoho OAuth consent **is** the identity check. Issues a signed session token the frontend stores and sends back as `Authorization: Bearer <token>` (or `?session_token=` for the OAuth callback redirect). Shared by both workspaces — a salesperson's WorkDrive connection is the same regardless of which pipeline uses it. See `shared-workdrive/README.md` for the full design (source of truth for the OAuth/session/file-browsing code, copied into `workdrive-auth`, `proposal-api`, `proposal-discovery`, `proposal-processor`, and `spikra_document_upload`).
 
 ### C. AI Architecture & Core Design Principle
 - Each workspace has its **own dedicated Zia Agent** — never shared, never cross-called. Both authenticate via a Catalyst Connection (`internalsaleshub`), never via manually stored OAuth tokens or API keys.
@@ -102,7 +108,7 @@ For local scripts, copy `.env.example` to `.env` and fill in only local values. 
 - `PROPOSAL_ZIA_AGENT_ENDPOINT` / `PROPOSAL_ZIA_CONNECTION_LINK_NAME` (`functions/proposal-processor/catalyst-config.json`): the Workspace 2 equivalent.
 - `SLATE_APP_URL` / `PROPOSAL_SLATE_APP_URL`: each workspace's Slate app base domain.
 - Authentication for both Zia Agents is via the Catalyst Connection `internalsaleshub` — there is no auth token or API key env var for either; do not add one.
-- Workspace 2's WorkDrive OAuth needs its own real values: `WORKDRIVE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI`, `WORKDRIVE_TOKEN_ENCRYPTION_KEY`, `WORKDRIVE_SESSION_SECRET` — see `workspace2-proposal/README.md` for the full setup.
+- The shared WorkDrive integration needs its own real values: `WORKDRIVE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI`, `WORKDRIVE_TOKEN_ENCRYPTION_KEY`, `WORKDRIVE_SESSION_SECRET` — see `shared-workdrive/README.md` for the full setup. `workdrive-auth` needs the full set; `proposal-discovery`, `proposal-processor`, and `spikra_document_upload` need it too (they call WorkDrive's file-download service directly); `proposal-api` only needs `WORKDRIVE_SESSION_SECRET` (it only verifies sessions, never calls WorkDrive itself).
 
 **Claude / LLM configuration is out of scope for this repository.** Claude is configured directly inside each deployed Zia Agent (Zoho Zia Agent Studio → Agent → Model settings) — it must never be wired into any Catalyst function, `.env` value read by function code, or `catalyst-config.json`.
 

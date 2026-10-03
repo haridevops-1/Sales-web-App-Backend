@@ -2,22 +2,20 @@
 
 const catalyst = require("zcatalyst-sdk-node");
 
-let requireWorkdriveSession, ProposalError, toErrorResponse, logEvent, newRequestId, workdrive, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, setAllowOriginHeader;
+let requireSession, ProposalError, toErrorResponse, logEvent, newRequestId, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, setAllowOriginHeader;
 
 try {
-	({ requireWorkdriveSession } = require("./shared/utils/user-context"));
+	({ requireSession } = require("./shared-workdrive/utils/session"));
 	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
 	({ logEvent, newRequestId } = require("./shared/utils/logging"));
 	({ setAllowOriginHeader } = require("./shared/utils/cors"));
-	workdrive = require("./shared/services/workdrive");
 	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("./shared/services/proposal"));
 	({ renderProposalDocument } = require("./shared/services/document-render"));
 } catch {
-	({ requireWorkdriveSession } = require("../../workspace2-proposal/utils/user-context"));
+	({ requireSession } = require("../../shared-workdrive/utils/session"));
 	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
 	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
 	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
-	workdrive = require("../../workspace2-proposal/services/workdrive");
 	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("../../workspace2-proposal/services/proposal"));
 	({ renderProposalDocument } = require("../../workspace2-proposal/services/document-render"));
 }
@@ -51,14 +49,7 @@ module.exports = async (req, res) => {
 			return;
 		}
 
-		const user = await requireWorkdriveSession(req);
-
-		if (resource === "workdrive") {
-			operation = "workdrive_browse";
-			sendJson(res, 200, { success: true, folders: [], files: [] });
-			logEvent("proposal-api", { requestId, operation, status: "success" });
-			return;
-		}
+		const user = requireSession(req);
 
 		// resource === "proposals" or "proposal" (default)
 		const proposalId = urlObj.searchParams.get("proposal_id");

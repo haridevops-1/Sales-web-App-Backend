@@ -5,6 +5,15 @@ const crypto = require("crypto");
 const path = require("path");
 const { Readable } = require("stream");
 
+let requireSession, workdrive;
+try {
+	({ requireSession } = require("./shared-workdrive/utils/session"));
+	workdrive = require("./shared-workdrive/services/workdrive");
+} catch {
+	({ requireSession } = require("../../shared-workdrive/utils/session"));
+	workdrive = require("../../shared-workdrive/services/workdrive");
+}
+
 const SOURCE_BUCKET_NAME = "spikra-process-documents-698386704";
 const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
 
@@ -55,31 +64,57 @@ module.exports = async (req, res) => {
 
 		const contentType = getHeader(req, "content-type");
 
-		if (!contentType || !contentType.toLowerCase().startsWith("multipart/form-data")) {
+		app = catalyst.initialize(req);
+
+		let businessName, projectName, description, uploadedDocument;
+		let documentSourceType = "LOCAL_FILE";
+
+		if (contentType && contentType.toLowerCase().startsWith("application/json")) {
+			// Picked from Zoho WorkDrive instead of uploaded from disk - downloads the file
+			// through the shared WorkDrive integration and feeds it into the exact same
+			// insert/storage logic below as a local upload. Requires a WorkDrive session
+			// (the connected salesperson's own access is used to fetch the file).
+			const rawBody = await readRequestBody(req, 64 * 1024);
+			const body = parseJsonBody(rawBody);
+
+			businessName = String(body.business_name || "").trim();
+			projectName = String(body.project_name || "").trim();
+			description = String(body.description || "").trim();
+			const workdriveFileId = String(body.workdrive_file_id || "").trim();
+
+			if (!workdriveFileId) {
+				throw new ValidationError("workdrive_file_id is required.");
+			}
+
+			const user = requireSession(req);
+			const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId);
+			uploadedDocument = { fileName, contentType: mimeType, data: buffer };
+			documentSourceType = "WORKDRIVE";
+		} else if (contentType && contentType.toLowerCase().startsWith("multipart/form-data")) {
+			const boundary = extractMultipartBoundary(contentType);
+
+			if (!boundary) {
+				return sendJson(res, 400, {
+					success: false,
+					message: "Multipart boundary was not found in the request."
+				});
+			}
+
+			const requestBody = await readRequestBody(req, MAX_FILE_SIZE + MAX_LOGO_SIZE + 2 * 1024 * 1024);
+
+			const formData = parseMultipartFormData(requestBody, boundary);
+
+			businessName = getTextField(formData, "business_name");
+			projectName = getTextField(formData, "project_name");
+			description = getTextField(formData, "description") || "";
+			uploadedDocument = formData.files.document || formData.files.file;
+			uploadedLogo = formData.files.business_logo || formData.files.logo;
+		} else {
 			return sendJson(res, 400, {
 				success: false,
-				message: "The request must use multipart/form-data."
+				message: "The request must use multipart/form-data, or application/json with a workdrive_file_id."
 			});
 		}
-
-		const boundary = extractMultipartBoundary(contentType);
-
-		if (!boundary) {
-			return sendJson(res, 400, {
-				success: false,
-				message: "Multipart boundary was not found in the request."
-			});
-		}
-
-		const requestBody = await readRequestBody(req, MAX_FILE_SIZE + MAX_LOGO_SIZE + 2 * 1024 * 1024);
-
-		const formData = parseMultipartFormData(requestBody, boundary);
-
-		const businessName = getTextField(formData, "business_name");
-		const projectName = getTextField(formData, "project_name");
-		const description = getTextField(formData, "description") || "";
-		const uploadedDocument = formData.files.document || formData.files.file;
-		uploadedLogo = formData.files.business_logo || formData.files.logo;
 
 		validateTextField(
 			businessName,
@@ -110,8 +145,6 @@ module.exports = async (req, res) => {
 		if (uploadedLogo) {
 			validateUploadedLogo(uploadedLogo);
 		}
-
-		app = catalyst.initialize(req);
 
 		const datastore = app.datastore();
 		const stratus = app.stratus();
@@ -168,7 +201,7 @@ module.exports = async (req, res) => {
 
 		documentRow = await documentsTable.insertRow({
 			project_id: projectId,
-			source_type: "LOCAL_FILE",
+			source_type: documentSourceType,
 			file_name: uploadedDocument.fileName,
 			file_type: documentFileType,
 			mime_type: uploadedDocument.contentType,
@@ -505,6 +538,18 @@ function parsePartHeaders(headersText) {
 	}
 
 	return headers;
+}
+
+function parseJsonBody(bodyBuffer) {
+	const bodyString = Buffer.isBuffer(bodyBuffer) ? bodyBuffer.toString("utf8") : String(bodyBuffer || "");
+	if (!bodyString.trim()) {
+		throw new ValidationError("A JSON request body is required.");
+	}
+	try {
+		return JSON.parse(bodyString);
+	} catch {
+		throw new ValidationError("The request body is not valid JSON.");
+	}
 }
 
 function getTextField(formData, fieldName) {

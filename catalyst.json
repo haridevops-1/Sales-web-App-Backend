@@ -9,9 +9,9 @@
       "spikra_process_status",
       "spikra_experience_list",
       "proposal-api",
-      "proposal-workdrive-auth-v2",
       "proposal-discovery",
-      "proposal-processor"
+      "proposal-processor",
+      "workdrive-auth"
     ],
     "ignore": [
       "**/*.log"

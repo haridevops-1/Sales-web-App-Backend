@@ -110,9 +110,9 @@
     }
   },
   {
-    "name": "proposal-workdrive-status-api",
-    "source_endpoint": "/proposal/workdrive/status",
-    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "name": "workdrive-status-api",
+    "source_endpoint": "/workdrive/status",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -121,9 +121,9 @@
     }
   },
   {
-    "name": "proposal-workdrive-authorize-api",
-    "source_endpoint": "/proposal/workdrive/authorize",
-    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "name": "workdrive-authorize-api",
+    "source_endpoint": "/workdrive/authorize",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -132,9 +132,9 @@
     }
   },
   {
-    "name": "proposal-workdrive-callback-api",
-    "source_endpoint": "/proposal/workdrive/callback",
-    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "name": "workdrive-callback-api",
+    "source_endpoint": "/workdrive/callback",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -143,11 +143,33 @@
     }
   },
   {
-    "name": "proposal-workdrive-disconnect-api",
-    "source_endpoint": "/proposal/workdrive/disconnect",
-    "target_endpoint": "/server/proposal-workdrive-auth-v2/",
+    "name": "workdrive-disconnect-api",
+    "source_endpoint": "/workdrive/disconnect",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-list-api",
+    "source_endpoint": "/workdrive/list",
+    "target_endpoint": "/server/workdrive-auth/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-metadata-api",
+    "source_endpoint": "/workdrive/metadata",
+    "target_endpoint": "/server/workdrive-auth/",
+    "target": "advancedio",
+    "method": "GET",
     "throttling": {
       "overall": {},
       "ip": {}

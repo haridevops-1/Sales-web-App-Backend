@@ -1,12 +1,18 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
-const { requireWorkdriveSession } = require("./shared/utils/user-context");
+let requireSession, workdrive;
+try {
+	({ requireSession } = require("./shared-workdrive/utils/session"));
+	workdrive = require("./shared-workdrive/services/workdrive");
+} catch {
+	({ requireSession } = require("../../shared-workdrive/utils/session"));
+	workdrive = require("../../shared-workdrive/services/workdrive");
+}
 const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
 const { logEvent, newRequestId } = require("./shared/utils/logging");
 const { setAllowOriginHeader } = require("./shared/utils/cors");
 const documentProcessing = require("./shared/services/document-processing");
-const workdrive = require("./shared/services/workdrive");
 const { getProposalZiaAgentClient } = require("./shared/services/zia");
 const { buildProposalRecord, buildProposalDocumentKey } = require("./shared/services/proposal");
 const { renderProposalDocument } = require("./shared/services/document-render");
@@ -38,7 +44,7 @@ module.exports = async (req, res) => {
 		}
 
 		const app = catalyst.initialize(req);
-		const user = await requireWorkdriveSession(req);
+		const user = requireSession(req);
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
 		packageId = urlObj.searchParams.get("session_id") || urlObj.searchParams.get("package_id");
 
@@ -412,7 +418,8 @@ async function retrieveFileBuffer(app, user, fileRow) {
 		throw new ProposalError("NOT_FOUND", `Could not retrieve file from storage (${cleanKey}): ${(lastErr && lastErr.message) || "Not found"}`);
 	}
 
-	return await workdrive.downloadFile(app, user.userId, idOrKey);
+	const { buffer } = await workdrive.downloadFile(app, user.userId, idOrKey);
+	return buffer;
 }
 
 async function getOwnedPackageWithFiles(app, packageId, userId) {

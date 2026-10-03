@@ -40,8 +40,12 @@ class ProposalError extends Error {
 // own safe message, anything else collapses to a generic message so internals never leak.
 // request_id (when passed) is echoed back so a salesperson can report a failure and it's
 // traceable in logs - never anything more sensitive than the id itself.
+// Duck-typed on {code, statusCode} rather than strict `instanceof ProposalError` so a
+// WorkdriveError thrown by shared-workdrive's requireSession() (e.g. UNAUTHENTICATED,
+// SESSION_EXPIRED) also produces a proper response here instead of collapsing to a
+// generic 500.
 function toErrorResponse(error, requestId) {
-	if (error instanceof ProposalError) {
+	if (error instanceof ProposalError || (error && typeof error.code === "string" && ERROR_CODES.hasOwnProperty(error.code))) {
 		return {
 			statusCode: error.statusCode || 400,
 			body: {

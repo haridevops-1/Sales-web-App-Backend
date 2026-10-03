@@ -4,15 +4,17 @@ const catalyst = require("zcatalyst-sdk-node");
 const path = require("path");
 const crypto = require("crypto");
 
-let requireWorkdriveSession, ProposalError, toErrorResponse, logEvent, newRequestId, setAllowOriginHeader;
+let requireSession, workdrive, ProposalError, toErrorResponse, logEvent, newRequestId, setAllowOriginHeader;
 
 try {
-	({ requireWorkdriveSession } = require("./shared/utils/user-context"));
+	({ requireSession } = require("./shared-workdrive/utils/session"));
+	workdrive = require("./shared-workdrive/services/workdrive");
 	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
 	({ logEvent, newRequestId } = require("./shared/utils/logging"));
 	({ setAllowOriginHeader } = require("./shared/utils/cors"));
 } catch {
-	({ requireWorkdriveSession } = require("../../workspace2-proposal/utils/user-context"));
+	({ requireSession } = require("../../shared-workdrive/utils/session"));
+	workdrive = require("../../shared-workdrive/services/workdrive");
 	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
 	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
 	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
@@ -42,7 +44,7 @@ module.exports = async (req, res) => {
 		}
 
 		const app = catalyst.initialize(req);
-		const user = await requireWorkdriveSession(req);
+		const user = requireSession(req);
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
 		packageId = urlObj.searchParams.get("package_id") || urlObj.searchParams.get("session_id");
 		const action = String(urlObj.searchParams.get("action") || "").toLowerCase();
@@ -92,7 +94,21 @@ module.exports = async (req, res) => {
 				const body = parseJsonBody(rawBody);
 
 				const effectivePackageId = packageId || body.package_id || body.session_id || null;
-				if (effectivePackageId && action === "add_files") {
+				if (action === "add_from_workdrive") {
+					const fileIds = Array.isArray(body.file_ids) ? body.file_ids : body.file_id ? [body.file_id] : [];
+					const files = await downloadWorkdriveFiles(app, user.email, fileIds);
+					if (effectivePackageId) {
+						operation = "add_from_workdrive_existing";
+						const result = await addUploadedFilesToPackage(app, effectivePackageId, user.userId, files);
+						sendJson(res, 200, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
+					} else {
+						operation = "add_from_workdrive_new";
+						const defaultPkgName = files[0] ? path.parse(files[0].fileName).name : "Discovery Session";
+						const sessionName = body.session_name || body.package_name || defaultPkgName;
+						const result = await createPackageFromUpload(app, user.userId, sessionName, files);
+						sendJson(res, 201, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
+					}
+				} else if (effectivePackageId && action === "add_files") {
 					operation = "add_files";
 					const result = await addFilesToPackage(app, effectivePackageId, user.userId, body.files);
 					sendJson(res, 200, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
@@ -147,6 +163,22 @@ function validateFileEntry(file) {
 			`'${file.file_name}' exceeds the ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB limit for discovery files.`
 		);
 	}
+}
+
+// Downloads each WorkDrive file_id into the same {fileName, contentType, data} shape a
+// local multipart upload produces, so it can flow into createPackageFromUpload /
+// addUploadedFilesToPackage unchanged - a WorkDrive-picked file is stored and processed
+// exactly like a locally-uploaded one from this point on.
+async function downloadWorkdriveFiles(app, email, fileIds) {
+	if (!Array.isArray(fileIds) || fileIds.length === 0) {
+		throw new ProposalError("VALIDATION_FAILED", "file_id or file_ids is required.");
+	}
+	const files = [];
+	for (const fileId of fileIds) {
+		const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, email, fileId);
+		files.push({ fileName, contentType: mimeType, data: buffer });
+	}
+	return files;
 }
 
 async function uploadFileToStratus(app, packageId, file) {
