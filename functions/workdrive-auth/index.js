@@ -217,24 +217,50 @@ function sendCallbackResult(res, success, message, sessionToken, email) {
 	const closeButtonHtml = !success ? '<button onclick="window.close()" style="margin-top:16px;padding:8px 16px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;">Close Window</button>' : '';
 	res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive Connection</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;">
-<div style="text-align:center;padding:24px;max-width:480px;">
-<h2 style="color:${success ? "#16a34a" : "#dc2626"};">${success ? "Connected Successfully" : "Connection Failed"}</h2>
-<p style="color:#475569;word-break:break-word;">${escapeHtml(message)}</p>
+<div style="text-align:center;padding:32px;max-width:520px;background:#ffffff;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.08);">
+<h2 style="color:${success ? "#16a34a" : "#dc2626"};margin-top:0;">${success ? "Connected Successfully" : "Connection Failed"}</h2>
+<p style="color:#475569;font-size:15px;line-height:1.5;word-break:break-word;">${escapeHtml(message)}</p>
+<div id="returnBox" style="margin-top:20px;display:none;">
+  <a id="returnLink" href="http://localhost:5173/proposals/create" style="display:inline-block;padding:10px 20px;background:#ea580c;color:#fff;text-decoration:none;font-weight:600;border-radius:8px;">
+    Return to Spikra Application →
+  </a>
+</div>
 <script>
 try {
-  if (window.opener) {
+  const sessionToken = ${sessionToken ? JSON.stringify(sessionToken) : "null"};
+  const userEmail = ${email ? JSON.stringify(email) : "null"};
+  const isSuccess = ${success ? "true" : "false"};
+
+  if (window.opener && !window.opener.closed) {
     window.opener.postMessage({
       type: "workdrive-auth",
-      success: ${success ? "true" : "false"},
-      sessionToken: ${sessionToken ? JSON.stringify(sessionToken) : "null"},
-      email: ${email ? JSON.stringify(email) : "null"},
-      error: ${success ? "null" : JSON.stringify(message)},
+      success: isSuccess,
+      sessionToken: sessionToken,
+      email: userEmail,
+      error: isSuccess ? null : ${JSON.stringify(message)},
       message: ${JSON.stringify(message)}
     }, "*");
-    ${success ? "window.close();" : "setTimeout(() => window.close(), 6000);"}
+    if (isSuccess) {
+      setTimeout(() => window.close(), 600);
+    } else {
+      setTimeout(() => window.close(), 6000);
+    }
+  } else {
+    if (isSuccess && sessionToken) {
+      const returnBox = document.getElementById("returnBox");
+      const returnLink = document.getElementById("returnLink");
+      if (returnBox && returnLink) {
+        const targetUrl = new URL("http://localhost:5173/proposals/create");
+        targetUrl.searchParams.set("session_token", sessionToken);
+        if (userEmail) targetUrl.searchParams.set("email", userEmail);
+        returnLink.href = targetUrl.toString();
+        returnBox.style.display = "block";
+        setTimeout(() => { window.location.href = targetUrl.toString(); }, 1200);
+      }
+    }
   }
 } catch (e) {
-  console.error("postMessage failed:", e);
+  console.error("Callback completion error:", e);
 }
 </script>
 ${closeButtonHtml}
