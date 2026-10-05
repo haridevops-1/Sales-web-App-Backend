@@ -12,6 +12,11 @@ const { WorkdriveError } = require("../errors");
 
 function extractSessionToken(req) {
 	const headers = (req && req.headers) || {};
+
+	// Custom non-colliding headers that Catalyst API Gateway won't intercept
+	const customHeader = headers["x-workdrive-token"] || headers["x-session-token"] || headers["x-catalyst-session-token"] || "";
+	if (customHeader) return String(customHeader).trim();
+
 	const authHeader = headers.authorization || headers.Authorization || "";
 	const match = /^Bearer\s+(.+)$/i.exec(String(authHeader).trim());
 	if (match) return match[1].trim();
@@ -25,10 +30,6 @@ function extractSessionToken(req) {
 	return null;
 }
 
-// Throws WorkdriveError("UNAUTHENTICATED"/"SESSION_EXPIRED", ..., 401) on a missing,
-// malformed, or expired token. Callers let this propagate to their own error handler for
-// a real 401 - do not catch-and-default except in the one deliberately anonymous-friendly
-// case (checking connection status before a user has ever connected).
 function requireSession(req) {
 	const token = extractSessionToken(req);
 	if (!token) {
