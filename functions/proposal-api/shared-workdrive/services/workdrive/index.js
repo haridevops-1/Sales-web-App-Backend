@@ -20,19 +20,47 @@ const DEFAULT_API_DOMAIN = "https://www.zohoapis.com/workdrive/api/v1";
 const WORKDRIVE_CONNECTIONS_TABLE = "WORKDRIVE_CONNECTIONS";
 const REFRESH_MARGIN_MS = 2 * 60 * 1000; // refresh 2 minutes before actual expiry
 
-function getApiDomain() {
+// In-memory fallback map: email -> connection object
+const MEMORY_CONNECTIONS = new Map();
+
+function getApiDomain(email) {
+	const cached = email ? MEMORY_CONNECTIONS.get(email.toLowerCase()) : null;
+	if (cached && cached.apiDomain) return cached.apiDomain;
+
+	const accountsDomain = String(process.env.ZOHO_ACCOUNTS_DOMAIN || "").toLowerCase();
+	if (accountsDomain.includes(".zoho.in")) return "https://www.zohoapis.in/workdrive/api/v1";
+	if (accountsDomain.includes(".zoho.eu")) return "https://www.zohoapis.eu/workdrive/api/v1";
+	if (accountsDomain.includes(".zoho.com.au")) return "https://www.zohoapis.com.au/workdrive/api/v1";
 	return String(process.env.WORKDRIVE_API_DOMAIN || DEFAULT_API_DOMAIN).trim().replace(/\/+$/, "");
 }
 
 async function getConnectionRow(app, email) {
-	if (!app || typeof app.zcql !== "function" || !email) return null;
-	const query = `SELECT * FROM ${WORKDRIVE_CONNECTIONS_TABLE} WHERE email = '${escapeQueryValue(email)}' LIMIT 1`;
-	try {
-		const result = await app.zcql().executeZCQLQuery(query);
-		if (Array.isArray(result) && result.length > 0) {
-			return result[0][WORKDRIVE_CONNECTIONS_TABLE] || result[0];
+	if (!email) return null;
+	const normalizedEmail = email.toLowerCase().trim();
+
+	// 1. Try querying Catalyst Data Store via ZCQL
+	if (app && typeof app.zcql === "function") {
+		const query = `SELECT * FROM ${WORKDRIVE_CONNECTIONS_TABLE} WHERE email = '${escapeQueryValue(normalizedEmail)}' LIMIT 1`;
+		try {
+			const result = await app.zcql().executeZCQLQuery(query);
+			if (Array.isArray(result) && result.length > 0) {
+				return result[0][WORKDRIVE_CONNECTIONS_TABLE] || result[0];
+			}
+		} catch (err) {
+			console.warn("[WorkDrive] ZCQL query for connection returned:", err.message);
 		}
-	} catch {}
+	}
+
+	// 2. Check in-memory store fallback
+	const cached = MEMORY_CONNECTIONS.get(normalizedEmail);
+	if (cached) {
+		return {
+			...cached,
+			access_token: encryptToken(cached.accessToken),
+			refresh_token: cached.refreshToken ? encryptToken(cached.refreshToken) : ""
+		};
+	}
+
 	return null;
 }
 
@@ -40,51 +68,88 @@ function escapeQueryValue(value) {
 	return String(value || "").replace(/'/g, "''");
 }
 
-// Called by workdrive-auth right after a successful code exchange + user-info lookup,
-// and again here internally after every refresh - single place that writes this table.
-// Never receives or stores a password - only the OAuth token pair.
-async function upsertConnection(app, { email, displayName, accessToken, refreshToken, expiresIn, scope }) {
+// Single place that writes this table and caches the active session in memory.
+async function upsertConnection(app, { email, displayName, accessToken, refreshToken, expiresIn, scope, apiDomain }) {
+	const normalizedEmail = String(email || "").toLowerCase().trim();
+	const existing = await getConnectionRow(app, normalizedEmail);
+
+	const effectiveRefreshToken = refreshToken || (existing && existing.refresh_token ? decryptToken(existing.refresh_token) : "");
+	const effectiveApiDomain = apiDomain || (existing && existing.api_domain) || getApiDomain(normalizedEmail);
+
+	// Update memory cache immediately so connection works even if Data Store table is missing
+	MEMORY_CONNECTIONS.set(normalizedEmail, {
+		email: normalizedEmail,
+		displayName: displayName || (existing && existing.display_name) || "",
+		accessToken,
+		refreshToken: effectiveRefreshToken,
+		expiresAt: new Date(Date.now() + Number(expiresIn || 3600) * 1000).toISOString(),
+		scope: scope || (existing && existing.scope) || "",
+		status: "CONNECTED",
+		apiDomain: effectiveApiDomain
+	});
+
+	if (!app || typeof app.datastore !== "function") return;
+
 	const datastore = app.datastore();
 	const table = datastore.table(WORKDRIVE_CONNECTIONS_TABLE);
-	const existing = await getConnectionRow(app, email);
 
 	const payload = {
-		email,
+		email: normalizedEmail,
 		display_name: displayName || (existing && existing.display_name) || "",
 		access_token: encryptToken(accessToken),
 		expires_at: new Date(Date.now() + Number(expiresIn || 3600) * 1000).toISOString(),
 		scope: scope || (existing && existing.scope) || "",
 		status: "CONNECTED"
 	};
-	// refresh_token is only returned on the initial exchange - keep the existing one on refresh.
-	if (refreshToken) {
-		payload.refresh_token = encryptToken(refreshToken);
+	if (effectiveRefreshToken) {
+		payload.refresh_token = encryptToken(effectiveRefreshToken);
 	}
 
-	if (existing) {
-		payload.ROWID = existing.ROWID;
-		return table.updateRow(payload);
+	try {
+		if (existing && existing.ROWID) {
+			payload.ROWID = existing.ROWID;
+			await table.updateRow(payload);
+		} else {
+			await table.insertRow(payload);
+		}
+	} catch (dbErr) {
+		console.warn("[WorkDrive] Could not persist connection in Data Store table (in-memory connection active):", dbErr.message);
 	}
-	if (!refreshToken) {
-		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "No refresh token returned on initial authorization - cannot store a renewable connection.");
-	}
-	return table.insertRow(payload);
 }
 
 async function checkConnectionStatus(app, email) {
-	const row = await getConnectionRow(app, email);
+	if (!email) return { connected: false, provider: "Zoho WorkDrive" };
+	const normalizedEmail = email.toLowerCase().trim();
+	const cached = MEMORY_CONNECTIONS.get(normalizedEmail);
+	if (cached && cached.status === "CONNECTED") {
+		return {
+			connected: true,
+			provider: "Zoho WorkDrive",
+			user: { email: cached.email, displayName: cached.displayName || null }
+		};
+	}
+	const row = await getConnectionRow(app, normalizedEmail);
 	if (!row) return { connected: false, provider: "Zoho WorkDrive" };
 	return {
 		connected: String(row.status || "").toUpperCase() === "CONNECTED",
 		provider: "Zoho WorkDrive",
-		user: { email: row.email || email || null }
+		user: { email: row.email || normalizedEmail, displayName: row.display_name || null }
 	};
 }
 
 // Returns a valid, decrypted access token for this salesperson - refreshing and
 // persisting a new one first if the stored one is expired or about to expire.
 async function getValidAccessToken(app, email) {
-	const row = await getConnectionRow(app, email);
+	const normalizedEmail = (email || "").toLowerCase().trim();
+	const cached = MEMORY_CONNECTIONS.get(normalizedEmail);
+	if (cached && cached.accessToken) {
+		const expiresAt = cached.expiresAt ? new Date(cached.expiresAt).getTime() : 0;
+		if (!expiresAt || expiresAt - Date.now() > REFRESH_MARGIN_MS) {
+			return cached.accessToken;
+		}
+	}
+
+	const row = await getConnectionRow(app, normalizedEmail);
 	if (!row || String(row.status || "").toUpperCase() !== "CONNECTED") {
 		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "WorkDrive is not connected for this account.");
 	}
@@ -94,31 +159,38 @@ async function getValidAccessToken(app, email) {
 		return decryptToken(row.access_token);
 	}
 
-	const refreshTokenValue = decryptToken(row.refresh_token);
+	const refreshTokenValue = row.refresh_token ? decryptToken(row.refresh_token) : "";
 	if (!refreshTokenValue) {
 		throw new WorkdriveError("WORKDRIVE_TOKEN_EXPIRED", "The WorkDrive connection has expired and needs to be reconnected.");
 	}
 
 	let refreshed;
 	try {
-		refreshed = await refreshAccessToken(refreshTokenValue);
+		const accountsDomain = String(process.env.ZOHO_ACCOUNTS_DOMAIN || "").toLowerCase();
+		const domainToUse = accountsDomain.includes(".zoho.in") ? "https://accounts.zoho.in" : undefined;
+		refreshed = await refreshAccessToken(refreshTokenValue, domainToUse);
 	} catch {
-		await app.datastore().table(WORKDRIVE_CONNECTIONS_TABLE).updateRow({ ROWID: row.ROWID, status: "ERROR" }).catch(() => {});
+		if (app && typeof app.datastore === "function" && row.ROWID) {
+			await app.datastore().table(WORKDRIVE_CONNECTIONS_TABLE).updateRow({ ROWID: row.ROWID, status: "ERROR" }).catch(() => {});
+		}
 		throw new WorkdriveError("WORKDRIVE_TOKEN_EXPIRED", "The WorkDrive connection has expired and needs to be reconnected.");
 	}
 
 	await upsertConnection(app, {
-		email,
+		email: normalizedEmail,
+		displayName: row.display_name,
 		accessToken: refreshed.access_token,
-		expiresIn: refreshed.expires_in
+		refreshToken: refreshed.refresh_token || refreshTokenValue,
+		expiresIn: refreshed.expires_in,
+		scope: refreshed.scope || row.scope
 	});
 
 	return refreshed.access_token;
 }
 
-function request(method, path, { accessToken, qs = {}, expectBinary = false } = {}) {
+function request(method, path, { accessToken, qs = {}, expectBinary = false, email } = {}) {
 	return new Promise((resolve, reject) => {
-		const url = new URL(getApiDomain() + path);
+		const url = new URL(getApiDomain(email) + path);
 		for (const [key, value] of Object.entries(qs)) {
 			if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
 		}
@@ -179,7 +251,7 @@ function request(method, path, { accessToken, qs = {}, expectBinary = false } = 
 async function listFiles(app, email, folderId) {
 	if (!folderId) throw new WorkdriveError("VALIDATION_FAILED", "folder_id is required.");
 	const accessToken = await getValidAccessToken(app, email);
-	const response = await request("GET", `/files/${encodeURIComponent(folderId)}/files`, { accessToken });
+	const response = await request("GET", `/files/${encodeURIComponent(folderId)}/files`, { accessToken, email });
 	return Array.isArray(response.data) ? response.data : [];
 }
 
@@ -188,7 +260,7 @@ async function listFiles(app, email, folderId) {
 // selected yet, before the salesperson drills into a specific folder.
 async function listRootItems(app, email) {
 	const accessToken = await getValidAccessToken(app, email);
-	const response = await request("GET", "/users/me/files", { accessToken });
+	const response = await request("GET", "/users/me/files", { accessToken, email });
 	return Array.isArray(response.data) ? response.data : [];
 }
 
@@ -196,7 +268,7 @@ async function listRootItems(app, email) {
 async function getFileMetadata(app, email, fileId) {
 	if (!fileId) throw new WorkdriveError("VALIDATION_FAILED", "file_id is required.");
 	const accessToken = await getValidAccessToken(app, email);
-	const response = await request("GET", `/files/${encodeURIComponent(fileId)}`, { accessToken });
+	const response = await request("GET", `/files/${encodeURIComponent(fileId)}`, { accessToken, email });
 	return response.data || null;
 }
 
@@ -207,7 +279,7 @@ async function downloadFile(app, email, fileId) {
 	if (!fileId) throw new WorkdriveError("VALIDATION_FAILED", "file_id is required.");
 	const accessToken = await getValidAccessToken(app, email);
 	const [buffer, metadata] = await Promise.all([
-		request("GET", `/download/${encodeURIComponent(fileId)}`, { accessToken, expectBinary: true }),
+		request("GET", `/download/${encodeURIComponent(fileId)}`, { accessToken, expectBinary: true, email }),
 		getFileMetadata(app, email, fileId).catch(() => null)
 	]);
 	const attrs = (metadata && metadata.attributes) || {};

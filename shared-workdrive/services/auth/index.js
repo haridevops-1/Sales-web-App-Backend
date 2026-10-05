@@ -48,7 +48,7 @@ function getOAuthConfig() {
 function buildAuthorizeUrl(customAccountsDomain) {
 	const domain = (customAccountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, redirectUri } = getOAuthConfig();
-	const state = signPayload(`nonce.${crypto.randomBytes(16).toString("hex")}`, 15 * 60 * 1000);
+	const state = signPayload(`nonce.${crypto.randomBytes(16).toString("hex")}`, 2 * 60 * 60 * 1000); // 2 hours TTL
 	const url = new URL(`${domain}/oauth/v2/auth`);
 	url.searchParams.set("scope", WORKDRIVE_SCOPES);
 	url.searchParams.set("client_id", clientId);
@@ -90,7 +90,7 @@ async function refreshAccessToken(refreshToken, accountsDomain) {
 }
 
 // Looks up whose email this connection belongs to using Zoho Accounts, with fallback to WorkDrive /users/me.
-async function fetchZohoUserInfo(accessToken, accountsDomain) {
+async function fetchZohoUserInfo(accessToken, accountsDomain, userApiDomain) {
 	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	try {
 		const info = await fetchAccountsUserInfo(accessToken, domain);
@@ -98,7 +98,7 @@ async function fetchZohoUserInfo(accessToken, accountsDomain) {
 	} catch (err) {
 		console.warn("[WorkDrive Auth] Accounts user/info failed, trying WorkDrive /users/me fallback:", err.message);
 	}
-	return fetchWorkdriveCurrentUser(accessToken, domain);
+	return fetchWorkdriveCurrentUser(accessToken, domain, userApiDomain);
 }
 
 function fetchAccountsUserInfo(accessToken, domain) {
@@ -137,9 +137,9 @@ function fetchAccountsUserInfo(accessToken, domain) {
 	});
 }
 
-function fetchWorkdriveCurrentUser(accessToken, accountsDomain) {
+function fetchWorkdriveCurrentUser(accessToken, accountsDomain, userApiDomain) {
 	return new Promise((resolve, reject) => {
-		let apiDomain = String(process.env.WORKDRIVE_API_DOMAIN || "").trim().replace(/\/+$/, "");
+		let apiDomain = userApiDomain || "";
 		if (!apiDomain) {
 			const accountsLower = (accountsDomain || "").toLowerCase();
 			if (accountsLower.includes(".zoho.in")) {
@@ -148,6 +148,8 @@ function fetchWorkdriveCurrentUser(accessToken, accountsDomain) {
 				apiDomain = "https://www.zohoapis.eu/workdrive/api/v1";
 			} else if (accountsLower.includes(".zoho.com.au")) {
 				apiDomain = "https://www.zohoapis.com.au/workdrive/api/v1";
+			} else if (process.env.WORKDRIVE_API_DOMAIN && !accountsLower.includes(".zoho.")) {
+				apiDomain = String(process.env.WORKDRIVE_API_DOMAIN).trim().replace(/\/+$/, "");
 			} else {
 				apiDomain = "https://www.zohoapis.com/workdrive/api/v1";
 			}

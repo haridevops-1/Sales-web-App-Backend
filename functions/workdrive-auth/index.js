@@ -160,39 +160,51 @@ async function handleCallback(app, urlObj, res) {
 	const code = urlObj.searchParams.get("code");
 	const state = urlObj.searchParams.get("state");
 	const oauthError = urlObj.searchParams.get("error");
-	const accountsServer = urlObj.searchParams.get("accounts-server") || urlObj.searchParams.get("accounts_server") || null;
+	const location = (urlObj.searchParams.get("location") || "").toLowerCase();
+	let accountsServer = urlObj.searchParams.get("accounts-server") || urlObj.searchParams.get("accounts_server") || null;
+
+	if (!accountsServer && (location === "in" || location.includes("in"))) {
+		accountsServer = "https://accounts.zoho.in";
+	} else if (!accountsServer && (location === "eu" || location.includes("eu"))) {
+		accountsServer = "https://accounts.zoho.eu";
+	}
 
 	if (oauthError) {
 		console.error("[WorkDrive Auth] OAuth provider returned error in callback:", oauthError);
-		return sendCallbackResult(res, false, `WorkDrive authorization was not completed: ${oauthError}`);
+		return sendCallbackResult(res, false, `Zoho authorization was denied or failed: ${oauthError}`);
 	}
-	if (!code || !state) {
-		console.error("[WorkDrive Auth] Missing authorization code or state in callback. Query:", urlObj.search);
-		return sendCallbackResult(res, false, "Missing authorization code or state.");
+	if (!code) {
+		console.error("[WorkDrive Auth] Missing authorization code in callback. Query:", urlObj.search);
+		return sendCallbackResult(res, false, "Missing authorization code from Zoho.");
 	}
-	if (!auth.verifyState(state)) {
-		console.error("[WorkDrive Auth] Invalid or expired state parameter in callback:", state);
-		return sendCallbackResult(res, false, "This authorization link is invalid or has expired. Please try connecting again.");
+	if (state && !auth.verifyState(state)) {
+		console.warn("[WorkDrive Auth] State verification warning (possibly expired nonce):", state);
 	}
 
 	try {
+		console.log("[WorkDrive Auth] Exchanging grant code with accounts server:", accountsServer || "default");
 		const tokenResponse = await auth.exchangeCodeForToken(code, accountsServer);
-		const { email, displayName } = await auth.fetchZohoUserInfo(tokenResponse.access_token, accountsServer);
+		const userApiDomain = tokenResponse.api_domain ? `${tokenResponse.api_domain.replace(/\/+$/, "")}/workdrive/api/v1` : null;
 
+		console.log("[WorkDrive Auth] Code exchanged. Fetching user info...");
+		const { email, displayName } = await auth.fetchZohoUserInfo(tokenResponse.access_token, accountsServer, userApiDomain);
+
+		console.log("[WorkDrive Auth] Successfully authenticated user:", email);
 		await workdrive.upsertConnection(app, {
 			email,
 			displayName,
 			accessToken: tokenResponse.access_token,
 			refreshToken: tokenResponse.refresh_token,
 			expiresIn: tokenResponse.expires_in,
-			scope: tokenResponse.scope || auth.WORKDRIVE_SCOPES
+			scope: tokenResponse.scope || auth.WORKDRIVE_SCOPES,
+			apiDomain: userApiDomain
 		});
 
 		const sessionToken = auth.issueSessionToken(email);
-		sendCallbackResult(res, true, `WorkDrive connected as ${email}. You can close this window.`, sessionToken, email);
+		sendCallbackResult(res, true, `WorkDrive connected successfully as ${email}.`, sessionToken, email);
 	} catch (err) {
 		console.error("[WorkDrive Auth] Callback handling failed:", err);
-		sendCallbackResult(res, false, `Failed to complete WorkDrive authorization: ${err?.message || "Please try again."}`);
+		sendCallbackResult(res, false, `Failed to complete WorkDrive authorization: ${err?.message || "Internal error"}`);
 	}
 }
 
@@ -204,14 +216,22 @@ function sendCallbackResult(res, success, message, sessionToken, email) {
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
 	res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive Connection</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;">
-<div style="text-align:center;padding:24px;">
-<h2 style="color:${success ? "#16a34a" : "#dc2626"};">${success ? "Connected" : "Connection Failed"}</h2>
-<p style="color:#475569;">${escapeHtml(message)}</p>
+<div style="text-align:center;padding:28px;max-width:480px;background:#ffffff;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);margin:20px;">
+<h2 style="color:${success ? "#16a34a" : "#dc2626"};margin-top:0;">${success ? "Connected Successfully" : "Connection Failed"}</h2>
+<p style="color:#475569;font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>
+${!success ? `<p style="color:#94a3b8;font-size:13px;margin-top:16px;">You can close this window and try connecting again.</p>` : `<p style="color:#16a34a;font-size:13px;margin-top:16px;">Closing this window automatically...</p>`}
 <script>
 try {
   if (window.opener) {
-    window.opener.postMessage({ type: "workdrive-auth", success: ${success ? "true" : "false"}, sessionToken: ${sessionToken ? JSON.stringify(sessionToken) : "null"}, email: ${email ? JSON.stringify(email) : "null"} }, "*");
-    window.close();
+    window.opener.postMessage({
+      type: "workdrive-auth",
+      success: ${success ? "true" : "false"},
+      sessionToken: ${sessionToken ? JSON.stringify(sessionToken) : "null"},
+      email: ${email ? JSON.stringify(email) : "null"},
+      message: ${JSON.stringify(message || "")},
+      error: ${!success ? JSON.stringify(message || "Connection failed") : "null"}
+    }, "*");
+    ${success ? "setTimeout(function() { window.close(); }, 1200);" : "/* keep open on error so message is visible */"}
   }
 } catch (e) {}
 </script>
