@@ -1,7 +1,7 @@
 "use strict";
 
 const { URL } = require("url");
-const { verifySessionToken } = require("../../services/auth");
+const { verifySessionTokenWithStatus } = require("../../services/auth");
 const { WorkdriveError } = require("../errors");
 
 function extractSessionToken(req) {
@@ -21,17 +21,29 @@ function extractSessionToken(req) {
 		if (qsToken) return qsToken.trim();
 	} catch {}
 
+	if (req && req.query && req.query.session_token) {
+		return String(req.query.session_token).trim();
+	}
+
 	return null;
 }
 
 function requireSession(req) {
 	const token = extractSessionToken(req);
 	if (!token) {
-		throw new WorkdriveError("UNAUTHENTICATED", "A WorkDrive session token is required.", 401);
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "A WorkDrive session token is required.", 401);
 	}
-	const sessionData = verifySessionToken(token);
+	const status = verifySessionTokenWithStatus(token);
+	if (!status || !status.valid) {
+		throw new WorkdriveError(
+			(status && status.code) || "WORKDRIVE_AUTH_FAILED",
+			(status && status.message) || "WorkDrive session is invalid or expired.",
+			401
+		);
+	}
+	const sessionData = status.session;
 	if (!sessionData || !sessionData.email) {
-		throw new WorkdriveError("SESSION_EXPIRED", "This WorkDrive session is invalid or has expired. Please reconnect.", 401);
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "This WorkDrive session is invalid or has expired. Please reconnect.", 401);
 	}
 	return {
 		userId: sessionData.email,
@@ -40,4 +52,12 @@ function requireSession(req) {
 	};
 }
 
-module.exports = { requireSession, extractSessionToken };
+async function decodeSession(req) {
+	try {
+		return requireSession(req);
+	} catch {
+		return null;
+	}
+}
+
+module.exports = { requireSession, decodeSession, extractSessionToken };

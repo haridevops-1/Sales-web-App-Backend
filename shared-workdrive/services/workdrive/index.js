@@ -7,6 +7,7 @@
 // Shared by both Workspace 1 and Workspace 2.
 
 const https = require("https");
+const crypto = require("crypto");
 const { URL } = require("url");
 const { WorkdriveError } = require("../../utils/errors");
 const { decryptToken, encryptToken, refreshAccessToken, revokeToken } = require("../auth");
@@ -14,6 +15,161 @@ const { decryptToken, encryptToken, refreshAccessToken, revokeToken } = require(
 const DEFAULT_API_DOMAIN = "https://www.zohoapis.in/workdrive/api/v1";
 const WORKDRIVE_CONNECTIONS_TABLE = "WORKDRIVE_CONNECTIONS";
 const REFRESH_MARGIN_MS = 2 * 60 * 1000; // refresh 2 minutes before actual expiry
+
+// In-memory 30-minute LRU cache for privateSpaceId
+const spaceIdCache = new Map(); // Key: sessionHash, Value: { spaceId, expiresAt }
+
+function getSessionHash(session) {
+	const token = (session && (session.accessToken || session.email)) || "";
+	return crypto.createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
+/**
+ * Fast Space ID resolver with 30-minute in-memory cache
+ */
+async function resolvePrivateSpaceId(session) {
+	if (!session) {
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "WorkDrive session is required to resolve private space.", 401);
+	}
+
+	const hash = getSessionHash(session);
+	const cached = spaceIdCache.get(hash);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.spaceId;
+	}
+
+	const apiDomain = session.apiDomain || getApiDomain(session.email, session);
+	const url = `${apiDomain.replace(/\/+$/, "")}/users/me/privatespace`;
+
+	let spaceId = null;
+	if (typeof fetch === "function") {
+		const res = await fetch(url, {
+			headers: {
+				Authorization: `Zoho-oauthtoken ${session.accessToken}`,
+				Accept: "application/vnd.api+json"
+			}
+		});
+
+		if (!res.ok) {
+			throw new WorkdriveError(
+				res.status === 401 ? "WORKDRIVE_TOKEN_EXPIRED" : "WORKDRIVE_API_FAILED",
+				`Failed to resolve Private Space: HTTP ${res.status}`,
+				res.status
+			);
+		}
+
+		const json = await res.json();
+		const spaceList = Array.isArray(json.data) ? json.data : (json.data ? [json.data] : []);
+		spaceId = spaceList[0]?.id;
+	} else {
+		const json = await request("GET", "/users/me/privatespace", {
+			accessToken: session.accessToken,
+			email: session.email,
+			session
+		});
+		const spaceList = Array.isArray(json && json.data) ? json.data : (json && json.data ? [json.data] : []);
+		spaceId = spaceList[0]?.id;
+	}
+
+	if (!spaceId) {
+		throw new WorkdriveError("WORKDRIVE_API_FAILED", "No Private Space ID found for user.", 404);
+	}
+
+	spaceIdCache.set(hash, { spaceId, expiresAt: Date.now() + 30 * 60 * 1000 });
+	return spaceId;
+}
+
+/**
+ * Normalized Lean Item Formatter
+ */
+function normalizeItem(raw) {
+	if (!raw) return null;
+	const attrs = raw.attributes || {};
+	const isFolder = raw.type === "files"
+		? (attrs.type === "folder" || attrs.is_folder === true)
+		: (raw.type === "folder" || raw.type === "workspace" || raw.type === "private_space");
+
+	const ext = attrs.extn ? `.${attrs.extn.replace(/^\./, "")}` : "";
+	const size = Number(attrs.storage_info?.size_in_bytes || attrs.size || 0);
+
+	return {
+		id: raw.id,
+		name: attrs.name || attrs.display_name || "Untitled",
+		type: isFolder ? "folder" : "file",
+		isFolder,
+		size,
+		extension: ext,
+		modifiedTime: attrs.modified_time_in_millisecond
+			? new Date(Number(attrs.modified_time_in_millisecond)).toISOString()
+			: (attrs.modified_time || null),
+		permalink: attrs.permalink || null
+	};
+}
+
+/**
+ * High-performance search & folder exploration
+ */
+async function searchWorkDriveItems({ session, query = "", folderId = null, app = null }) {
+	if (!session || (!session.accessToken && !session.email)) {
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "WorkDrive session is invalid or expired.", 401);
+	}
+
+	if (!session.accessToken && session.email && app) {
+		session.accessToken = await getValidAccessToken(app, session.email, session);
+	}
+	if (!session.accessToken) {
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "WorkDrive access token missing in session.", 401);
+	}
+
+	const apiDomain = session.apiDomain || getApiDomain(session.email, session);
+	const targetFolderId = folderId || (await resolvePrivateSpaceId(session));
+
+	const cleanQuery = String(query || "").trim().replace(/['"<>\\;]/g, "").slice(0, 100);
+
+	let url;
+	if (cleanQuery) {
+		url = `${apiDomain.replace(/\/+$/, "")}/files/${encodeURIComponent(targetFolderId)}/files?search[name]=${encodeURIComponent(cleanQuery)}&page[limit]=50`;
+	} else {
+		url = `${apiDomain.replace(/\/+$/, "")}/files/${encodeURIComponent(targetFolderId)}/files?page[limit]=50`;
+	}
+
+	let rawItems = [];
+	if (typeof fetch === "function") {
+		const response = await fetch(url, {
+			headers: {
+				Authorization: `Zoho-oauthtoken ${session.accessToken}`,
+				Accept: "application/vnd.api+json"
+			}
+		});
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new WorkdriveError(
+				response.status === 401 ? "WORKDRIVE_TOKEN_EXPIRED" : "WORKDRIVE_API_FAILED",
+				`Zoho API Search error (HTTP ${response.status}): ${errorText.slice(0, 200)}`,
+				response.status
+			);
+		}
+
+		const json = await response.json();
+		rawItems = Array.isArray(json && json.data) ? json.data : [];
+	} else {
+		const qs = cleanQuery ? { "search[name]": cleanQuery, "page[limit]": 50 } : { "page[limit]": 50 };
+		const json = await request("GET", `/files/${encodeURIComponent(targetFolderId)}/files`, {
+			accessToken: session.accessToken,
+			qs,
+			email: session.email,
+			session
+		});
+		rawItems = Array.isArray(json && json.data) ? json.data : [];
+	}
+
+	return {
+		folderId: targetFolderId,
+		query: cleanQuery,
+		items: rawItems.map(normalizeItem).filter(Boolean)
+	};
+}
 
 // In-memory fallback map: email -> connection object
 const MEMORY_CONNECTIONS = new Map();
@@ -308,16 +464,25 @@ async function listRootItems(app, email, session) {
 		console.warn("[WorkDrive] Could not fetch /users/me:", e.message);
 	}
 
-	// 1. Fetch private space via /users/me/privatespace (data is an Array of privatespace objects)
+	// 1. Fetch private space via resolvePrivateSpaceId (30-min in-memory cache) with fallback
 	let privateSpaceId = null;
-	try {
-		const directRes = await request("GET", "/users/me/privatespace", { accessToken, email, session });
-		const psList = Array.isArray(directRes && directRes.data) ? directRes.data : (directRes && directRes.data ? [directRes.data] : []);
-		if (psList.length > 0 && psList[0] && psList[0].id) {
-			privateSpaceId = psList[0].id;
+	if (session && session.accessToken) {
+		try {
+			privateSpaceId = await resolvePrivateSpaceId(session);
+		} catch (e) {
+			console.warn("[WorkDrive] Fast private space resolution failed, trying fallback:", e.message);
 		}
-	} catch (e) {
-		console.warn("[WorkDrive] Could not fetch /users/me/privatespace:", e.message);
+	}
+	if (!privateSpaceId) {
+		try {
+			const directRes = await request("GET", "/users/me/privatespace", { accessToken, email, session });
+			const psList = Array.isArray(directRes && directRes.data) ? directRes.data : (directRes && directRes.data ? [directRes.data] : []);
+			if (psList.length > 0 && psList[0] && psList[0].id) {
+				privateSpaceId = psList[0].id;
+			}
+		} catch (e) {
+			console.warn("[WorkDrive] Could not fetch /users/me/privatespace:", e.message);
+		}
 	}
 
 	// 2. Fetch user teams / workspaces if permitted
@@ -487,5 +652,8 @@ module.exports = {
 	downloadFile,
 	disconnectConnection,
 	upsertConnection,
+	resolvePrivateSpaceId,
+	normalizeItem,
+	searchWorkDriveItems,
 	WORKDRIVE_CONNECTIONS_TABLE
 };

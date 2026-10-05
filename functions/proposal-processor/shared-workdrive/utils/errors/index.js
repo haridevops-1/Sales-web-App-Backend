@@ -16,14 +16,17 @@ const ERROR_CODES = {
 	FILE_DOWNLOAD_FAILED: "Failed to download this file from WorkDrive.",
 	VALIDATION_FAILED: "The request was invalid.",
 	TIMEOUT: "The request timed out.",
-	NOT_FOUND: "The requested resource was not found."
+	NOT_FOUND: "The requested resource was not found.",
+	INVALID_FOLDER_ID: "Malformed folder identifier.",
+	INVALID_FILE_ID: "Malformed file identifier.",
+	SEARCH_FAILED: "Failed to search Zoho WorkDrive."
 };
 
 class WorkdriveError extends Error {
 	constructor(code, message, statusCode = 400) {
 		super(message || ERROR_CODES[code] || "An unexpected error occurred.");
 		this.name = "WorkdriveError";
-		this.code = ERROR_CODES.hasOwnProperty(code) ? code : "VALIDATION_FAILED";
+		this.code = ERROR_CODES.hasOwnProperty(code) ? code : (code || "VALIDATION_FAILED");
 		this.statusCode = statusCode;
 	}
 }
@@ -32,7 +35,7 @@ class WorkdriveError extends Error {
 // with its own similarly-shaped error class (e.g. Workspace 2's ProposalError) can reuse
 // this without a cross-module class dependency.
 function toErrorResponse(error, requestId) {
-	if (error && typeof error.code === "string" && ERROR_CODES.hasOwnProperty(error.code)) {
+	if (error && typeof error.code === "string") {
 		return {
 			statusCode: error.statusCode || 400,
 			body: {
@@ -46,7 +49,7 @@ function toErrorResponse(error, requestId) {
 		statusCode: 500,
 		body: {
 			success: false,
-			error: { code: "VALIDATION_FAILED", message: "An unexpected error occurred." },
+			error: { code: "VALIDATION_FAILED", message: (error && error.message) || "An unexpected error occurred." },
 			request_id: requestId || null
 		}
 	};

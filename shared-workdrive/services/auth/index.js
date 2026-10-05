@@ -276,6 +276,13 @@ function verifySignedPayload(token) {
 	}
 }
 
+function maskToken(token) {
+	if (!token || typeof token !== "string") return "***";
+	const clean = token.trim();
+	if (clean.length <= 12) return "***";
+	return `${clean.slice(0, 8)}...***`;
+}
+
 function encryptToken(plainText) {
 	if (!plainText) return null;
 	const key = getTokenEncryptionKey();
@@ -290,6 +297,9 @@ function decryptToken(encoded) {
 	if (!encoded) return null;
 	const key = getTokenEncryptionKey();
 	const raw = Buffer.from(encoded, "base64");
+	if (raw.length < 28) {
+		throw new Error("Invalid encrypted token length");
+	}
 	const iv = raw.subarray(0, 12);
 	const authTag = raw.subarray(12, 28);
 	const encrypted = raw.subarray(28);
@@ -299,7 +309,7 @@ function decryptToken(encoded) {
 }
 
 // Session tokens are what the frontend holds after a successful WorkDrive connection.
-// Supports stateless self-contained encrypted tokens (session_v2.<encrypted>) so every
+// Supports stateless self-contained encrypted tokens (sess_v2.<encrypted>) so every
 // function and container has immediate access to decrypted OAuth tokens without DB dependency.
 function issueSessionToken(dataOrEmail) {
 	if (dataOrEmail && typeof dataOrEmail === "object") {
@@ -313,29 +323,87 @@ function issueSessionToken(dataOrEmail) {
 			apiDomain: dataOrEmail.apiDomain || null
 		};
 		const encrypted = encryptToken(JSON.stringify(sessionObj));
-		return signPayload(`session_v2.${encrypted}`, SESSION_TTL_MS);
+		return signPayload(`sess_v2.${encrypted}`, SESSION_TTL_MS);
 	}
 	return signPayload(`session.${dataOrEmail}`, SESSION_TTL_MS);
 }
 
-function verifySessionToken(token) {
-	const payload = verifySignedPayload(token);
-	if (!payload) return null;
-	if (payload.startsWith("session_v2.")) {
+function verifySessionTokenWithStatus(token) {
+	if (!token || typeof token !== "string") {
+		return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Missing or invalid session token." };
+	}
+
+	let rawToken = token.trim();
+	if (rawToken.startsWith("Bearer ")) {
+		rawToken = rawToken.slice(7).trim();
+	}
+
+	try {
+		let payload = null;
+
+		// 1. If wrapped in HMAC signature (base64url)
 		try {
-			const encrypted = payload.slice("session_v2.".length);
-			const decrypted = decryptToken(encrypted);
-			const sessionObj = JSON.parse(decrypted);
-			return sessionObj;
-		} catch {
-			return null;
+			const decoded = Buffer.from(rawToken, "base64url").toString("utf8");
+			const parts = decoded.split(".");
+			if (parts.length >= 3) {
+				const hmac = parts.pop();
+				const expiresAt = parts.pop();
+				const rawPayload = parts.join(".");
+				const expected = crypto.createHmac("sha256", getSessionSecret()).update(`${rawPayload}.${expiresAt}`).digest("hex");
+				if (hmac !== expected) {
+					return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token signature verification failed." };
+				}
+				if (Date.now() > Number(expiresAt)) {
+					return { valid: false, code: "WORKDRIVE_TOKEN_EXPIRED", message: "Session token has expired. Please reconnect." };
+				}
+				payload = rawPayload;
+			}
+		} catch {}
+
+		// 2. Direct format support (e.g. sess_v2.<encrypted> or session_v2.<encrypted>)
+		if (!payload) {
+			if (rawToken.startsWith("sess_v2.") || rawToken.startsWith("session_v2.")) {
+				payload = rawToken;
+			} else {
+				payload = `sess_v2.${rawToken}`;
+			}
 		}
+
+		if (payload.startsWith("sess_v2.") || payload.startsWith("session_v2.")) {
+			const prefix = payload.startsWith("sess_v2.") ? "sess_v2." : "session_v2.";
+			const encrypted = payload.slice(prefix.length);
+			let decrypted;
+			try {
+				decrypted = decryptToken(encrypted);
+			} catch (decErr) {
+				return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token authentication tag verification failed." };
+			}
+			if (!decrypted) {
+				return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token is malformed." };
+			}
+			let sessionObj;
+			try {
+				sessionObj = JSON.parse(decrypted);
+			} catch {
+				return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token contains invalid payload." };
+			}
+			return { valid: true, session: sessionObj };
+		}
+
+		if (payload.startsWith("session.")) {
+			const email = payload.slice("session.".length);
+			return { valid: true, session: { email } };
+		}
+
+		return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Unsupported session token format." };
+	} catch (err) {
+		return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: `Session authentication error: ${err.message}` };
 	}
-	if (payload.startsWith("session.")) {
-		const email = payload.slice("session.".length);
-		return { email };
-	}
-	return null;
+}
+
+function verifySessionToken(token) {
+	const status = verifySessionTokenWithStatus(token);
+	return status.valid ? status.session : null;
 }
 
 module.exports = {
@@ -347,7 +415,9 @@ module.exports = {
 	fetchZohoUserInfo,
 	issueSessionToken,
 	verifySessionToken,
+	verifySessionTokenWithStatus,
 	encryptToken,
 	decryptToken,
+	maskToken,
 	WORKDRIVE_SCOPES
 };

@@ -22,7 +22,7 @@ const { URL, URLSearchParams } = require("url");
 const { WorkdriveError } = require("../../utils/errors");
 
 const DEFAULT_ACCOUNTS_DOMAIN = "https://accounts.zoho.com";
-const WORKDRIVE_SCOPES = "WorkDrive.files.READ,ZohoFiles.files.READ";
+const WORKDRIVE_SCOPES = "WorkDrive.files.READ,ZohoFiles.files.READ,AaaServer.profile.READ";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function getAccountsDomain() {
@@ -45,10 +45,11 @@ function getOAuthConfig() {
 // No user identity is known yet at this point - state is a plain CSRF nonce (proves
 // the callback belongs to a browser session that actually started this flow), not a
 // carrier for "which salesperson." Identity comes from Zoho's own login, after the fact.
-function buildAuthorizeUrl() {
+function buildAuthorizeUrl(customAccountsDomain) {
+	const domain = (customAccountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, redirectUri } = getOAuthConfig();
-	const state = signPayload(`nonce.${crypto.randomBytes(16).toString("hex")}`, 15 * 60 * 1000);
-	const url = new URL(`${getAccountsDomain()}/oauth/v2/auth`);
+	const state = signPayload(`nonce.${crypto.randomBytes(16).toString("hex")}`, 2 * 60 * 60 * 1000); // 2 hours TTL
+	const url = new URL(`${domain}/oauth/v2/auth`);
 	url.searchParams.set("scope", WORKDRIVE_SCOPES);
 	url.searchParams.set("client_id", clientId);
 	url.searchParams.set("response_type", "code");
@@ -63,7 +64,8 @@ function verifyState(state) {
 	return verifySignedPayload(state) !== null;
 }
 
-async function exchangeCodeForToken(code) {
+async function exchangeCodeForToken(code, accountsDomain) {
+	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, clientSecret, redirectUri } = getOAuthConfig();
 	const body = new URLSearchParams({
 		grant_type: "authorization_code",
@@ -72,10 +74,11 @@ async function exchangeCodeForToken(code) {
 		redirect_uri: redirectUri,
 		code
 	});
-	return postForm(`${getAccountsDomain()}/oauth/v2/token`, body);
+	return postForm(`${domain}/oauth/v2/token`, body);
 }
 
-async function refreshAccessToken(refreshToken) {
+async function refreshAccessToken(refreshToken, accountsDomain) {
+	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, clientSecret } = getOAuthConfig();
 	const body = new URLSearchParams({
 		grant_type: "refresh_token",
@@ -83,19 +86,29 @@ async function refreshAccessToken(refreshToken) {
 		client_secret: clientSecret,
 		refresh_token: refreshToken
 	});
-	return postForm(`${getAccountsDomain()}/oauth/v2/token`, body);
+	return postForm(`${domain}/oauth/v2/token`, body);
 }
 
-// Zoho's standard OAuth user-info endpoint - used once, right after the token exchange,
-// purely to learn *whose* email this connection belongs to. Never touches a password.
-function fetchZohoUserInfo(accessToken) {
+// Looks up whose email this connection belongs to using Zoho Accounts, with fallback to WorkDrive /users/me.
+async function fetchZohoUserInfo(accessToken, accountsDomain, userApiDomain) {
+	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
+	try {
+		const info = await fetchAccountsUserInfo(accessToken, domain);
+		if (info && info.email) return info;
+	} catch (err) {
+		console.warn("[WorkDrive Auth] Accounts user/info failed, trying WorkDrive /users/me fallback:", err.message);
+	}
+	return fetchWorkdriveCurrentUser(accessToken, domain, userApiDomain);
+}
+
+function fetchAccountsUserInfo(accessToken, domain) {
 	return new Promise((resolve, reject) => {
-		const url = new URL(`${getAccountsDomain()}/oauth/user/info`);
+		const url = new URL(`${domain}/oauth/user/info`);
 		const req = https.request(
 			{
 				hostname: url.hostname,
 				port: 443,
-				path: url.pathname,
+				path: url.pathname + url.search,
 				method: "GET",
 				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
 				timeout: 30000
@@ -109,7 +122,7 @@ function fetchZohoUserInfo(accessToken) {
 						const parsed = JSON.parse(raw);
 						const email = parsed.Email || parsed.email;
 						if (!email) {
-							return reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Could not determine the Zoho account's email."));
+							return reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Could not determine the Zoho account's email from Accounts API."));
 						}
 						resolve({ email, displayName: parsed.Display_Name || parsed.display_name || null });
 					} catch {
@@ -120,6 +133,59 @@ function fetchZohoUserInfo(accessToken) {
 		);
 		req.on("timeout", () => { req.destroy(); reject(new WorkdriveError("TIMEOUT", "Zoho user-info request timed out.")); });
 		req.on("error", (err) => reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", `Failed to reach Zoho user-info: ${err.message}`)));
+		req.end();
+	});
+}
+
+function fetchWorkdriveCurrentUser(accessToken, accountsDomain, userApiDomain) {
+	return new Promise((resolve, reject) => {
+		let apiDomain = userApiDomain || "";
+		if (!apiDomain) {
+			const accountsLower = (accountsDomain || "").toLowerCase();
+			if (accountsLower.includes(".zoho.in")) {
+				apiDomain = "https://www.zohoapis.in/workdrive/api/v1";
+			} else if (accountsLower.includes(".zoho.eu")) {
+				apiDomain = "https://www.zohoapis.eu/workdrive/api/v1";
+			} else if (accountsLower.includes(".zoho.com.au")) {
+				apiDomain = "https://www.zohoapis.com.au/workdrive/api/v1";
+			} else if (process.env.WORKDRIVE_API_DOMAIN && !accountsLower.includes(".zoho.")) {
+				apiDomain = String(process.env.WORKDRIVE_API_DOMAIN).trim().replace(/\/+$/, "");
+			} else {
+				apiDomain = "https://www.zohoapis.com/workdrive/api/v1";
+			}
+		}
+		const url = new URL(`${apiDomain}/users/me`);
+		const req = https.request(
+			{
+				hostname: url.hostname,
+				port: 443,
+				path: url.pathname + url.search,
+				method: "GET",
+				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+				timeout: 30000
+			},
+			(res) => {
+				let raw = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => { raw += chunk; });
+				res.on("end", () => {
+					try {
+						const parsed = JSON.parse(raw);
+						const attrs = (parsed.data && parsed.data.attributes) || {};
+						const email = attrs.email_id || attrs.email;
+						if (!email) {
+							return reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Could not determine Zoho user email from WorkDrive API."));
+						}
+						const displayName = attrs.display_name || `${attrs.first_name || ""} ${attrs.last_name || ""}`.trim() || null;
+						resolve({ email, displayName });
+					} catch {
+						reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "WorkDrive user-info returned a non-JSON response."));
+					}
+				});
+			}
+		);
+		req.on("timeout", () => { req.destroy(); reject(new WorkdriveError("TIMEOUT", "WorkDrive user-info request timed out.")); });
+		req.on("error", (err) => reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", `Failed to reach WorkDrive user-info: ${err.message}`)));
 		req.end();
 	});
 }
@@ -210,6 +276,13 @@ function verifySignedPayload(token) {
 	}
 }
 
+function maskToken(token) {
+	if (!token || typeof token !== "string") return "***";
+	const clean = token.trim();
+	if (clean.length <= 12) return "***";
+	return `${clean.slice(0, 8)}...***`;
+}
+
 function encryptToken(plainText) {
 	if (!plainText) return null;
 	const key = getTokenEncryptionKey();
@@ -224,6 +297,9 @@ function decryptToken(encoded) {
 	if (!encoded) return null;
 	const key = getTokenEncryptionKey();
 	const raw = Buffer.from(encoded, "base64");
+	if (raw.length < 28) {
+		throw new Error("Invalid encrypted token length");
+	}
 	const iv = raw.subarray(0, 12);
 	const authTag = raw.subarray(12, 28);
 	const encrypted = raw.subarray(28);
@@ -233,7 +309,7 @@ function decryptToken(encoded) {
 }
 
 // Session tokens are what the frontend holds after a successful WorkDrive connection.
-// Supports stateless self-contained encrypted tokens (session_v2.<encrypted>) so every
+// Supports stateless self-contained encrypted tokens (sess_v2.<encrypted>) so every
 // function and container has immediate access to decrypted OAuth tokens without DB dependency.
 function issueSessionToken(dataOrEmail) {
 	if (dataOrEmail && typeof dataOrEmail === "object") {
@@ -247,29 +323,87 @@ function issueSessionToken(dataOrEmail) {
 			apiDomain: dataOrEmail.apiDomain || null
 		};
 		const encrypted = encryptToken(JSON.stringify(sessionObj));
-		return signPayload(`session_v2.${encrypted}`, SESSION_TTL_MS);
+		return signPayload(`sess_v2.${encrypted}`, SESSION_TTL_MS);
 	}
 	return signPayload(`session.${dataOrEmail}`, SESSION_TTL_MS);
 }
 
-function verifySessionToken(token) {
-	const payload = verifySignedPayload(token);
-	if (!payload) return null;
-	if (payload.startsWith("session_v2.")) {
+function verifySessionTokenWithStatus(token) {
+	if (!token || typeof token !== "string") {
+		return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Missing or invalid session token." };
+	}
+
+	let rawToken = token.trim();
+	if (rawToken.startsWith("Bearer ")) {
+		rawToken = rawToken.slice(7).trim();
+	}
+
+	try {
+		let payload = null;
+
+		// 1. If wrapped in HMAC signature (base64url)
 		try {
-			const encrypted = payload.slice("session_v2.".length);
-			const decrypted = decryptToken(encrypted);
-			const sessionObj = JSON.parse(decrypted);
-			return sessionObj;
-		} catch {
-			return null;
+			const decoded = Buffer.from(rawToken, "base64url").toString("utf8");
+			const parts = decoded.split(".");
+			if (parts.length >= 3) {
+				const hmac = parts.pop();
+				const expiresAt = parts.pop();
+				const rawPayload = parts.join(".");
+				const expected = crypto.createHmac("sha256", getSessionSecret()).update(`${rawPayload}.${expiresAt}`).digest("hex");
+				if (hmac !== expected) {
+					return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token signature verification failed." };
+				}
+				if (Date.now() > Number(expiresAt)) {
+					return { valid: false, code: "WORKDRIVE_TOKEN_EXPIRED", message: "Session token has expired. Please reconnect." };
+				}
+				payload = rawPayload;
+			}
+		} catch {}
+
+		// 2. Direct format support (e.g. sess_v2.<encrypted> or session_v2.<encrypted>)
+		if (!payload) {
+			if (rawToken.startsWith("sess_v2.") || rawToken.startsWith("session_v2.")) {
+				payload = rawToken;
+			} else {
+				payload = `sess_v2.${rawToken}`;
+			}
 		}
+
+		if (payload.startsWith("sess_v2.") || payload.startsWith("session_v2.")) {
+			const prefix = payload.startsWith("sess_v2.") ? "sess_v2." : "session_v2.";
+			const encrypted = payload.slice(prefix.length);
+			let decrypted;
+			try {
+				decrypted = decryptToken(encrypted);
+			} catch (decErr) {
+				return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token authentication tag verification failed." };
+			}
+			if (!decrypted) {
+				return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token is malformed." };
+			}
+			let sessionObj;
+			try {
+				sessionObj = JSON.parse(decrypted);
+			} catch {
+				return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Session token contains invalid payload." };
+			}
+			return { valid: true, session: sessionObj };
+		}
+
+		if (payload.startsWith("session.")) {
+			const email = payload.slice("session.".length);
+			return { valid: true, session: { email } };
+		}
+
+		return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: "Unsupported session token format." };
+	} catch (err) {
+		return { valid: false, code: "WORKDRIVE_AUTH_FAILED", message: `Session authentication error: ${err.message}` };
 	}
-	if (payload.startsWith("session.")) {
-		const email = payload.slice("session.".length);
-		return { email };
-	}
-	return null;
+}
+
+function verifySessionToken(token) {
+	const status = verifySessionTokenWithStatus(token);
+	return status.valid ? status.session : null;
 }
 
 module.exports = {
@@ -281,7 +415,9 @@ module.exports = {
 	fetchZohoUserInfo,
 	issueSessionToken,
 	verifySessionToken,
+	verifySessionTokenWithStatus,
 	encryptToken,
 	decryptToken,
+	maskToken,
 	WORKDRIVE_SCOPES
 };
