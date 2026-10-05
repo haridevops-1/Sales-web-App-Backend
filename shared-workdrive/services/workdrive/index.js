@@ -251,17 +251,103 @@ function request(method, path, { accessToken, qs = {}, expectBinary = false, ema
 async function listFiles(app, email, folderId) {
 	if (!folderId) throw new WorkdriveError("VALIDATION_FAILED", "folder_id is required.");
 	const accessToken = await getValidAccessToken(app, email);
-	const response = await request("GET", `/files/${encodeURIComponent(folderId)}/files`, { accessToken, email });
-	return Array.isArray(response.data) ? response.data : [];
+	try {
+		const response = await request("GET", `/files/${encodeURIComponent(folderId)}/files`, { accessToken, email });
+		return Array.isArray(response.data) ? response.data : [];
+	} catch (err) {
+		try {
+			const psResponse = await request("GET", `/privatespace/${encodeURIComponent(folderId)}/files`, { accessToken, email });
+			return Array.isArray(psResponse.data) ? psResponse.data : [];
+		} catch {}
+		throw err;
+	}
 }
 
-// VERIFY: real WorkDrive endpoint for the caller's own root-level items (private space +
-// team folders landing view) - used when the frontend opens WorkDrive with no folder
-// selected yet, before the salesperson drills into a specific folder.
+// Lists root items: Team Folders (workspaces) + Private Space ("My Folders").
 async function listRootItems(app, email) {
 	const accessToken = await getValidAccessToken(app, email);
-	const response = await request("GET", "/users/me/files", { accessToken, email });
-	return Array.isArray(response.data) ? response.data : [];
+	const items = [];
+
+	let zuid = null;
+	try {
+		const userRes = await request("GET", "/users/me", { accessToken, email });
+		zuid = (userRes && userRes.data && (userRes.data.id || (userRes.data.attributes && userRes.data.attributes.zid))) || null;
+	} catch (e) {
+		console.warn("[WorkDrive] Could not fetch /users/me:", e.message);
+	}
+
+	let teamIds = [];
+	if (zuid) {
+		try {
+			const teamsRes = await request("GET", `/users/${encodeURIComponent(zuid)}/teams`, { accessToken, email });
+			const teamList = Array.isArray(teamsRes && teamsRes.data) ? teamsRes.data : [];
+			teamIds = teamList.map((t) => t.id).filter(Boolean);
+		} catch (e) {
+			console.warn("[WorkDrive] Could not fetch user teams:", e.message);
+		}
+	}
+
+	for (const teamId of teamIds) {
+		// Workspaces (Team Folders)
+		try {
+			const wsRes = await request("GET", `/teams/${encodeURIComponent(teamId)}/workspaces`, { accessToken, email });
+			const wsList = Array.isArray(wsRes && wsRes.data) ? wsRes.data : [];
+			for (const ws of wsList) {
+				const attrs = ws.attributes || {};
+				items.push({
+					id: ws.id,
+					type: "workspace",
+					attributes: {
+						name: attrs.name || attrs.display_name || "Team Folder",
+						type: "workspace",
+						is_folder: true,
+						modified_time: attrs.modified_time || attrs.updated_time || null
+					}
+				});
+			}
+		} catch (e) {
+			console.warn(`[WorkDrive] Could not fetch workspaces for team ${teamId}:`, e.message);
+		}
+
+		// Private Space
+		if (zuid) {
+			try {
+				const psRes = await request("GET", `/users/${encodeURIComponent(teamId + "-" + zuid)}/privatespace`, { accessToken, email });
+				const psData = psRes && psRes.data;
+				if (psData && psData.id) {
+					items.push({
+						id: psData.id,
+						type: "private_space",
+						attributes: {
+							name: (psData.attributes && psData.attributes.name) || "My Folders (Private Space)",
+							type: "folder",
+							is_folder: true
+						}
+					});
+				}
+			} catch {}
+		}
+	}
+
+	// Fallback to /users/me/privatespace if no items found
+	if (items.length === 0) {
+		try {
+			const directRes = await request("GET", "/users/me/privatespace", { accessToken, email });
+			if (directRes && directRes.data && directRes.data.id) {
+				items.push({
+					id: directRes.data.id,
+					type: "private_space",
+					attributes: {
+						name: (directRes.data.attributes && directRes.data.attributes.name) || "My Folders",
+						type: "folder",
+						is_folder: true
+					}
+				});
+			}
+		} catch {}
+	}
+
+	return items;
 }
 
 // VERIFY: real WorkDrive endpoint for a single resource's metadata.
@@ -278,10 +364,20 @@ async function getFileMetadata(app, email, fileId) {
 async function downloadFile(app, email, fileId) {
 	if (!fileId) throw new WorkdriveError("VALIDATION_FAILED", "file_id is required.");
 	const accessToken = await getValidAccessToken(app, email);
-	const [buffer, metadata] = await Promise.all([
-		request("GET", `/download/${encodeURIComponent(fileId)}`, { accessToken, expectBinary: true, email }),
-		getFileMetadata(app, email, fileId).catch(() => null)
-	]);
+	let buffer;
+	let metadata = null;
+	try {
+		metadata = await getFileMetadata(app, email, fileId);
+	} catch (e) {
+		console.warn("[WorkDrive] Could not fetch file metadata for download:", e.message);
+	}
+
+	try {
+		buffer = await request("GET", `/files/${encodeURIComponent(fileId)}/download`, { accessToken, expectBinary: true, email });
+	} catch (err) {
+		buffer = await request("GET", `/download/${encodeURIComponent(fileId)}`, { accessToken, expectBinary: true, email });
+	}
+
 	const attrs = (metadata && metadata.attributes) || {};
 	return {
 		buffer,
@@ -290,9 +386,6 @@ async function downloadFile(app, email, fileId) {
 	};
 }
 
-// Best-effort revoke at Zoho's end (so the grant actually stops working, not just our own
-// record of it), then always marks the row disconnected locally regardless of whether the
-// revoke call itself succeeded - the row is kept (not deleted) as a reconnect/audit trail.
 async function disconnectConnection(app, email) {
 	const row = await getConnectionRow(app, email);
 	if (!row) return { connected: false, provider: "Zoho WorkDrive" };
