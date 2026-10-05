@@ -111,7 +111,7 @@ module.exports = async (req, res) => {
 				sendJson(res, 200, { success: true, connected: false, provider: "Zoho WorkDrive" });
 				return;
 			}
-			const status = await workdrive.checkConnectionStatus(app, session.email);
+			const status = await workdrive.checkConnectionStatus(app, session.email, session);
 			sendJson(res, 200, { success: true, ...status });
 			return;
 		}
@@ -122,7 +122,7 @@ module.exports = async (req, res) => {
 		const session = requireSession(req);
 
 		if (req.method === "POST" && action === "disconnect") {
-			const result = await workdrive.disconnectConnection(app, session.email);
+			const result = await workdrive.disconnectConnection(app, session.email, session);
 			sendJson(res, 200, { success: true, ...result });
 			return;
 		}
@@ -130,8 +130,8 @@ module.exports = async (req, res) => {
 		if (req.method === "GET" && action === "list") {
 			const folderId = urlObj.searchParams.get("folder_id");
 			const items = folderId
-				? await workdrive.listFiles(app, session.email, folderId)
-				: await workdrive.listRootItems(app, session.email);
+				? await workdrive.listFiles(app, session.email, folderId, session)
+				: await workdrive.listRootItems(app, session.email, session);
 			sendJson(res, 200, { success: true, folder_id: folderId || null, items });
 			return;
 		}
@@ -139,7 +139,7 @@ module.exports = async (req, res) => {
 		if (req.method === "GET" && action === "metadata") {
 			const fileId = urlObj.searchParams.get("file_id");
 			if (!fileId) throw new WorkdriveError("VALIDATION_FAILED", "file_id is required.");
-			const metadata = await workdrive.getFileMetadata(app, session.email, fileId);
+			const metadata = await workdrive.getFileMetadata(app, session.email, fileId, session);
 			if (!metadata) throw new WorkdriveError("WORKDRIVE_FILE_NOT_FOUND", "This WorkDrive file could not be found.", 404);
 			sendJson(res, 200, { success: true, file: metadata });
 			return;
@@ -200,7 +200,15 @@ async function handleCallback(app, urlObj, res) {
 			apiDomain: userApiDomain
 		});
 
-		const sessionToken = auth.issueSessionToken(email);
+		const sessionToken = auth.issueSessionToken({
+			email,
+			displayName,
+			accessToken: tokenResponse.access_token,
+			refreshToken: tokenResponse.refresh_token,
+			expiresIn: tokenResponse.expires_in,
+			scope: tokenResponse.scope || auth.WORKDRIVE_SCOPES,
+			apiDomain: userApiDomain
+		});
 		sendCallbackResult(res, true, `WorkDrive connected successfully as ${email}.`, sessionToken, email);
 	} catch (err) {
 		console.error("[WorkDrive Auth] Callback handling failed:", err);

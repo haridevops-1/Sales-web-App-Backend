@@ -680,7 +680,7 @@ async function retrieveFileBuffer(app, user, fileRow) {
 		throw new ProposalError("NOT_FOUND", `Could not retrieve file from storage (${cleanKey}): ${(lastErr && lastErr.message) || "Not found"}`);
 	}
 
-	const { buffer } = await workdrive.downloadFile(app, user.userId, idOrKey);
+	const { buffer } = await workdrive.downloadFile(app, user.userId, idOrKey, user);
 	return buffer;
 }
 

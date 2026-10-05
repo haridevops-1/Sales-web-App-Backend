@@ -1,11 +1,5 @@
 "use strict";
 
-// Resolves "which salesperson is making this request" from the signed session token
-// issued by workdrive-auth after a successful Zoho WorkDrive login. Unlike the previous
-// Workspace 2 version of this file, a missing or invalid token is a real failure here -
-// requireSession() throws, it never silently returns a default identity. Every caller
-// that needs a real, authenticated user must let that exception propagate into a 401,
-// not swallow it and proceed as someone else.
 const { URL } = require("url");
 const { verifySessionToken } = require("../../services/auth");
 const { WorkdriveError } = require("../errors");
@@ -35,11 +29,15 @@ function requireSession(req) {
 	if (!token) {
 		throw new WorkdriveError("UNAUTHENTICATED", "A WorkDrive session token is required.", 401);
 	}
-	const email = verifySessionToken(token);
-	if (!email) {
+	const sessionData = verifySessionToken(token);
+	if (!sessionData || !sessionData.email) {
 		throw new WorkdriveError("SESSION_EXPIRED", "This WorkDrive session is invalid or has expired. Please reconnect.", 401);
 	}
-	return { userId: email, email };
+	return {
+		userId: sessionData.email,
+		email: sessionData.email,
+		...sessionData
+	};
 }
 
 module.exports = { requireSession, extractSessionToken };

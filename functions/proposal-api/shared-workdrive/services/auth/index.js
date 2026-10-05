@@ -251,9 +251,6 @@ function getTokenEncryptionKey() {
 	return crypto.createHash("sha256").update(raw).digest();
 }
 
-// Deliberately a separate secret from the token encryption key - this one signs session
-// tokens the frontend holds, that key encrypts OAuth tokens at rest; a leak of one
-// should not automatically compromise the other.
 function getSessionSecret() {
 	const raw = String(process.env.WORKDRIVE_SESSION_SECRET || "").trim();
 	if (!raw) {
@@ -285,19 +282,6 @@ function verifySignedPayload(token) {
 	}
 }
 
-// Session tokens are what the frontend holds after a successful WorkDrive connection -
-// they identify "which salesperson" on every later request. Not a password, not an
-// OAuth token itself; just a signed pointer to their WORKDRIVE_CONNECTIONS row by email.
-function issueSessionToken(email) {
-	return signPayload(`session.${email}`, SESSION_TTL_MS);
-}
-
-function verifySessionToken(token) {
-	const payload = verifySignedPayload(token);
-	if (!payload || !payload.startsWith("session.")) return null;
-	return payload.slice("session.".length);
-}
-
 function encryptToken(plainText) {
 	if (!plainText) return null;
 	const key = getTokenEncryptionKey();
@@ -318,6 +302,46 @@ function decryptToken(encoded) {
 	const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
 	decipher.setAuthTag(authTag);
 	return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+}
+
+// Session tokens are what the frontend holds after a successful WorkDrive connection.
+// Supports stateless self-contained encrypted tokens (session_v2.<encrypted>) so every
+// function and container has immediate access to decrypted OAuth tokens without DB dependency.
+function issueSessionToken(dataOrEmail) {
+	if (dataOrEmail && typeof dataOrEmail === "object") {
+		const sessionObj = {
+			email: String(dataOrEmail.email || "").toLowerCase().trim(),
+			displayName: dataOrEmail.displayName || null,
+			accessToken: dataOrEmail.accessToken || null,
+			refreshToken: dataOrEmail.refreshToken || null,
+			expiresAt: dataOrEmail.expiresAt || new Date(Date.now() + Number(dataOrEmail.expiresIn || 3600) * 1000).toISOString(),
+			scope: dataOrEmail.scope || null,
+			apiDomain: dataOrEmail.apiDomain || null
+		};
+		const encrypted = encryptToken(JSON.stringify(sessionObj));
+		return signPayload(`session_v2.${encrypted}`, SESSION_TTL_MS);
+	}
+	return signPayload(`session.${dataOrEmail}`, SESSION_TTL_MS);
+}
+
+function verifySessionToken(token) {
+	const payload = verifySignedPayload(token);
+	if (!payload) return null;
+	if (payload.startsWith("session_v2.")) {
+		try {
+			const encrypted = payload.slice("session_v2.".length);
+			const decrypted = decryptToken(encrypted);
+			const sessionObj = JSON.parse(decrypted);
+			return sessionObj;
+		} catch {
+			return null;
+		}
+	}
+	if (payload.startsWith("session.")) {
+		const email = payload.slice("session.".length);
+		return { email };
+	}
+	return null;
 }
 
 module.exports = {

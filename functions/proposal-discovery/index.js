@@ -96,7 +96,7 @@ module.exports = async (req, res) => {
 				const effectivePackageId = packageId || body.package_id || body.session_id || null;
 				if (action === "add_from_workdrive") {
 					const fileIds = Array.isArray(body.file_ids) ? body.file_ids : body.file_id ? [body.file_id] : [];
-					const files = await downloadWorkdriveFiles(app, user.email, fileIds);
+					const files = await downloadWorkdriveFiles(app, user.email, fileIds, user);
 					if (effectivePackageId) {
 						operation = "add_from_workdrive_existing";
 						const result = await addUploadedFilesToPackage(app, effectivePackageId, user.userId, files);
@@ -169,13 +169,13 @@ function validateFileEntry(file) {
 // local multipart upload produces, so it can flow into createPackageFromUpload /
 // addUploadedFilesToPackage unchanged - a WorkDrive-picked file is stored and processed
 // exactly like a locally-uploaded one from this point on.
-async function downloadWorkdriveFiles(app, email, fileIds) {
+async function downloadWorkdriveFiles(app, email, fileIds, session) {
 	if (!Array.isArray(fileIds) || fileIds.length === 0) {
 		throw new ProposalError("VALIDATION_FAILED", "file_id or file_ids is required.");
 	}
 	const files = [];
 	for (const fileId of fileIds) {
-		const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, email, fileId);
+		const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, email, fileId, session);
 		files.push({ fileName, contentType: mimeType, data: buffer });
 	}
 	return files;
