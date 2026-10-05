@@ -45,15 +45,34 @@ function buildProposalRecord(ziaResponse, { packageId, userId, dealValue = 0 }) 
 	};
 }
 
-// Single source of truth for where a proposal's rendered document lives in the
+// Single source of truth for where a proposal's rendered documents live in the
 // spikra-w2-proposal-documents Stratus bucket - defined once and shared by the writer
 // (proposal-processor) and the reader (proposal-api's public view route) so they can
-// never drift apart. Scoped by user then package (the salesperson's WorkDrive-connected
-// email, then the discovery session/package it came from) so the bucket's own folder
-// structure is self-explanatory without needing to open the Data Store to know whose
-// document is whose.
-function buildProposalDocumentKey(userId, packageId, proposalId) {
+// never drift apart. Supports exactly 3 documents: technical, commercial, tos.
+function buildProposalDocumentKey(userId, packageId, proposalId, docType = "commercial", extension = "html") {
+	const safeDoc = String(docType || "commercial").toLowerCase();
+	const safeExt = String(extension || "html").toLowerCase().replace(/^\./, "");
+	let baseName = "commercial";
+	if (safeDoc === "technical") {
+		baseName = "technical";
+	} else if (safeDoc === "tos") {
+		baseName = "tos";
+	} else if (safeDoc === "consolidated") {
+		baseName = "consolidated";
+	} else if (safeDoc === "index") {
+		baseName = "index";
+	}
+	return `proposals/${encodeURIComponent(userId)}/${encodeURIComponent(packageId)}/${encodeURIComponent(proposalId)}/${baseName}.${safeExt}`;
+}
+
+function buildLegacyProposalDocumentKey(userId, packageId, proposalId) {
 	return `proposals/${encodeURIComponent(userId)}/${encodeURIComponent(packageId)}/${encodeURIComponent(proposalId)}/index.html`;
 }
 
-module.exports = { VALID_STATUSES, isValidStatusTransition, buildProposalRecord, buildProposalDocumentKey };
+module.exports = {
+	VALID_STATUSES,
+	isValidStatusTransition,
+	buildProposalRecord,
+	buildProposalDocumentKey,
+	buildLegacyProposalDocumentKey
+};

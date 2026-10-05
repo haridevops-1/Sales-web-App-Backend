@@ -32,8 +32,12 @@ class ProposalZiaAgentClient {
 		return Boolean(this.endpoint);
 	}
 
-	async generateProposal(discoveryText, { businessName, industry } = {}, connectionCredentials) {
-		if (!discoveryText || typeof discoveryText !== "string" || !discoveryText.trim()) {
+	async generateProposal(discoveryInput, { businessName, industry } = {}, connectionCredentials) {
+		const discoveryText = typeof discoveryInput === "object"
+			? JSON.stringify(discoveryInput, null, 2)
+			: String(discoveryInput || "").trim();
+
+		if (!discoveryText) {
 			throw new ProposalError("VALIDATION_FAILED", "Discovery content is empty - nothing to send to the Zia Agent.");
 		}
 		if (!this.isConfigured()) {
@@ -119,19 +123,33 @@ class ProposalZiaAgentClient {
 	}
 }
 
-function buildQuery(discoveryText, { businessName, industry }) {
-	const context = [
-		businessName ? `Customer: ${businessName}` : null,
-		industry ? `Industry: ${industry}` : null
-	].filter(Boolean).join("\n");
+function buildQuery(consolidatedJsonString, { businessName, industry }) {
+	const customerName = businessName ? `Customer: ${businessName}` : "";
+	const ind = industry ? `Industry: ${industry}` : "";
+	const context = [customerName, ind].filter(Boolean).join("\n");
 
 	return [
 		context,
-		"You are the Solution Proposal Agent for Spikra. Analyze the following consolidated customer discovery content (from documents, MOM, and notes) and generate comprehensive structured proposal content. Do a single pass - do not plan or use multiple reasoning steps.",
-		"Ground every field in the content below. Never invent customer facts, requirements, pain points, systems, or decisions. If a section is not mentioned, use an empty array or null.",
-		'Return ONLY this JSON object, no markdown, no wrapper key:\n{\n  "customer": {"company_name": "", "industry": "", "business_context": ""},\n  "goals": [],\n  "requirements": [],\n  "pain_points": [],\n  "existing_process": [],\n  "proposed_solution": [],\n  "zoho_solutions": [],\n  "expected_outcomes": [],\n  "deliverables": [{"title": "", "description": "", "scope": ""}],\n  "implementation_milestones": [{"phase_name": "", "timeline": "", "milestones": ""}],\n  "license_cost_info": null,\n  "payment_terms": null,\n  "assumptions": [],\n  "support_hypercare": null\n}',
-		"Discovery content:",
-		discoveryText.trim()
+		"You are the Customer Proposal Generation Agent for Spikra. Analyze the following Consolidated Customer JSON (extracted and combined from all discovery documents) and generate THREE distinct structured proposal documents:",
+		"1. technical_document: Technical Architecture, Systems, Functional & Technical Requirements, Integrations, and Technical Deliverables.",
+		"2. commercial_document: Commercial Scope, Executive Summary, Deliverables Catalog, Implementation Milestones, and Commercial/Licensing Structure.",
+		"3. tos_document: Terms of Service, Scope Governance, Assumptions, Dependencies, Risks, SLA & Support Hypercare.",
+		"",
+		"RULES & CONSTRAINTS:",
+		"- Ground every single field strictly in the provided Consolidated Customer JSON.",
+		"- Do NOT invent customer information.",
+		"- Do NOT invent pricing.",
+		"- Do NOT invent payment terms.",
+		"- Do NOT invent timelines.",
+		"- Do NOT invent legal/TOS commitments.",
+		"- If commercial, timeline, or TOS details were not explicitly stated in the source documents, clearly state that they are subject to mutual commercial alignment or keep them empty.",
+		"- The document generator applies the visual presentation templates. Do NOT generate HTML, CSS, JavaScript or visual UI.",
+		"",
+		"Return ONLY a valid JSON object matching this exact structure, with no markdown code blocks, no backticks, and no wrapper key:",
+		'{\n  "technical_document": {\n    "title": "Technical Document",\n    "sections": [\n      {\n        "heading": "Architecture & System Blueprint",\n        "content": "...",\n        "subsections": [\n          { "title": "Key Technical Requirements", "content": "..." }\n        ]\n      }\n    ]\n  },\n  "commercial_document": {\n    "title": "Commercial Proposal",\n    "sections": [\n      {\n        "heading": "Executive Summary & Commercial Scope",\n        "content": "...",\n        "subsections": [\n          { "title": "Deliverables & Modules", "content": "..." }\n        ]\n      }\n    ]\n  },\n  "tos_document": {\n    "title": "TOS Document",\n    "sections": [\n      {\n        "heading": "Scope Governance & Terms of Service",\n        "content": "...",\n        "subsections": [\n          { "title": "Key Assumptions & Responsibilities", "content": "..." }\n        ]\n      }\n    ]\n  }\n}',
+		"",
+		"Consolidated Customer JSON:",
+		consolidatedJsonString.trim()
 	].filter(Boolean).join("\n\n");
 }
 
@@ -187,19 +205,181 @@ function extractUsage(response) {
 	};
 }
 
+function normalizeDocumentSection(sec, defaultHeading) {
+	if (!sec) return { heading: defaultHeading, content: "", subsections: [] };
+	if (typeof sec === "string") {
+		return { heading: defaultHeading, content: sec, subsections: [] };
+	}
+	const heading = String(sec.heading || sec.title || defaultHeading).trim();
+	const content = String(sec.content || sec.description || sec.text || sec.summary || "").trim();
+	const rawSubs = Array.isArray(sec.subsections) ? sec.subsections : [];
+	const subsections = rawSubs.map((sub, idx) => {
+		if (typeof sub === "string") return { title: `Item ${idx + 1}`, content: sub };
+		if (sub && typeof sub === "object") {
+			return {
+				title: String(sub.title || sub.heading || sub.name || `Item ${idx + 1}`).trim(),
+				content: String(sub.content || sub.description || sub.scope || sub.text || "").trim()
+			};
+		}
+		return { title: `Item ${idx + 1}`, content: String(sub || "") };
+	}).filter((s) => s.title || s.content);
+
+	return { heading, content, subsections };
+}
+
+function normalizeDocumentBlock(docObj, defaultTitle) {
+	if (!docObj || typeof docObj !== "object") {
+		return { title: defaultTitle, sections: [] };
+	}
+	const title = String(docObj.title || docObj.name || defaultTitle).trim();
+	const rawSections = Array.isArray(docObj.sections) ? docObj.sections : [];
+	const sections = rawSections.map((sec, idx) => normalizeDocumentSection(sec, `Section ${idx + 1}`));
+	return { title, sections };
+}
+
+function synthesizeDocumentsFromLegacy(target, companyName) {
+	const customerName = companyName || "Customer Organization";
+
+	const technicalSections = [];
+	if (target.business_context || (target.customer && target.customer.business_context)) {
+		technicalSections.push({
+			heading: "Business Context & Technical Objectives",
+			content: String(target.business_context || target.customer?.business_context || ""),
+			subsections: Array.isArray(target.goals) ? target.goals.map((g, i) => ({ title: `Objective ${i + 1}`, content: String(g) })) : []
+		});
+	}
+	if (Array.isArray(target.requirements) && target.requirements.length > 0) {
+		technicalSections.push({
+			heading: "Functional & Technical Requirements",
+			content: "System requirements scoped directly from customer discovery.",
+			subsections: target.requirements.map((r, i) => ({ title: `Requirement ${i + 1}`, content: String(r) }))
+		});
+	}
+	if (Array.isArray(target.proposed_solution) && target.proposed_solution.length > 0) {
+		technicalSections.push({
+			heading: "System Architecture & Proposed Platform Configuration",
+			content: "Architecture and system capabilities mapped to customer workflows.",
+			subsections: target.proposed_solution.map((s, i) => ({ title: `Architecture Component ${i + 1}`, content: String(s) }))
+		});
+	}
+	if (Array.isArray(target.zoho_solutions) && target.zoho_solutions.length > 0) {
+		technicalSections.push({
+			heading: "Zoho Application Stack & Integrations",
+			content: "Configured Zoho applications and integration landscape.",
+			subsections: target.zoho_solutions.map((z) => ({ title: String(z), content: `Integrated component of the Spikra solution for ${customerName}.` }))
+		});
+	}
+	if (Array.isArray(target.deliverables) && target.deliverables.length > 0) {
+		technicalSections.push({
+			heading: "Technical Scope & Deliverables",
+			content: "Key technical work products and implementation packages.",
+			subsections: target.deliverables.map((d, i) => ({
+				title: typeof d === "object" && d.title ? d.title : `Deliverable ${i + 1}`,
+				content: typeof d === "object" ? `${d.description || ""}${d.scope ? ` (Scope: ${d.scope})` : ""}` : String(d)
+			}))
+		});
+	}
+
+	const commercialSections = [];
+	commercialSections.push({
+		heading: "Executive Summary & Commercial Engagement Scope",
+		content: `Commercial proposal prepared exclusively for ${customerName}. Covers end-to-end implementation scope, deliverables catalog, milestone roadmap, and commercial governance.`,
+		subsections: Array.isArray(target.expected_outcomes) ? target.expected_outcomes.map((o, i) => ({ title: `Expected Outcome ${i + 1}`, content: String(o) })) : []
+	});
+	if (Array.isArray(target.deliverables) && target.deliverables.length > 0) {
+		commercialSections.push({
+			heading: "Scope of Work & Deliverables Catalog",
+			content: "Structured deliverables catalog scoped strictly from discovery requirements.",
+			subsections: target.deliverables.map((d, i) => ({
+				title: typeof d === "object" && d.title ? d.title : `Module ${i + 1}`,
+				content: typeof d === "object" ? (d.description || d.scope || JSON.stringify(d)) : String(d)
+			}))
+		});
+	}
+	if (Array.isArray(target.implementation_milestones) && target.implementation_milestones.length > 0) {
+		commercialSections.push({
+			heading: "Implementation Roadmap & Phased Timeline",
+			content: "Execution timeline structured into transparent milestones.",
+			subsections: target.implementation_milestones.map((m, i) => ({
+				title: typeof m === "object" ? `${m.phase_name || `Phase ${i + 1}`}${m.timeline ? ` (${m.timeline})` : ""}` : `Phase ${i + 1}`,
+				content: typeof m === "object" ? (m.milestones || m.description || "") : String(m)
+			}))
+		});
+	}
+	commercialSections.push({
+		heading: "Licensing Structure, Investment & Payment Terms",
+		content: "Commercial terms and payment milestone structure.",
+		subsections: [
+			{
+				title: "Licensing & Investment Notes",
+				content: target.license_cost_info ? (typeof target.license_cost_info === "object" ? JSON.stringify(target.license_cost_info) : String(target.license_cost_info)) : "To be confirmed during mutual commercial alignment."
+			},
+			{
+				title: "Payment Milestones",
+				content: target.payment_terms ? (typeof target.payment_terms === "object" ? JSON.stringify(target.payment_terms) : String(target.payment_terms)) : "Milestone-based billing upon formal sign-off of deliverables."
+			}
+		]
+	});
+
+	const tosSections = [];
+	tosSections.push({
+		heading: "Scope Governance & Engagement Terms",
+		content: "Master service agreement governance, change control, and acceptance standards.",
+		subsections: [
+			{ title: "Governance Model", content: "Dedicated project lead, single point of contact (SPOC), and weekly status reviews." },
+			{ title: "Change Management", content: "Any scope adjustments outside agreed deliverables will be governed via standard Change Request procedure." }
+		]
+	});
+	if (Array.isArray(target.assumptions) && target.assumptions.length > 0) {
+		tosSections.push({
+			heading: "Project Assumptions & Client Dependencies",
+			content: "Prerequisites and operational assumptions baseline for project success.",
+			subsections: target.assumptions.map((a, i) => ({ title: `Assumption ${i + 1}`, content: String(a) }))
+		});
+	}
+	tosSections.push({
+		heading: "Service Level Agreement (SLA) & Hypercare Support",
+		content: "Warranty and post go-live operational support.",
+		subsections: [
+			{
+				title: "Hypercare & Warranty",
+				content: target.support_hypercare ? (typeof target.support_hypercare === "object" ? JSON.stringify(target.support_hypercare) : String(target.support_hypercare)) : "Includes dedicated 30-day Hypercare post go-live with bug-fix warranty and transition handover."
+			},
+			{
+				title: "Severity Levels & Response Times",
+				content: "Critical (Severity 1): 2 hours response. High (Severity 2): 4 hours response. Normal (Severity 3): 1 business day response."
+			}
+		]
+	});
+
+	return {
+		technical_document: {
+			title: `${customerName} — Technical Specification`,
+			sections: technicalSections
+		},
+		commercial_document: {
+			title: `${customerName} — Commercial Proposal`,
+			sections: commercialSections
+		},
+		tos_document: {
+			title: `${customerName} — Terms of Service & SLA`,
+			sections: tosSections
+		}
+	};
+}
+
 function extractStructuredData(response) {
 	if (!response || typeof response !== "object") {
 		throw new ProposalError("INVALID_ZIA_RESPONSE", "Zia Agent returned an invalid response structure.");
 	}
 
 	// Comprehensive extraction: check every path the Zia Agent Trigger API might use
-	// (mirrors Workspace 1's proven _extractStructuredData logic).
 	let target = response;
 
-	if (response.customer || response.goals || response.requirements) {
+	if (response.technical_document || response.commercial_document || response.tos_document || response.customer || response.goals || response.requirements) {
 		target = response;
 	} else if (response.data && typeof response.data === "object") {
-		if (response.data.customer || response.data.goals || response.data.requirements) {
+		if (response.data.technical_document || response.data.commercial_document || response.data.tos_document || response.data.customer || response.data.goals || response.data.requirements) {
 			target = response.data;
 		} else if (response.data.response) {
 			if (typeof response.data.response === "object") {
@@ -261,13 +441,37 @@ function extractStructuredData(response) {
 	}
 
 	// Normalize customer fields
-	const customer = target.customer && typeof target.customer === "object" ? target.customer : {};
+	const rawCustomer = target.customer && typeof target.customer === "object" ? target.customer : {};
+	const customer = {
+		company_name: String(rawCustomer.company_name || rawCustomer.name || target.company_name || target.customer_name || "Customer Organization").trim(),
+		industry: String(rawCustomer.industry || target.industry || "").trim(),
+		business_context: String(rawCustomer.business_context || target.business_context || target.overview || "").trim()
+	};
+
+	let technical_document;
+	let commercial_document;
+	let tos_document;
+
+	const hasDirectDocs = Boolean(target.technical_document || target.commercial_document || target.tos_document);
+
+	if (hasDirectDocs) {
+		technical_document = normalizeDocumentBlock(target.technical_document, `${customer.company_name} — Technical Specification`);
+		commercial_document = normalizeDocumentBlock(target.commercial_document, `${customer.company_name} — Commercial Proposal`);
+		tos_document = normalizeDocumentBlock(target.tos_document, `${customer.company_name} — Terms of Service & SLA`);
+	} else {
+		// Synthesize the 3 structured documents from legacy response shape
+		const synthesized = synthesizeDocumentsFromLegacy(target, customer.company_name);
+		technical_document = synthesized.technical_document;
+		commercial_document = synthesized.commercial_document;
+		tos_document = synthesized.tos_document;
+	}
+
 	return {
-		customer: {
-			company_name: String(customer.company_name || target.company_name || target.customer_name || "").trim(),
-			industry: String(customer.industry || target.industry || "").trim(),
-			business_context: String(customer.business_context || target.business_context || target.overview || "").trim()
-		},
+		technical_document,
+		commercial_document,
+		tos_document,
+		customer,
+		// Retain legacy fields for backward compatibility
 		goals: Array.isArray(target.goals) ? target.goals : [],
 		requirements: Array.isArray(target.requirements) ? target.requirements : [],
 		pain_points: Array.isArray(target.pain_points) ? target.pain_points : [],

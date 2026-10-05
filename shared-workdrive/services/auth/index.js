@@ -22,7 +22,7 @@ const { URL, URLSearchParams } = require("url");
 const { WorkdriveError } = require("../../utils/errors");
 
 const DEFAULT_ACCOUNTS_DOMAIN = "https://accounts.zoho.com";
-const WORKDRIVE_SCOPES = "WorkDrive.files.READ,ZohoFiles.files.READ";
+const WORKDRIVE_SCOPES = "WorkDrive.files.READ,ZohoFiles.files.READ,AaaServer.profile.READ";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function getAccountsDomain() {
@@ -45,10 +45,11 @@ function getOAuthConfig() {
 // No user identity is known yet at this point - state is a plain CSRF nonce (proves
 // the callback belongs to a browser session that actually started this flow), not a
 // carrier for "which salesperson." Identity comes from Zoho's own login, after the fact.
-function buildAuthorizeUrl() {
+function buildAuthorizeUrl(customAccountsDomain) {
+	const domain = (customAccountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, redirectUri } = getOAuthConfig();
 	const state = signPayload(`nonce.${crypto.randomBytes(16).toString("hex")}`, 15 * 60 * 1000);
-	const url = new URL(`${getAccountsDomain()}/oauth/v2/auth`);
+	const url = new URL(`${domain}/oauth/v2/auth`);
 	url.searchParams.set("scope", WORKDRIVE_SCOPES);
 	url.searchParams.set("client_id", clientId);
 	url.searchParams.set("response_type", "code");
@@ -63,7 +64,8 @@ function verifyState(state) {
 	return verifySignedPayload(state) !== null;
 }
 
-async function exchangeCodeForToken(code) {
+async function exchangeCodeForToken(code, accountsDomain) {
+	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, clientSecret, redirectUri } = getOAuthConfig();
 	const body = new URLSearchParams({
 		grant_type: "authorization_code",
@@ -72,10 +74,11 @@ async function exchangeCodeForToken(code) {
 		redirect_uri: redirectUri,
 		code
 	});
-	return postForm(`${getAccountsDomain()}/oauth/v2/token`, body);
+	return postForm(`${domain}/oauth/v2/token`, body);
 }
 
-async function refreshAccessToken(refreshToken) {
+async function refreshAccessToken(refreshToken, accountsDomain) {
+	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, clientSecret } = getOAuthConfig();
 	const body = new URLSearchParams({
 		grant_type: "refresh_token",
@@ -83,19 +86,29 @@ async function refreshAccessToken(refreshToken) {
 		client_secret: clientSecret,
 		refresh_token: refreshToken
 	});
-	return postForm(`${getAccountsDomain()}/oauth/v2/token`, body);
+	return postForm(`${domain}/oauth/v2/token`, body);
 }
 
-// Zoho's standard OAuth user-info endpoint - used once, right after the token exchange,
-// purely to learn *whose* email this connection belongs to. Never touches a password.
-function fetchZohoUserInfo(accessToken) {
+// Looks up whose email this connection belongs to using Zoho Accounts, with fallback to WorkDrive /users/me.
+async function fetchZohoUserInfo(accessToken, accountsDomain) {
+	const domain = (accountsDomain || getAccountsDomain()).replace(/\/+$/, "");
+	try {
+		const info = await fetchAccountsUserInfo(accessToken, domain);
+		if (info && info.email) return info;
+	} catch (err) {
+		console.warn("[WorkDrive Auth] Accounts user/info failed, trying WorkDrive /users/me fallback:", err.message);
+	}
+	return fetchWorkdriveCurrentUser(accessToken, domain);
+}
+
+function fetchAccountsUserInfo(accessToken, domain) {
 	return new Promise((resolve, reject) => {
-		const url = new URL(`${getAccountsDomain()}/oauth/user/info`);
+		const url = new URL(`${domain}/oauth/user/info`);
 		const req = https.request(
 			{
 				hostname: url.hostname,
 				port: 443,
-				path: url.pathname,
+				path: url.pathname + url.search,
 				method: "GET",
 				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
 				timeout: 30000
@@ -109,7 +122,7 @@ function fetchZohoUserInfo(accessToken) {
 						const parsed = JSON.parse(raw);
 						const email = parsed.Email || parsed.email;
 						if (!email) {
-							return reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Could not determine the Zoho account's email."));
+							return reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Could not determine the Zoho account's email from Accounts API."));
 						}
 						resolve({ email, displayName: parsed.Display_Name || parsed.display_name || null });
 					} catch {
@@ -120,6 +133,57 @@ function fetchZohoUserInfo(accessToken) {
 		);
 		req.on("timeout", () => { req.destroy(); reject(new WorkdriveError("TIMEOUT", "Zoho user-info request timed out.")); });
 		req.on("error", (err) => reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", `Failed to reach Zoho user-info: ${err.message}`)));
+		req.end();
+	});
+}
+
+function fetchWorkdriveCurrentUser(accessToken, accountsDomain) {
+	return new Promise((resolve, reject) => {
+		let apiDomain = String(process.env.WORKDRIVE_API_DOMAIN || "").trim().replace(/\/+$/, "");
+		if (!apiDomain) {
+			const accountsLower = (accountsDomain || "").toLowerCase();
+			if (accountsLower.includes(".zoho.in")) {
+				apiDomain = "https://www.zohoapis.in/workdrive/api/v1";
+			} else if (accountsLower.includes(".zoho.eu")) {
+				apiDomain = "https://www.zohoapis.eu/workdrive/api/v1";
+			} else if (accountsLower.includes(".zoho.com.au")) {
+				apiDomain = "https://www.zohoapis.com.au/workdrive/api/v1";
+			} else {
+				apiDomain = "https://www.zohoapis.com/workdrive/api/v1";
+			}
+		}
+		const url = new URL(`${apiDomain}/users/me`);
+		const req = https.request(
+			{
+				hostname: url.hostname,
+				port: 443,
+				path: url.pathname + url.search,
+				method: "GET",
+				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+				timeout: 30000
+			},
+			(res) => {
+				let raw = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => { raw += chunk; });
+				res.on("end", () => {
+					try {
+						const parsed = JSON.parse(raw);
+						const attrs = (parsed.data && parsed.data.attributes) || {};
+						const email = attrs.email_id || attrs.email;
+						if (!email) {
+							return reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Could not determine Zoho user email from WorkDrive API."));
+						}
+						const displayName = attrs.display_name || `${attrs.first_name || ""} ${attrs.last_name || ""}`.trim() || null;
+						resolve({ email, displayName });
+					} catch {
+						reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", "WorkDrive user-info returned a non-JSON response."));
+					}
+				});
+			}
+		);
+		req.on("timeout", () => { req.destroy(); reject(new WorkdriveError("TIMEOUT", "WorkDrive user-info request timed out.")); });
+		req.on("error", (err) => reject(new WorkdriveError("WORKDRIVE_AUTH_FAILED", `Failed to reach WorkDrive user-info: ${err.message}`)));
 		req.end();
 	});
 }

@@ -4,7 +4,7 @@
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {
-			"WORKDRIVE_SESSION_SECRET": ""
+			"WORKDRIVE_SESSION_SECRET": "6920e440762c83c3219966abb8da6714f1801961831e989b861e9c99e5b52c7a"
 		}
 	},
 	"execution": {

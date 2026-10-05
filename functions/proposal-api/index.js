@@ -2,7 +2,7 @@
 
 const catalyst = require("zcatalyst-sdk-node");
 
-let requireSession, ProposalError, toErrorResponse, logEvent, newRequestId, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, setAllowOriginHeader;
+let requireSession, ProposalError, toErrorResponse, logEvent, newRequestId, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument, setAllowOriginHeader;
 
 try {
 	({ requireSession } = require("./shared-workdrive/utils/session"));
@@ -10,14 +10,14 @@ try {
 	({ logEvent, newRequestId } = require("./shared/utils/logging"));
 	({ setAllowOriginHeader } = require("./shared/utils/cors"));
 	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("./shared/services/proposal"));
-	({ renderProposalDocument } = require("./shared/services/document-render"));
+	({ renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("./shared/services/document-render"));
 } catch {
 	({ requireSession } = require("../../shared-workdrive/utils/session"));
 	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
 	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
 	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
 	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("../../workspace2-proposal/services/proposal"));
-	({ renderProposalDocument } = require("../../workspace2-proposal/services/document-render"));
+	({ renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("../../workspace2-proposal/services/document-render"));
 }
 
 const PROPOSALS_TABLE = "W2_PROPOSALS";
@@ -42,10 +42,39 @@ module.exports = async (req, res) => {
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
 		const resource = String(urlObj.searchParams.get("resource") || "proposals").toLowerCase();
 
+		if (resource === "document" || resource === "json") {
+			operation = "get_document_json";
+			await handleGetDocumentJson(app, urlObj, res);
+			logEvent("proposal-api", { requestId, operation, status: "success" });
+			return;
+		}
+
 		if (resource === "view") {
+			const format = String(urlObj.searchParams.get("format") || "").toLowerCase();
+			const accept = String(req.headers["accept"] || "").toLowerCase();
+			if (format === "json" || (accept.includes("application/json") && !accept.includes("text/html"))) {
+				operation = "get_document_json";
+				await handleGetDocumentJson(app, urlObj, res);
+				logEvent("proposal-api", { requestId, operation, status: "success" });
+				return;
+			}
 			operation = "view_document";
 			await handleViewProposal(app, urlObj, res);
 			logEvent("proposal-api", { requestId, operation, status: "success" });
+			return;
+		}
+
+		if (resource === "workdrive_auth" || resource === "workdrive_url" || resource === "auth_url") {
+			const dc = urlObj.searchParams.get("dc") || "";
+			const queryDc = dc ? `&dc=${encodeURIComponent(dc)}` : "";
+			const authorizeUrl = `${API_BASE_URL}/workdrive/authorize?action=authorize${queryDc}`;
+			sendJson(res, 200, {
+				success: true,
+				authorize_url: authorizeUrl,
+				status_url: `${API_BASE_URL}/workdrive/status?action=status`,
+				list_url: `${API_BASE_URL}/workdrive/list?action=list`
+			});
+			logEvent("proposal-api", { requestId, operation: "get_workdrive_auth_url", status: "success" });
 			return;
 		}
 
@@ -124,14 +153,22 @@ async function handleViewProposal(app, urlObj, res) {
 		return;
 	}
 
+	const rawDocType = String(urlObj.searchParams.get("type") || urlObj.searchParams.get("doc") || "commercial").toLowerCase().trim();
+	const docType = (rawDocType === "technical" || rawDocType === "tos" || rawDocType === "commercial") ? rawDocType : "commercial";
+
 	try {
 		let buffer = null;
 		if (row.user_id && row.package_id) {
 			const realProposalId = String(row.ROWID || proposalId);
 			const objectKeys = [
-				buildProposalDocumentKey(row.user_id, row.package_id, realProposalId),
-				buildProposalDocumentKey(row.user_id, row.package_id, proposalId)
+				buildProposalDocumentKey(row.user_id, row.package_id, realProposalId, docType),
+				buildProposalDocumentKey(row.user_id, row.package_id, proposalId, docType)
 			];
+			if (docType === "commercial") {
+				objectKeys.push(buildProposalDocumentKey(row.user_id, row.package_id, realProposalId, "index"));
+				objectKeys.push(buildProposalDocumentKey(row.user_id, row.package_id, proposalId, "index"));
+			}
+
 			const bucketCandidates = [PROPOSAL_DOCUMENTS_BUCKET_NAME, PROCESS_DOCUMENTS_BUCKET_NAME];
 			for (const bName of bucketCandidates) {
 				for (const objectKey of objectKeys) {
@@ -152,13 +189,26 @@ async function handleViewProposal(app, urlObj, res) {
 				parsed = typeof row.proposal_content === "string" ? JSON.parse(row.proposal_content) : row.proposal_content;
 			} catch {}
 
-			if (parsed && typeof renderProposalDocument === "function") {
-				const html = renderProposalDocument(parsed, {
+			if (parsed) {
+				const meta = {
 					customerName: row.customer_name || "Customer",
 					industry: row.industry || "",
 					generatedAt: row.CREATEDTIME || new Date().toISOString()
-				});
-				buffer = Buffer.from(html, "utf8");
+				};
+				let html = "";
+				if (docType === "technical" && typeof renderTechnicalDocument === "function") {
+					html = renderTechnicalDocument(parsed, meta);
+				} else if (docType === "tos" && typeof renderTosDocument === "function") {
+					html = renderTosDocument(parsed, meta);
+				} else if (typeof renderCommercialDocument === "function") {
+					html = renderCommercialDocument(parsed, meta);
+				} else if (typeof renderProposalDocument === "function") {
+					html = renderProposalDocument(parsed, meta);
+				}
+
+				if (html) {
+					buffer = Buffer.from(html, "utf8");
+				}
 			}
 		}
 
@@ -174,6 +224,86 @@ async function handleViewProposal(app, urlObj, res) {
 	} catch {
 		sendNotFoundHtml(res, "This proposal document could not be found. It may still be generating, or the link may be incorrect.");
 	}
+}
+
+async function handleGetDocumentJson(app, urlObj, res) {
+	const proposalId = String(urlObj.searchParams.get("proposal_id") || urlObj.searchParams.get("id") || "").trim();
+	if (!proposalId) {
+		sendJson(res, 400, { success: false, error: { code: "VALIDATION_FAILED", message: "No proposal_id was specified." } });
+		return;
+	}
+
+	let row;
+	try {
+		row = await app.datastore().table(PROPOSALS_TABLE).getRow(proposalId);
+	} catch {
+		row = null;
+	}
+	if (!row) {
+		row = await findProposalByPackage(app, proposalId);
+	}
+	if (!row) {
+		sendJson(res, 404, { success: false, error: { code: "NOT_FOUND", message: "This proposal could not be found." } });
+		return;
+	}
+
+	const rawDocType = String(urlObj.searchParams.get("type") || urlObj.searchParams.get("doc") || "commercial").toLowerCase().trim();
+	const docType = (rawDocType === "technical" || rawDocType === "tos" || rawDocType === "commercial") ? rawDocType : "commercial";
+
+	let parsed = null;
+	try {
+		parsed = typeof row.proposal_content === "string" ? JSON.parse(row.proposal_content) : row.proposal_content;
+	} catch {
+		parsed = null;
+	}
+
+	// Try fetching the raw JSON from Stratus if stored
+	if (row.user_id && row.package_id) {
+		const realProposalId = String(row.ROWID || proposalId);
+		const jsonKeys = [
+			buildProposalDocumentKey(row.user_id, row.package_id, realProposalId, docType, "json"),
+			buildProposalDocumentKey(row.user_id, row.package_id, proposalId, docType, "json")
+		];
+		const bucketCandidates = [PROPOSAL_DOCUMENTS_BUCKET_NAME, PROCESS_DOCUMENTS_BUCKET_NAME];
+		for (const bName of bucketCandidates) {
+			for (const objectKey of jsonKeys) {
+				try {
+					const stream = await app.stratus().bucket(bName).getObject(objectKey);
+					const buffer = await streamToBuffer(stream);
+					if (buffer && buffer.length > 0) {
+						const fromStratus = JSON.parse(buffer.toString("utf8"));
+						if (fromStratus) {
+							sendJson(res, 200, { success: true, ...fromStratus });
+							return;
+						}
+					}
+				} catch {}
+			}
+		}
+	}
+
+	// Extract the document JSON from parsed row content
+	let docContent = {};
+	if (parsed) {
+		if (docType === "technical") {
+			docContent = parsed.technical_json?.content || parsed.technical_document || parsed.technical || {};
+		} else if (docType === "tos") {
+			docContent = parsed.tos_json?.content || parsed.tos_document || parsed.tos || {};
+		} else {
+			docContent = parsed.commercial_json?.content || parsed.commercial_document || parsed.commercial || {};
+		}
+	}
+
+	const documentPayload = {
+		proposal_id: String(row.ROWID || proposalId),
+		document_type: docType,
+		type: docType,
+		customer_name: row.customer_name || (parsed && parsed.customer && parsed.customer.company_name) || "Customer Organization",
+		industry: row.industry || (parsed && parsed.customer && parsed.customer.industry) || "",
+		content: docContent
+	};
+
+	sendJson(res, 200, { success: true, ...documentPayload });
 }
 
 function sendNotFoundHtml(res, message) {
@@ -241,6 +371,62 @@ async function findProposalByPackage(app, packageId) {
 	return null;
 }
 
+function buildDocumentUrl(proposalId, docType) {
+	const slateUrl = process.env.PROPOSAL_SLATE_APP_URL || process.env.SLATE_PROPOSAL_URL || "";
+	if (slateUrl) {
+		const base = slateUrl.replace(/\/$/, "");
+		return `${base}?proposal_id=${encodeURIComponent(proposalId)}&type=${encodeURIComponent(docType)}`;
+	}
+	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}&type=${encodeURIComponent(docType)}`;
+}
+
+function buildDocumentsObject(proposalId, existingProposal) {
+	if (existingProposal && existingProposal.proposal_content) {
+		try {
+			const parsed = typeof existingProposal.proposal_content === "string"
+				? JSON.parse(existingProposal.proposal_content)
+				: existingProposal.proposal_content;
+			if (parsed && parsed.documents && parsed.documents.technical && parsed.documents.commercial && parsed.documents.tos) {
+				return {
+					technical: {
+						type: "technical",
+						name: parsed.documents.technical.name || "Technical Document",
+						url: parsed.documents.technical.url || buildDocumentUrl(proposalId, "technical")
+					},
+					commercial: {
+						type: "commercial",
+						name: parsed.documents.commercial.name || "Commercial Proposal",
+						url: parsed.documents.commercial.url || buildDocumentUrl(proposalId, "commercial")
+					},
+					tos: {
+						type: "tos",
+						name: parsed.documents.tos.name || "TOS Document",
+						url: parsed.documents.tos.url || buildDocumentUrl(proposalId, "tos")
+					}
+				};
+			}
+		} catch {}
+	}
+
+	return {
+		technical: {
+			type: "technical",
+			name: "Technical Document",
+			url: buildDocumentUrl(proposalId, "technical")
+		},
+		commercial: {
+			type: "commercial",
+			name: "Commercial Proposal",
+			url: buildDocumentUrl(proposalId, "commercial")
+		},
+		tos: {
+			type: "tos",
+			name: "TOS Document",
+			url: buildDocumentUrl(proposalId, "tos")
+		}
+	};
+}
+
 function formatProposal(row) {
 	let content = null;
 	try {
@@ -250,6 +436,8 @@ function formatProposal(row) {
 	}
 	const id = String(row.ROWID || "");
 	const status = row.status || "Draft";
+	const docs = buildDocumentsObject(id, row);
+
 	return {
 		proposal_id: id,
 		session_id: row.package_id,
@@ -263,9 +451,18 @@ function formatProposal(row) {
 		deal_value: row.deal_value || 0,
 		generated_url: sanitizeProposalUrl(row.generated_url, id),
 		proposal_url: sanitizeProposalUrl(row.generated_url, id),
+		technical_url: docs.technical.url,
+		commercial_url: docs.commercial.url,
+		tos_url: docs.tos.url,
+		documents: docs,
+		source_documents: (content && (content.source_documents || content.sources)) || [],
+		consolidated_customer: (content && content.consolidated_customer) || null,
+		technical_json: (content && content.technical_json) || (content && content.technical_document ? { proposal_id: id, document_type: "technical", content: content.technical_document } : null),
+		commercial_json: (content && content.commercial_json) || (content && content.commercial_document ? { proposal_id: id, document_type: "commercial", content: content.commercial_document } : null),
+		tos_json: (content && content.tos_json) || (content && content.tos_document ? { proposal_id: id, document_type: "tos", content: content.tos_document } : null),
 		proposal_data: content,
 		content,
-		source_document_count: row.source_document_count || (content && Array.isArray(content.sources) ? content.sources.length : null),
+		source_document_count: row.source_document_count || (content && Array.isArray(content.source_documents) ? content.source_documents.length : (content && Array.isArray(content.sources) ? content.sources.length : null)),
 		model_name: row.model_name || "Customer Proposal Generation Agent",
 		created_at: row.CREATEDTIME || null,
 		updated_at: row.MODIFIEDTIME || null
@@ -279,7 +476,7 @@ function formatProposal(row) {
 function sanitizeProposalUrl(url, proposalId) {
 	const trimmed = String(url || "").trim();
 	if (trimmed) return trimmed;
-	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId || "")}`;
+	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId || "")}&type=commercial`;
 }
 
 function escapeQueryValue(value) {

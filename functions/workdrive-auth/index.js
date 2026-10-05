@@ -41,22 +41,63 @@ module.exports = async (req, res) => {
 
 		const app = catalyst.initialize(req);
 		const urlObj = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-		// Advanced I/O functions behind the API Gateway all resolve to the same fixed
-		// target endpoint regardless of source_endpoint - req.url's pathname is stripped
-		// to "/" either way. Routing uses the query string instead.
+		
+		// Robust action detection: works whether invoked via query param, API gateway path, or direct function path
+		const rawPath = String(req.url || urlObj.pathname || "").toLowerCase();
+		const headerSource = String(req.headers["x-catalyst-source-url"] || req.headers["x-original-url"] || "").toLowerCase();
+		const queryAction = urlObj.searchParams.get("action");
+
 		const code = urlObj.searchParams.get("code");
 		const state = urlObj.searchParams.get("state");
 		const oauthError = urlObj.searchParams.get("error");
-		action = String(urlObj.searchParams.get("action") || "status").toLowerCase();
 
-		if (req.method === "GET" && (code || state || oauthError)) {
+		if (code || state || oauthError || rawPath.includes("/callback") || headerSource.includes("/callback")) {
 			action = "callback";
+		} else if (queryAction) {
+			action = String(queryAction).toLowerCase();
+		} else if (rawPath.includes("/authorize") || headerSource.includes("/authorize")) {
+			action = "authorize";
+		} else if (rawPath.includes("/disconnect") || headerSource.includes("/disconnect")) {
+			action = "disconnect";
+		} else if (rawPath.includes("/list") || headerSource.includes("/list")) {
+			action = "list";
+		} else if (rawPath.includes("/metadata") || headerSource.includes("/metadata")) {
+			action = "metadata";
+		} else {
+			action = "status";
+		}
+
+		if (req.method === "GET" && action === "callback") {
 			await handleCallback(app, urlObj, res);
 			return;
 		}
 
 		if (req.method === "GET" && action === "authorize") {
-			sendJson(res, 200, { success: true, authorize_url: auth.buildAuthorizeUrl() });
+			const reqDc = String(urlObj.searchParams.get("dc") || urlObj.searchParams.get("domain") || "").toLowerCase();
+			let customAccountsDomain = null;
+			if (reqDc === "in" || reqDc.includes(".zoho.in")) {
+				customAccountsDomain = "https://accounts.zoho.in";
+			} else if (reqDc === "eu" || reqDc.includes(".zoho.eu")) {
+				customAccountsDomain = "https://accounts.zoho.eu";
+			} else if (reqDc === "com" || reqDc.includes(".zoho.com")) {
+				customAccountsDomain = "https://accounts.zoho.com";
+			} else if (reqDc.startsWith("http")) {
+				customAccountsDomain = reqDc;
+			}
+
+			const authorizeUrl = auth.buildAuthorizeUrl(customAccountsDomain);
+			const format = String(urlObj.searchParams.get("format") || "").toLowerCase();
+			const accept = String(req.headers["accept"] || "").toLowerCase();
+			// If requested as JSON (e.g. via AJAX/fetch with ?format=json or Accept: application/json), return JSON
+			if (format === "json" || (accept.includes("application/json") && !accept.includes("text/html"))) {
+				sendJson(res, 200, { success: true, authorize_url: authorizeUrl });
+				return;
+			}
+			// For browser navigations, directly redirect to Zoho OAuth login / consent page
+			res.statusCode = 302;
+			res.setHeader("Location", authorizeUrl);
+			res.setHeader("Cache-Control", "no-store");
+			res.end();
 			return;
 		}
 
@@ -119,20 +160,24 @@ async function handleCallback(app, urlObj, res) {
 	const code = urlObj.searchParams.get("code");
 	const state = urlObj.searchParams.get("state");
 	const oauthError = urlObj.searchParams.get("error");
+	const accountsServer = urlObj.searchParams.get("accounts-server") || urlObj.searchParams.get("accounts_server") || null;
 
 	if (oauthError) {
+		console.error("[WorkDrive Auth] OAuth provider returned error in callback:", oauthError);
 		return sendCallbackResult(res, false, `WorkDrive authorization was not completed: ${oauthError}`);
 	}
 	if (!code || !state) {
+		console.error("[WorkDrive Auth] Missing authorization code or state in callback. Query:", urlObj.search);
 		return sendCallbackResult(res, false, "Missing authorization code or state.");
 	}
 	if (!auth.verifyState(state)) {
+		console.error("[WorkDrive Auth] Invalid or expired state parameter in callback:", state);
 		return sendCallbackResult(res, false, "This authorization link is invalid or has expired. Please try connecting again.");
 	}
 
 	try {
-		const tokenResponse = await auth.exchangeCodeForToken(code);
-		const { email, displayName } = await auth.fetchZohoUserInfo(tokenResponse.access_token);
+		const tokenResponse = await auth.exchangeCodeForToken(code, accountsServer);
+		const { email, displayName } = await auth.fetchZohoUserInfo(tokenResponse.access_token, accountsServer);
 
 		await workdrive.upsertConnection(app, {
 			email,
@@ -145,8 +190,9 @@ async function handleCallback(app, urlObj, res) {
 
 		const sessionToken = auth.issueSessionToken(email);
 		sendCallbackResult(res, true, `WorkDrive connected as ${email}. You can close this window.`, sessionToken, email);
-	} catch {
-		sendCallbackResult(res, false, "Failed to complete WorkDrive authorization. Please try again.");
+	} catch (err) {
+		console.error("[WorkDrive Auth] Callback handling failed:", err);
+		sendCallbackResult(res, false, `Failed to complete WorkDrive authorization: ${err?.message || "Please try again."}`);
 	}
 }
 

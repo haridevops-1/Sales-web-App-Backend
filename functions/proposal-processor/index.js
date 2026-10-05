@@ -14,8 +14,8 @@ const { logEvent, newRequestId } = require("./shared/utils/logging");
 const { setAllowOriginHeader } = require("./shared/utils/cors");
 const documentProcessing = require("./shared/services/document-processing");
 const { getProposalZiaAgentClient } = require("./shared/services/zia");
-const { buildProposalRecord, buildProposalDocumentKey } = require("./shared/services/proposal");
-const { renderProposalDocument } = require("./shared/services/document-render");
+const { buildProposalRecord, buildProposalDocumentKey, buildLegacyProposalDocumentKey } = require("./shared/services/proposal");
+const { renderAllDocuments, renderProposalDocument } = require("./shared/services/document-render");
 
 const DISCOVERY_PACKAGES_TABLE = "W2_DISCOVERY_PACKAGES";
 const DISCOVERY_FILES_TABLE = "W2_DISCOVERY_FILES";
@@ -79,23 +79,48 @@ module.exports = async (req, res) => {
 		// Idempotency: proposal already exists for this package - return it immediately
 		const existingProposal = await findProposalByPackage(app, packageId);
 		if (existingProposal && existingProposal.generated_url) {
+			const existingId = String(existingProposal.ROWID);
+			const existingDocs = buildDocumentsObject(existingId, existingProposal);
+			let existingContent = null;
+			try {
+				existingContent = typeof existingProposal.proposal_content === "string" ? JSON.parse(existingProposal.proposal_content) : existingProposal.proposal_content;
+			} catch {}
+
 			sendJson(res, 200, {
+				proposal_id: existingId,
+				status: "COMPLETED",
+				documents: existingDocs,
+				technical_url: existingDocs.technical.url,
+				commercial_url: existingDocs.commercial.url,
+				tos_url: existingDocs.tos.url,
+				source_documents: (existingContent && (existingContent.source_documents || existingContent.sources)) || [],
+				consolidated_customer: (existingContent && existingContent.consolidated_customer) || null,
+				technical_json: (existingContent && existingContent.technical_json) || null,
+				commercial_json: (existingContent && existingContent.commercial_json) || null,
+				tos_json: (existingContent && existingContent.tos_json) || null,
 				success: true,
 				session_id: packageId,
 				package_id: packageId,
-				status: "COMPLETED",
-				proposal_id: String(existingProposal.ROWID),
-				proposal_url: existingProposal.generated_url,
+				proposal_url: existingDocs.commercial.url,
 				customer_name: existingProposal.customer_name,
 				proposal: {
-					proposal_id: String(existingProposal.ROWID),
+					proposal_id: existingId,
 					session_id: packageId,
 					package_id: packageId,
 					customer_name: existingProposal.customer_name,
 					industry: existingProposal.industry,
 					status: existingProposal.status || "COMPLETED",
-					proposal_url: existingProposal.generated_url,
-					generated_url: existingProposal.generated_url
+					proposal_url: existingDocs.commercial.url,
+					generated_url: existingDocs.commercial.url,
+					technical_url: existingDocs.technical.url,
+					commercial_url: existingDocs.commercial.url,
+					tos_url: existingDocs.tos.url,
+					documents: existingDocs,
+					source_documents: (existingContent && (existingContent.source_documents || existingContent.sources)) || [],
+					consolidated_customer: (existingContent && existingContent.consolidated_customer) || null,
+					technical_json: (existingContent && existingContent.technical_json) || null,
+					commercial_json: (existingContent && existingContent.commercial_json) || null,
+					tos_json: (existingContent && existingContent.tos_json) || null
 				}
 			});
 			logEvent("proposal-processor", { requestId, operation, packageId, status: "success", existing: true });
@@ -103,7 +128,7 @@ module.exports = async (req, res) => {
 		}
 
 		// Concurrency guard: if generation already in flight, do not trigger Agent again
-		if (["ANALYZING", "GENERATING"].includes(String(packageRow.status || "").toUpperCase())) {
+		if (["PROCESSING", "ANALYZING", "GENERATING"].includes(String(packageRow.status || "").toUpperCase())) {
 			const modifiedRaw = String(packageRow.MODIFIEDTIME || "").trim();
 			const modifiedIso = modifiedRaw ? `${modifiedRaw.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z` : "";
 			const modifiedAt = modifiedIso ? new Date(modifiedIso) : null;
@@ -120,11 +145,11 @@ module.exports = async (req, res) => {
 			}
 		}
 
-		await setPackageStatus(app, packageId, "EXTRACTING");
+		// Status Flow: CREATED -> PROCESSING -> ANALYZING -> GENERATING -> COMPLETED
+		await setPackageStatus(app, packageId, "PROCESSING");
 
-		const sourceBlocks = [];
+		const extractedDocs = [];
 		const sources = [];
-		const normalizedDocuments = [];
 		let anySucceeded = false;
 
 		for (const fileRow of fileRows) {
@@ -137,18 +162,17 @@ module.exports = async (req, res) => {
 						`'${fileRow.file_name}' exceeds the ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB limit for discovery documents.`
 					);
 				}
-				const { text } = await documentProcessing.extractContent(fileBuffer, {
+				const { kind, text } = await documentProcessing.extractContent(fileBuffer, {
 					fileName: fileRow.file_name,
 					mimeType: fileRow.mime_type
 				});
 
-				sourceBlocks.push(`=== Source: ${fileRow.file_name} ===\n${text}`);
 				sources.push({ file_name: fileRow.file_name, workdrive_file_id: fileRow.workdrive_file_id });
-				normalizedDocuments.push({
-					document_id: fileId,
+				extractedDocs.push({
+					file_id: fileId,
 					file_name: fileRow.file_name,
-					file_type: fileRow.file_type,
-					content: text
+					file_type: fileRow.file_type || kind,
+					text
 				});
 
 				const extraFields = {};
@@ -180,7 +204,11 @@ module.exports = async (req, res) => {
 			throw new ProposalError("PROCESSING_FAILED", "None of the documents in this session could be extracted.");
 		}
 
-		const consolidatedContent = capDiscoveryContent(sourceBlocks, MAX_DISCOVERY_CONTENT_CHARS);
+		// Combine all extracted information from 1 or N documents into Consolidated Customer JSON
+		const { consolidated_json, consolidated_text } = documentProcessing.consolidateExtractedDocuments(extractedDocs, {
+			sessionName: packageRow.package_name,
+			businessName: packageRow.package_name
+		});
 
 		let connectionCredentials = null;
 		if (PROPOSAL_ZIA_CONNECTION_LINK_NAME) {
@@ -191,51 +219,106 @@ module.exports = async (req, res) => {
 			}
 		}
 
-		// Stage 1: Document extraction done -> Trigger Agent (ONCE)
+		// Stage 1: Document extraction & consolidation done -> Trigger Agent (ONCE)
 		await setPackageStatus(app, packageId, "ANALYZING");
 
 		const startedAt = Date.now();
 		const client = getProposalZiaAgentClient();
 
 		const ziaResponse = await client.generateProposal(
-			consolidatedContent,
-			{ businessName: packageRow.package_name, industry: "" },
+			consolidated_json,
+			{
+				businessName: consolidated_json.customer?.company_name || packageRow.package_name,
+				industry: consolidated_json.customer?.industry || ""
+			},
 			connectionCredentials
 		);
 
 		// Debug: log what the Agent returned (keys only, no sensitive data)
 		console.log("[W2 Processor] Zia response received. Keys:", JSON.stringify(Object.keys(ziaResponse || {})));
-		console.log("[W2 Processor] customer:", JSON.stringify(ziaResponse.customer || "missing"));
-		console.log("[W2 Processor] Array field lengths:", JSON.stringify({
-			goals: (ziaResponse.goals || []).length,
-			requirements: (ziaResponse.requirements || []).length,
-			pain_points: (ziaResponse.pain_points || []).length,
-			proposed_solution: (ziaResponse.proposed_solution || []).length,
-			zoho_solutions: (ziaResponse.zoho_solutions || []).length,
-			deliverables: (ziaResponse.deliverables || []).length,
-			milestones: (ziaResponse.implementation_milestones || []).length
+		console.log("[W2 Processor] Documents present:", JSON.stringify({
+			technical_document: Boolean(ziaResponse.technical_document),
+			commercial_document: Boolean(ziaResponse.commercial_document),
+			tos_document: Boolean(ziaResponse.tos_document)
 		}));
 
-		// Stage 2: Agent finished -> Hydrate Spikra Master Proposal Template
+		// Stage 2: Agent finished -> Hydrate 3 Separate Logical Templates (Technical, Commercial, TOS)
 		await setPackageStatus(app, packageId, "GENERATING");
 
 		const record = buildProposalRecord(ziaResponse, { packageId, userId: user.userId, dealValue: 0 });
-		record.proposal_content = buildStorableProposalContent(ziaResponse, sources);
 
 		const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
 		const proposalRow = await proposalsTable.insertRow(record);
 		const proposalId = String(proposalRow.ROWID);
 
-		let generatedUrl = null;
+		// Prepare the 3 distinct document JSON objects per Workspace 2 specification
+		const technicalJson = {
+			proposal_id: proposalId,
+			document_type: "technical",
+			customer_name: record.customer_name,
+			industry: record.industry,
+			content: ziaResponse.technical_document || { title: `${record.customer_name} — Technical Specification`, sections: [] }
+		};
+
+		const commercialJson = {
+			proposal_id: proposalId,
+			document_type: "commercial",
+			customer_name: record.customer_name,
+			industry: record.industry,
+			content: ziaResponse.commercial_document || { title: `${record.customer_name} — Commercial Proposal`, sections: [] }
+		};
+
+		const tosJson = {
+			proposal_id: proposalId,
+			document_type: "tos",
+			customer_name: record.customer_name,
+			industry: record.industry,
+			content: ziaResponse.tos_document || { title: `${record.customer_name} — Terms of Service & SLA`, sections: [] }
+		};
+
+		let documents = null;
+		let primaryUrl = null;
 		try {
-			generatedUrl = await renderAndPublishDocument(app, user.userId, packageId, proposalId, ziaResponse, {
+			const published = await publishAllDocuments(app, user.userId, packageId, proposalId, ziaResponse, {
 				customerName: record.customer_name,
-				industry: record.industry
+				industry: record.industry,
+				technicalJson,
+				commercialJson,
+				tosJson,
+				consolidatedJson: consolidated_json
 			});
-			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: generatedUrl, status: "COMPLETED" });
+			documents = published.documents;
+			primaryUrl = published.primaryUrl;
+
+			record.proposal_content = buildStorableProposalContent(
+				ziaResponse,
+				sources,
+				consolidated_json,
+				documents,
+				technicalJson,
+				commercialJson,
+				tosJson
+			);
+			await proposalsTable.updateRow({
+				ROWID: proposalId,
+				generated_url: primaryUrl,
+				status: "COMPLETED",
+				proposal_content: record.proposal_content
+			});
 		} catch (renderErr) {
-			console.warn("Render document failed:", renderErr && renderErr.message);
-			generatedUrl = `${PROPOSAL_SLATE_APP_URL}/?proposal_id=${proposalId}`;
+			console.warn("Render documents failed:", renderErr && renderErr.message);
+			documents = buildDocumentsObject(proposalId);
+			primaryUrl = documents.commercial.url;
+			record.proposal_content = buildStorableProposalContent(
+				ziaResponse,
+				sources,
+				consolidated_json,
+				documents,
+				technicalJson,
+				commercialJson,
+				tosJson
+			);
+			await proposalsTable.updateRow({ ROWID: proposalId, generated_url: primaryUrl, status: "COMPLETED", proposal_content: record.proposal_content });
 		}
 
 		// Stage 3: Complete session and log usage
@@ -250,14 +333,24 @@ module.exports = async (req, res) => {
 			usage: client.lastUsage
 		});
 
-		// Return clean complete proposal payload to frontend
+		// Return final result matching Workspace 2 contract:
+		// { proposal_id, status: "COMPLETED", documents: { technical, commercial, tos } }
 		sendJson(res, 200, {
+			proposal_id: proposalId,
+			status: "COMPLETED",
+			documents,
+			technical_url: documents.technical.url,
+			commercial_url: documents.commercial.url,
+			tos_url: documents.tos.url,
+			source_documents: sources,
+			consolidated_customer: consolidated_json,
+			technical_json: technicalJson,
+			commercial_json: commercialJson,
+			tos_json: tosJson,
 			success: true,
 			session_id: packageId,
 			package_id: packageId,
-			status: "COMPLETED",
-			proposal_id: proposalId,
-			proposal_url: generatedUrl,
+			proposal_url: primaryUrl,
 			customer_name: record.customer_name,
 			proposal: {
 				proposal_id: proposalId,
@@ -266,8 +359,17 @@ module.exports = async (req, res) => {
 				customer_name: record.customer_name,
 				industry: record.industry,
 				status: "COMPLETED",
-				proposal_url: generatedUrl,
-				generated_url: generatedUrl,
+				proposal_url: primaryUrl,
+				generated_url: primaryUrl,
+				technical_url: documents.technical.url,
+				commercial_url: documents.commercial.url,
+				tos_url: documents.tos.url,
+				documents,
+				source_documents: sources,
+				consolidated_customer: consolidated_json,
+				technical_json: technicalJson,
+				commercial_json: commercialJson,
+				tos_json: tosJson,
 				content: ziaResponse,
 				source_document_count: sources.length,
 				model_name: client.lastModel || "Customer Proposal Generation Agent",
@@ -303,6 +405,11 @@ async function getProcessingStatus(app, packageId, userId) {
 		effectiveStatus = "COMPLETED";
 	}
 
+	let documents = null;
+	if (proposalRow && proposalRow.ROWID) {
+		documents = buildDocumentsObject(String(proposalRow.ROWID), proposalRow);
+	}
+
 	return {
 		success: true,
 		session_id: packageId,
@@ -316,8 +423,64 @@ async function getProcessingStatus(app, packageId, userId) {
 		proposal_id: proposalRow ? String(proposalRow.ROWID) : null,
 		proposal_url: proposalRow ? proposalRow.generated_url : null,
 		customer_name: proposalRow ? proposalRow.customer_name : packageRow.package_name,
+		documents,
 		created_at: packageRow.CREATEDTIME || null,
 		updated_at: packageRow.MODIFIEDTIME || null
+	};
+}
+
+function buildDocumentUrl(proposalId, docType = "commercial") {
+	const queryParam = docType ? `&type=${encodeURIComponent(docType)}` : "";
+	if (PROPOSAL_SLATE_APP_URL) {
+		return `${PROPOSAL_SLATE_APP_URL.replace(/\/+$/, "")}/?proposal_id=${encodeURIComponent(proposalId)}${queryParam}`;
+	}
+	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}${queryParam}`;
+}
+
+function buildDocumentsObject(proposalId, existingProposal) {
+	if (existingProposal && existingProposal.proposal_content) {
+		try {
+			const parsed = typeof existingProposal.proposal_content === "string"
+				? JSON.parse(existingProposal.proposal_content)
+				: existingProposal.proposal_content;
+			if (parsed && parsed.documents && parsed.documents.technical && parsed.documents.commercial && parsed.documents.tos) {
+				return {
+					technical: {
+						type: "technical",
+						name: parsed.documents.technical.name || "Technical Document",
+						url: parsed.documents.technical.url || buildDocumentUrl(proposalId, "technical")
+					},
+					commercial: {
+						type: "commercial",
+						name: parsed.documents.commercial.name || "Commercial Proposal",
+						url: parsed.documents.commercial.url || buildDocumentUrl(proposalId, "commercial")
+					},
+					tos: {
+						type: "tos",
+						name: parsed.documents.tos.name || "TOS Document",
+						url: parsed.documents.tos.url || buildDocumentUrl(proposalId, "tos")
+					}
+				};
+			}
+		} catch {}
+	}
+
+	return {
+		technical: {
+			type: "technical",
+			name: "Technical Document",
+			url: buildDocumentUrl(proposalId, "technical")
+		},
+		commercial: {
+			type: "commercial",
+			name: "Commercial Proposal",
+			url: buildDocumentUrl(proposalId, "commercial")
+		},
+		tos: {
+			type: "tos",
+			name: "TOS Document",
+			url: buildDocumentUrl(proposalId, "tos")
+		}
 	};
 }
 
@@ -333,31 +496,130 @@ function capDiscoveryContent(sourceBlocks, maxChars) {
 	return truncatedBlocks.join("\n\n");
 }
 
-function buildStorableProposalContent(ziaResponse, sources) {
+function buildStorableProposalContent(ziaResponse, sources, consolidatedJson, documents, technicalJson, commercialJson, tosJson) {
 	const SAFE_LIMIT = 9500;
-	const withSources = JSON.stringify({ ...ziaResponse, sources });
-	if (withSources.length <= SAFE_LIMIT) return withSources;
+	const fullPayload = {
+		source_documents: sources,
+		consolidated_customer: consolidatedJson,
+		technical_json: technicalJson,
+		commercial_json: commercialJson,
+		tos_json: tosJson,
+		technical_url: documents.technical.url,
+		commercial_url: documents.commercial.url,
+		tos_url: documents.tos.url,
+		documents,
+		technical_document: ziaResponse.technical_document,
+		commercial_document: ziaResponse.commercial_document,
+		tos_document: ziaResponse.tos_document,
+		customer: ziaResponse.customer || (consolidatedJson && consolidatedJson.customer) || {}
+	};
+	let str = JSON.stringify(fullPayload);
+	if (str.length <= SAFE_LIMIT) return str;
 
-	const withoutSources = JSON.stringify(ziaResponse);
-	if (withoutSources.length <= SAFE_LIMIT) return withoutSources;
+	const trimmedPayload = {
+		source_documents: sources,
+		technical_url: documents.technical.url,
+		commercial_url: documents.commercial.url,
+		tos_url: documents.tos.url,
+		documents,
+		technical_document: ziaResponse.technical_document,
+		commercial_document: ziaResponse.commercial_document,
+		tos_document: ziaResponse.tos_document,
+		customer: ziaResponse.customer || (consolidatedJson && consolidatedJson.customer) || {}
+	};
+	str = JSON.stringify(trimmedPayload);
+	if (str.length <= SAFE_LIMIT) return str;
 
-	return null;
+	str = JSON.stringify({ documents, sources, technical_url: documents.technical.url, commercial_url: documents.commercial.url, tos_url: documents.tos.url });
+	if (str.length <= SAFE_LIMIT) return str;
+
+	return JSON.stringify({ documents });
 }
 
-async function renderAndPublishDocument(app, userId, packageId, proposalId, ziaResponse, { customerName, industry }) {
-	const html = renderProposalDocument(ziaResponse, { customerName, industry, generatedAt: new Date().toISOString() });
-	const objectKey = buildProposalDocumentKey(userId, packageId, proposalId);
-	const bucket = app.stratus().bucket(PROPOSAL_DOCUMENTS_BUCKET_NAME);
-
-	await bucket.putObject(objectKey, Buffer.from(html, "utf8"), {
-		overwrite: true,
-		contentType: "text/html; charset=utf-8",
-		metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, file_type: "html" }
+async function publishAllDocuments(app, userId, packageId, proposalId, ziaResponse, { customerName, industry, technicalJson, commercialJson, tosJson, consolidatedJson }) {
+	const renderedDocs = renderAllDocuments(ziaResponse, {
+		customerName,
+		industry,
+		proposalId,
+		generatedAt: new Date().toISOString()
 	});
 
-	return PROPOSAL_SLATE_APP_URL
-		? `${PROPOSAL_SLATE_APP_URL.replace(/\/+$/, "")}/?proposal_id=${encodeURIComponent(proposalId)}`
-		: `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}`;
+	const bucket = app.stratus().bucket(PROPOSAL_DOCUMENTS_BUCKET_NAME);
+
+	const technicalKey = buildProposalDocumentKey(userId, packageId, proposalId, "technical");
+	const commercialKey = buildProposalDocumentKey(userId, packageId, proposalId, "commercial");
+	const tosKey = buildProposalDocumentKey(userId, packageId, proposalId, "tos");
+	const legacyKey = buildLegacyProposalDocumentKey(userId, packageId, proposalId);
+
+	const technicalJsonKey = buildProposalDocumentKey(userId, packageId, proposalId, "technical", "json");
+	const commercialJsonKey = buildProposalDocumentKey(userId, packageId, proposalId, "commercial", "json");
+	const tosJsonKey = buildProposalDocumentKey(userId, packageId, proposalId, "tos", "json");
+	const consolidatedJsonKey = buildProposalDocumentKey(userId, packageId, proposalId, "consolidated", "json");
+
+	// Upload all 3 HTML documents and JSON objects to Stratus
+	await Promise.all([
+		bucket.putObject(technicalKey, Buffer.from(renderedDocs.technical, "utf8"), {
+			overwrite: true,
+			contentType: "text/html; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "technical" }
+		}),
+		bucket.putObject(commercialKey, Buffer.from(renderedDocs.commercial, "utf8"), {
+			overwrite: true,
+			contentType: "text/html; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "commercial" }
+		}),
+		bucket.putObject(tosKey, Buffer.from(renderedDocs.tos, "utf8"), {
+			overwrite: true,
+			contentType: "text/html; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "tos" }
+		}),
+		// Keep index.html for backward compatibility (mirrors commercial proposal)
+		bucket.putObject(legacyKey, Buffer.from(renderedDocs.commercial, "utf8"), {
+			overwrite: true,
+			contentType: "text/html; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "commercial" }
+		}),
+		bucket.putObject(technicalJsonKey, Buffer.from(JSON.stringify(technicalJson || {}, null, 2), "utf8"), {
+			overwrite: true,
+			contentType: "application/json; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "technical" }
+		}),
+		bucket.putObject(commercialJsonKey, Buffer.from(JSON.stringify(commercialJson || {}, null, 2), "utf8"), {
+			overwrite: true,
+			contentType: "application/json; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "commercial" }
+		}),
+		bucket.putObject(tosJsonKey, Buffer.from(JSON.stringify(tosJson || {}, null, 2), "utf8"), {
+			overwrite: true,
+			contentType: "application/json; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "tos" }
+		}),
+		bucket.putObject(consolidatedJsonKey, Buffer.from(JSON.stringify(consolidatedJson || {}, null, 2), "utf8"), {
+			overwrite: true,
+			contentType: "application/json; charset=utf-8",
+			metaData: { user_id: userId, package_id: packageId, proposal_id: proposalId, doc_type: "consolidated" }
+		})
+	]);
+
+	const documents = {
+		technical: {
+			type: "technical",
+			name: "Technical Document",
+			url: buildDocumentUrl(proposalId, "technical")
+		},
+		commercial: {
+			type: "commercial",
+			name: "Commercial Proposal",
+			url: buildDocumentUrl(proposalId, "commercial")
+		},
+		tos: {
+			type: "tos",
+			name: "TOS Document",
+			url: buildDocumentUrl(proposalId, "tos")
+		}
+	};
+
+	return { documents, primaryUrl: documents.commercial.url };
 }
 
 async function logUsage(app, { userId, packageId, proposalId, durationMs, status, errorCode, modelName, usage }) {

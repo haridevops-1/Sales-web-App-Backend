@@ -112,7 +112,7 @@
   {
     "name": "workdrive-status-api",
     "source_endpoint": "/workdrive/status",
-    "target_endpoint": "/server/workdrive-auth/",
+    "target_endpoint": "/server/workdrive-auth/?action=status",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -123,7 +123,7 @@
   {
     "name": "workdrive-authorize-api",
     "source_endpoint": "/workdrive/authorize",
-    "target_endpoint": "/server/workdrive-auth/",
+    "target_endpoint": "/server/workdrive-auth/?action=authorize",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -134,7 +134,18 @@
   {
     "name": "workdrive-callback-api",
     "source_endpoint": "/workdrive/callback",
-    "target_endpoint": "/server/workdrive-auth/",
+    "target_endpoint": "/server/workdrive-auth/?action=callback",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-workdrive-callback-api",
+    "source_endpoint": "/proposal/workdrive/callback",
+    "target_endpoint": "/server/workdrive-auth/?action=callback",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -145,7 +156,7 @@
   {
     "name": "workdrive-disconnect-api",
     "source_endpoint": "/workdrive/disconnect",
-    "target_endpoint": "/server/workdrive-auth/",
+    "target_endpoint": "/server/workdrive-auth/?action=disconnect",
     "target": "advancedio",
     "method": "POST",
     "throttling": {
@@ -156,7 +167,7 @@
   {
     "name": "workdrive-list-api",
     "source_endpoint": "/workdrive/list",
-    "target_endpoint": "/server/workdrive-auth/",
+    "target_endpoint": "/server/workdrive-auth/?action=list",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -167,7 +178,7 @@
   {
     "name": "workdrive-metadata-api",
     "source_endpoint": "/workdrive/metadata",
-    "target_endpoint": "/server/workdrive-auth/",
+    "target_endpoint": "/server/workdrive-auth/?action=metadata",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
