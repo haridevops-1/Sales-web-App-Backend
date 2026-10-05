@@ -4,6 +4,7 @@
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {
+			"WORKDRIVE_TOKEN_ENCRYPTION_KEY": "7064d086dc4de1854048422b8c4b1807bbaeeba8a4ac41d8e93900ecdc56b019",
 			"WORKDRIVE_SESSION_SECRET": "6920e440762c83c3219966abb8da6714f1801961831e989b861e9c99e5b52c7a"
 		}
 	},
