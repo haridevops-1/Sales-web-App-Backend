@@ -474,9 +474,7 @@ const CATALYST_COVERED_ORIGIN = "https://spikra-ai-proposal-app.onslate.com";
 
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (origin !== CATALYST_COVERED_ORIGIN) {
-		res.setHeader("Access-Control-Allow-Origin", origin || "*");
-	}
+	res.setHeader("Access-Control-Allow-Origin", origin || "*");
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }

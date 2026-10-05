@@ -214,12 +214,12 @@ async function handleCallback(app, urlObj, res) {
 function sendCallbackResult(res, success, message, sessionToken, email) {
 	res.statusCode = 200;
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
+	const closeButtonHtml = !success ? '<button onclick="window.close()" style="margin-top:16px;padding:8px 16px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;">Close Window</button>' : '';
 	res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive Connection</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;">
-<div style="text-align:center;padding:28px;max-width:480px;background:#ffffff;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);margin:20px;">
-<h2 style="color:${success ? "#16a34a" : "#dc2626"};margin-top:0;">${success ? "Connected Successfully" : "Connection Failed"}</h2>
-<p style="color:#475569;font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>
-${!success ? `<p style="color:#94a3b8;font-size:13px;margin-top:16px;">You can close this window and try connecting again.</p>` : `<p style="color:#16a34a;font-size:13px;margin-top:16px;">Closing this window automatically...</p>`}
+<div style="text-align:center;padding:24px;max-width:480px;">
+<h2 style="color:${success ? "#16a34a" : "#dc2626"};">${success ? "Connected Successfully" : "Connection Failed"}</h2>
+<p style="color:#475569;word-break:break-word;">${escapeHtml(message)}</p>
 <script>
 try {
   if (window.opener) {
@@ -228,13 +228,16 @@ try {
       success: ${success ? "true" : "false"},
       sessionToken: ${sessionToken ? JSON.stringify(sessionToken) : "null"},
       email: ${email ? JSON.stringify(email) : "null"},
-      message: ${JSON.stringify(message || "")},
-      error: ${!success ? JSON.stringify(message || "Connection failed") : "null"}
+      error: ${success ? "null" : JSON.stringify(message)},
+      message: ${JSON.stringify(message)}
     }, "*");
-    ${success ? "setTimeout(function() { window.close(); }, 1200);" : "/* keep open on error so message is visible */"}
+    ${success ? "window.close();" : "setTimeout(() => window.close(), 6000);"}
   }
-} catch (e) {}
+} catch (e) {
+  console.error("postMessage failed:", e);
+}
 </script>
+${closeButtonHtml}
 </div></body></html>`);
 }
 
@@ -248,11 +251,9 @@ function escapeHtml(str) {
 
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (origin !== "https://spikra-ai-proposal-app.onslate.com") {
-		res.setHeader("Access-Control-Allow-Origin", origin || "*");
-	}
+	res.setHeader("Access-Control-Allow-Origin", origin || "*");
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
 }
 
 function sendJson(res, statusCode, payload) {
