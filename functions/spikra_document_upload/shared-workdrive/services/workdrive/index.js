@@ -308,15 +308,26 @@ async function listRootItems(app, email, session) {
 		console.warn("[WorkDrive] Could not fetch /users/me:", e.message);
 	}
 
+	// 1. Fetch private space via /users/me/privatespace (data is an Array of privatespace objects)
+	let privateSpaceId = null;
+	try {
+		const directRes = await request("GET", "/users/me/privatespace", { accessToken, email, session });
+		const psList = Array.isArray(directRes && directRes.data) ? directRes.data : (directRes && directRes.data ? [directRes.data] : []);
+		if (psList.length > 0 && psList[0] && psList[0].id) {
+			privateSpaceId = psList[0].id;
+		}
+	} catch (e) {
+		console.warn("[WorkDrive] Could not fetch /users/me/privatespace:", e.message);
+	}
+
+	// 2. Fetch user teams / workspaces if permitted
 	let teamIds = [];
 	if (zuid) {
 		try {
 			const teamsRes = await request("GET", `/users/${encodeURIComponent(zuid)}/teams`, { accessToken, email, session });
 			const teamList = Array.isArray(teamsRes && teamsRes.data) ? teamsRes.data : [];
 			teamIds = teamList.map((t) => t.id).filter(Boolean);
-		} catch (e) {
-			console.warn("[WorkDrive] Could not fetch user teams:", e.message);
-		}
+		} catch {}
 	}
 
 	for (const teamId of teamIds) {
@@ -337,57 +348,54 @@ async function listRootItems(app, email, session) {
 					}
 				});
 			}
-		} catch (e) {
-			console.warn(`[WorkDrive] Could not fetch workspaces for team ${teamId}:`, e.message);
-		}
+		} catch {}
 
-		// Private Space
-		if (zuid) {
+		// Private Space fallback per team
+		if (!privateSpaceId && zuid) {
 			try {
 				const psRes = await request("GET", `/users/${encodeURIComponent(teamId + "-" + zuid)}/privatespace`, { accessToken, email, session });
 				const psData = psRes && psRes.data;
-				if (psData && psData.id) {
-					items.push({
-						id: psData.id,
-						type: "private_space",
-						attributes: {
-							name: (psData.attributes && psData.attributes.name) || "My Folders (Private Space)",
-							type: "folder",
-							is_folder: true
-						}
-					});
+				const psObj = Array.isArray(psData) ? psData[0] : psData;
+				if (psObj && psObj.id) {
+					privateSpaceId = psObj.id;
 				}
 			} catch {}
 		}
 	}
 
-	// Fallback to /users/me/privatespace if no items found
-	if (items.length === 0) {
+	// 3. Fetch files inside the user's private space
+	if (privateSpaceId) {
 		try {
-			const directRes = await request("GET", "/users/me/privatespace", { accessToken, email, session });
-			if (directRes && directRes.data && directRes.data.id) {
+			const childRes = await request("GET", `/files/${encodeURIComponent(privateSpaceId)}/files`, { accessToken, email, session });
+			const childList = Array.isArray(childRes && childRes.data) ? childRes.data : [];
+			if (childList.length > 0) {
+				for (const child of childList) {
+					items.push(child);
+				}
+			} else if (items.length === 0) {
 				items.push({
-					id: directRes.data.id,
+					id: privateSpaceId,
 					type: "private_space",
 					attributes: {
-						name: (directRes.data.attributes && directRes.data.attributes.name) || "My Folders (Private Space)",
+						name: "My Folders (Private Space)",
 						type: "folder",
 						is_folder: true
 					}
 				});
 			}
-		} catch {}
-	}
-
-	// If only 1 Private Space folder exists, fetch its immediate children so user sees documents directly
-	if (items.length === 1 && items[0].type === "private_space") {
-		try {
-			const childRes = await request("GET", `/files/${encodeURIComponent(items[0].id)}/files`, { accessToken, email, session });
-			const childList = Array.isArray(childRes && childRes.data) ? childRes.data : [];
-			if (childList.length > 0) {
-				return childList;
+		} catch {
+			if (items.length === 0) {
+				items.push({
+					id: privateSpaceId,
+					type: "private_space",
+					attributes: {
+						name: "My Folders (Private Space)",
+						type: "folder",
+						is_folder: true
+					}
+				});
 			}
-		} catch {}
+		}
 	}
 
 	return items;
