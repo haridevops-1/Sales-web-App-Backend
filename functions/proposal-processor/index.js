@@ -1,14 +1,20 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
-let requireSession, workdrive;
+let decodeSession, workdrive;
 try {
-	({ requireSession } = require("./shared-workdrive/utils/session"));
+	({ decodeSession } = require("./shared-workdrive/utils/session"));
 	workdrive = require("./shared-workdrive/services/workdrive");
 } catch {
-	({ requireSession } = require("../../shared-workdrive/utils/session"));
+	({ decodeSession } = require("../../shared-workdrive/utils/session"));
 	workdrive = require("../../shared-workdrive/services/workdrive");
 }
+
+// See proposal-discovery/index.js for why: this function never touches WorkDrive
+// itself (it only reads files already stored by proposal-discovery), so a session is
+// only needed to scope packages to a salesperson when one connected. Packages created
+// without a session live in this fixed, unscoped bucket instead.
+const LOCAL_USER = { userId: "local-upload", email: null };
 const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
 const { logEvent, newRequestId } = require("./shared/utils/logging");
 const { setAllowOriginHeader } = require("./shared/utils/cors");
@@ -44,7 +50,8 @@ module.exports = async (req, res) => {
 		}
 
 		const app = catalyst.initialize(req);
-		const user = requireSession(req);
+		const sessionUser = await decodeSession(req);
+		const user = sessionUser || LOCAL_USER;
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
 		packageId = urlObj.searchParams.get("session_id") || urlObj.searchParams.get("package_id");
 
@@ -697,7 +704,7 @@ async function getOwnedPackageWithFiles(app, packageId, userId) {
 	if (!packageRow) {
 		throw new ProposalError("NOT_FOUND", "Discovery session not found.", 404);
 	}
-	if (packageRow.user_id && String(packageRow.user_id) !== String(userId)) {
+	if (packageRow.user_id && packageRow.user_id !== LOCAL_USER.userId && String(packageRow.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery session.", 403);
 	}
 

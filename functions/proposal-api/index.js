@@ -2,23 +2,27 @@
 
 const catalyst = require("zcatalyst-sdk-node");
 
-let requireSession, ProposalError, toErrorResponse, logEvent, newRequestId, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument, setAllowOriginHeader;
+let decodeSession, ProposalError, toErrorResponse, logEvent, newRequestId, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument, setAllowOriginHeader;
 
 try {
-	({ requireSession } = require("./shared-workdrive/utils/session"));
+	({ decodeSession } = require("./shared-workdrive/utils/session"));
 	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
 	({ logEvent, newRequestId } = require("./shared/utils/logging"));
 	({ setAllowOriginHeader } = require("./shared/utils/cors"));
 	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("./shared/services/proposal"));
 	({ renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("./shared/services/document-render"));
 } catch {
-	({ requireSession } = require("../../shared-workdrive/utils/session"));
+	({ decodeSession } = require("../../shared-workdrive/utils/session"));
 	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
 	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
 	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
 	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("../../workspace2-proposal/services/proposal"));
 	({ renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("../../workspace2-proposal/services/document-render"));
 }
+
+// See proposal-discovery/index.js - this function never touches WorkDrive itself, so a
+// session is only needed to attribute who changed a proposal's status, not to gate it.
+const LOCAL_USER = { userId: "local-upload", email: null };
 
 const PROPOSALS_TABLE = "W2_PROPOSALS";
 const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
@@ -78,7 +82,8 @@ module.exports = async (req, res) => {
 			return;
 		}
 
-		const user = requireSession(req);
+		const sessionUser = await decodeSession(req);
+		const user = sessionUser || LOCAL_USER;
 
 		// resource === "proposals" or "proposal" (default)
 		const proposalId = urlObj.searchParams.get("proposal_id");
@@ -350,7 +355,7 @@ async function updateProposalStatus(app, proposalId, userId, newStatus) {
 		throw new ProposalError("VALIDATION_FAILED", `status must be one of: ${VALID_STATUSES.join(", ")}.`);
 	}
 	const row = await getProposalRow(app, proposalId);
-	if (row.user_id && String(row.user_id) !== String(userId)) {
+	if (row.user_id && row.user_id !== LOCAL_USER.userId && String(row.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "Only the proposal creator can change its status.", 403);
 	}
 	if (!isValidStatusTransition(row.status, newStatus)) {
