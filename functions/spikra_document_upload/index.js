@@ -49,7 +49,7 @@ module.exports = async (req, res) => {
 	let uploadedLogo = null;
 
 	try {
-		setCorsHeaders(res);
+		setCorsHeaders(res, req);
 
 		if (req.method === "OPTIONS") {
 			return sendJson(res, 204, {});
