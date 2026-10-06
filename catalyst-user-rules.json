@@ -11,6 +11,17 @@
     }
   },
   {
+    "name": "spikra-document-upload-options-api",
+    "source_endpoint": "/spikra/document/upload",
+    "target_endpoint": "/server/spikra_document_upload/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
     "name": "spikra-document-process-api",
     "source_endpoint": "/spikra/document/process",
     "target_endpoint": "/server/spikra_document_process/execute",
