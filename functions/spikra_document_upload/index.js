@@ -311,9 +311,22 @@ module.exports = async (req, res) => {
 	}
 };
 
+const CATALYST_COVERED_ORIGINS = [
+	"https://spikra-ai-proposal-app.onslate.com",
+	"https://spikra-ai-proposal.onslate.com"
+];
+
+function isCatalystCoveredOrigin(origin) {
+	if (!origin) return false;
+	const clean = String(origin).trim().toLowerCase();
+	return CATALYST_COVERED_ORIGINS.some((cov) => clean === cov.toLowerCase());
+}
+
 function setCorsHeaders(res, req) {
 	const origin = (req && req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	if (!isCatalystCoveredOrigin(origin)) {
+		res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	}
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token");
 }

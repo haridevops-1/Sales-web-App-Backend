@@ -33,8 +33,20 @@ function sanitizeSearchQuery(query) {
 		.slice(0, 100);
 }
 
+const CATALYST_COVERED_ORIGINS = [
+	"https://spikra-ai-proposal-app.onslate.com",
+	"https://spikra-ai-proposal.onslate.com"
+];
+
+function isCatalystCoveredOrigin(origin) {
+	if (!origin) return false;
+	const clean = String(origin).trim().toLowerCase();
+	return CATALYST_COVERED_ORIGINS.some((cov) => clean === cov.toLowerCase());
+}
+
 const ALLOWED_ORIGINS = [
 	"https://spikra-ai-proposal-app.onslate.com",
+	"https://spikra-ai-proposal.onslate.com",
 	"http://localhost:5173",
 	"http://localhost:3000",
 	"http://127.0.0.1:5173",
@@ -43,12 +55,14 @@ const ALLOWED_ORIGINS = [
 
 function setSecurityAndCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
-		res.setHeader("Access-Control-Allow-Origin", origin);
-	} else if (!origin) {
-		res.setHeader("Access-Control-Allow-Origin", "*");
-	} else {
-		res.setHeader("Access-Control-Allow-Origin", origin);
+	if (!isCatalystCoveredOrigin(origin)) {
+		if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
+			res.setHeader("Access-Control-Allow-Origin", origin);
+		} else if (!origin) {
+			res.setHeader("Access-Control-Allow-Origin", "*");
+		} else {
+			res.setHeader("Access-Control-Allow-Origin", origin);
+		}
 	}
 
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -119,6 +133,8 @@ module.exports = async (req, res) => {
 			action = "disconnect";
 		} else if (rawPath.includes("/list") || headerSource.includes("/list")) {
 			action = "list";
+		} else if (rawPath.includes("/download") || headerSource.includes("/download")) {
+			action = "download";
 		} else if (rawPath.includes("/metadata") || headerSource.includes("/metadata")) {
 			action = "metadata";
 		} else {
@@ -126,12 +142,13 @@ module.exports = async (req, res) => {
 		}
 
 		if (req.method === "GET" && action === "callback") {
-			await handleCallback(app, urlObj, res);
+			await handleCallback(app, urlObj, res, req);
 			return;
 		}
 
 		if (req.method === "GET" && action === "authorize") {
 			const reqDc = String(urlObj.searchParams.get("dc") || urlObj.searchParams.get("domain") || "").toLowerCase();
+			const reqOrigin = urlObj.searchParams.get("origin") || (req.headers && (req.headers.origin || req.headers.referer)) || null;
 			let customAccountsDomain = null;
 			if (reqDc === "in" || reqDc.includes(".zoho.in")) {
 				customAccountsDomain = "https://accounts.zoho.in";
@@ -143,7 +160,7 @@ module.exports = async (req, res) => {
 				customAccountsDomain = reqDc;
 			}
 
-			const authorizeUrl = auth.buildAuthorizeUrl(customAccountsDomain);
+			const authorizeUrl = auth.buildAuthorizeUrl(customAccountsDomain, reqOrigin);
 			const format = String(urlObj.searchParams.get("format") || "").toLowerCase();
 			const accept = String(req.headers["accept"] || "").toLowerCase();
 			// If requested as JSON (e.g. via AJAX/fetch with ?format=json or Accept: application/json), return JSON
@@ -259,6 +276,27 @@ module.exports = async (req, res) => {
 			return;
 		}
 
+		if (req.method === "GET" && action === "download") {
+			const rawFileId = urlObj.searchParams.get("file_id") || (req.query && req.query.file_id);
+			const fileId = rawFileId ? String(rawFileId).trim() : null;
+
+			if (!fileId || !isValidWorkdriveId(fileId)) {
+				return sendJson(res, 400, {
+					success: false,
+					error: { code: "INVALID_FILE_ID", message: "Malformed file identifier." }
+				});
+			}
+
+			const { buffer, metadata } = await workdrive.downloadFile(app, session.email, fileId, session);
+			const fileName = metadata?.attributes?.name || "document";
+			res.statusCode = 200;
+			res.setHeader("Content-Type", "application/octet-stream");
+			res.setHeader("Content-Disposition", "attachment; filename=\"" + encodeURIComponent(fileName) + "\"");
+			res.end(buffer);
+			return;
+		}
+
+
 		sendJson(res, 405, { success: false, error: { code: "VALIDATION_FAILED", message: "Unsupported method/action combination." } });
 	} catch (error) {
 		const { statusCode, body } = toErrorResponse(error);
@@ -270,7 +308,7 @@ module.exports = async (req, res) => {
 // proves this round trip started from a browser that actually clicked "authorize"
 // (CSRF protection) - it carries no identity, since none exists yet. Identity comes
 // from Zoho's own user-info endpoint, using the token we just received.
-async function handleCallback(app, urlObj, res) {
+async function handleCallback(app, urlObj, res, req) {
 	const code = urlObj.searchParams.get("code");
 	const state = urlObj.searchParams.get("state");
 	const oauthError = urlObj.searchParams.get("error");
@@ -283,13 +321,27 @@ async function handleCallback(app, urlObj, res) {
 		accountsServer = "https://accounts.zoho.eu";
 	}
 
+	let clientOrigin = null;
+	if (state) {
+		const statePayload = auth.verifyState(state);
+		if (statePayload && typeof statePayload === "object" && statePayload.origin) {
+			clientOrigin = statePayload.origin;
+		}
+	}
+	if (!clientOrigin) {
+		clientOrigin = urlObj.searchParams.get("origin") || (req && req.headers && (req.headers.origin || req.headers.referer)) || null;
+		if (clientOrigin) {
+			try { clientOrigin = new URL(clientOrigin).origin; } catch {}
+		}
+	}
+
 	if (oauthError) {
 		console.error("[WorkDrive Auth] OAuth provider returned error in callback:", oauthError);
-		return sendCallbackResult(res, false, `Zoho authorization was denied or failed: ${oauthError}`);
+		return sendCallbackResult(res, false, `Zoho authorization was denied or failed: ${oauthError}`, null, null, clientOrigin);
 	}
 	if (!code) {
 		console.error("[WorkDrive Auth] Missing authorization code in callback.");
-		return sendCallbackResult(res, false, "Missing authorization code from Zoho.");
+		return sendCallbackResult(res, false, "Missing authorization code from Zoho.", null, null, clientOrigin);
 	}
 	if (state && !auth.verifyState(state)) {
 		console.warn("[WorkDrive Auth] State verification warning (possibly expired nonce):", auth.maskToken(state));
@@ -324,74 +376,76 @@ async function handleCallback(app, urlObj, res) {
 			apiDomain: userApiDomain
 		});
 		console.log("[WorkDrive Auth] Session issued successfully for:", email, "Token:", auth.maskToken(sessionToken));
-		sendCallbackResult(res, true, `WorkDrive connected successfully as ${email}.`, sessionToken, email);
+		sendCallbackResult(res, true, `WorkDrive connected successfully as ${email}.`, sessionToken, email, clientOrigin);
 	} catch (err) {
 		console.error("[WorkDrive Auth] Callback handling failed:", err?.message || err);
-		sendCallbackResult(res, false, `Failed to complete WorkDrive authorization: ${err?.message || "Internal error"}`);
+		sendCallbackResult(res, false, `Failed to complete WorkDrive authorization: ${err?.message || "Internal error"}`, null, null, clientOrigin);
 	}
 }
 
 // Plain HTML response (this is a browser navigation, not an API call the frontend reads
 // directly). Hands the session token back to the opener window via postMessage - the
 // frontend stores it and sends it as "Authorization: Bearer <token>" from then on.
-function sendCallbackResult(res, success, message, sessionToken, email) {
+function sendCallbackResult(res, success, message, sessionToken, email, clientOrigin) {
 	res.statusCode = 200;
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
 	res.setHeader("X-Content-Type-Options", "nosniff");
 	res.setHeader("X-Frame-Options", "SAMEORIGIN");
 	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
 
+	const defaultTargetOrigin = clientOrigin || "https://spikra-ai-proposal-app.onslate.com";
+	const returnUrl = defaultTargetOrigin.replace(/\/+$/, "") + "/proposals/create";
 	const closeButtonHtml = !success ? '<button onclick="window.close()" style="margin-top:16px;padding:8px 16px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;">Close Window</button>' : '';
-	res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive Connection</title></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;">
-<div style="text-align:center;padding:32px;max-width:520px;background:#ffffff;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.08);">
-<h2 style="color:${success ? "#16a34a" : "#dc2626"};margin-top:0;">${success ? "Connected Successfully" : "Connection Failed"}</h2>
-<p style="color:#475569;font-size:15px;line-height:1.5;word-break:break-word;">${escapeHtml(message)}</p>
-<div id="returnBox" style="margin-top:20px;display:none;">
-  <a id="returnLink" href="http://localhost:5173/proposals/create" style="display:inline-block;padding:10px 20px;background:#ea580c;color:#fff;text-decoration:none;font-weight:600;border-radius:8px;">
-    Return to Spikra Application →
-  </a>
-</div>
-<script>
-try {
-  const sessionToken = ${sessionToken ? JSON.stringify(sessionToken) : "null"};
-  const userEmail = ${email ? JSON.stringify(email) : "null"};
-  const isSuccess = ${success ? "true" : "false"};
-
-  if (window.opener && !window.opener.closed) {
-    window.opener.postMessage({
-      type: "workdrive-auth",
-      success: isSuccess,
-      sessionToken: sessionToken,
-      email: userEmail,
-      error: isSuccess ? null : ${JSON.stringify(message)},
-      message: ${JSON.stringify(message)}
-    }, "*");
-    if (isSuccess) {
-      setTimeout(() => window.close(), 600);
-    } else {
-      setTimeout(() => window.close(), 6000);
-    }
-  } else {
-    if (isSuccess && sessionToken) {
-      const returnBox = document.getElementById("returnBox");
-      const returnLink = document.getElementById("returnLink");
-      if (returnBox && returnLink) {
-        const targetUrl = new URL("http://localhost:5173/proposals/create");
-        targetUrl.searchParams.set("session_token", sessionToken);
-        if (userEmail) targetUrl.searchParams.set("email", userEmail);
-        returnLink.href = targetUrl.toString();
-        returnBox.style.display = "block";
-        setTimeout(() => { window.location.href = targetUrl.toString(); }, 1200);
-      }
-    }
-  }
-} catch (e) {
-  console.error("Callback completion error:", e);
-}
-</script>
-${closeButtonHtml}
-</div></body></html>`);
+	res.end('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive Connection</title></head>' +
+'<body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;">' +
+'<div style="text-align:center;padding:32px;max-width:520px;background:#ffffff;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.08);">' +
+'<h2 style="color:' + (success ? "#16a34a" : "#dc2626") + ';margin-top:0;">' + (success ? "Connected Successfully" : "Connection Failed") + '</h2>' +
+'<p style="color:#475569;font-size:15px;line-height:1.5;word-break:break-word;">' + escapeHtml(message) + '</p>' +
+'<div id="returnBox" style="margin-top:20px;display:none;">' +
+  '<a id="returnLink" href="' + returnUrl + '" style="display:inline-block;padding:10px 20px;background:#ea580c;color:#fff;text-decoration:none;font-weight:600;border-radius:8px;">' +
+    'Return to Spikra Application →' +
+  '</a>' +
+'</div>' +
+'<script>' +
+'try {' +
+'  const sessionToken = ' + (sessionToken ? JSON.stringify(sessionToken) : "null") + ';' +
+'  const userEmail = ' + (email ? JSON.stringify(email) : "null") + ';' +
+'  const isSuccess = ' + (success ? "true" : "false") + ';' +
+'  const baseReturnUrl = ' + JSON.stringify(returnUrl) + ';' +
+'  if (window.opener && !window.opener.closed) {' +
+'    window.opener.postMessage({' +
+'      type: "workdrive-auth",' +
+'      success: isSuccess,' +
+'      sessionToken: sessionToken,' +
+'      email: userEmail,' +
+'      error: isSuccess ? null : ' + JSON.stringify(message) + ',' +
+'      message: ' + JSON.stringify(message) +
+'    }, "*");' +
+'    if (isSuccess) {' +
+'      setTimeout(() => window.close(), 600);' +
+'    } else {' +
+'      setTimeout(() => window.close(), 6000);' +
+'    }' +
+'  } else {' +
+'    if (isSuccess && sessionToken) {' +
+'      const returnBox = document.getElementById("returnBox");' +
+'      const returnLink = document.getElementById("returnLink");' +
+'      if (returnBox && returnLink) {' +
+'        const targetUrl = new URL(baseReturnUrl);' +
+'        targetUrl.searchParams.set("session_token", sessionToken);' +
+'        if (userEmail) targetUrl.searchParams.set("email", userEmail);' +
+'        returnLink.href = targetUrl.toString();' +
+'        returnBox.style.display = "block";' +
+'        setTimeout(() => { window.location.href = targetUrl.toString(); }, 1200);' +
+'      }' +
+'    }' +
+'  }' +
+'} catch (e) {' +
+'  console.error("Callback completion error:", e);' +
+'}' +
+'<\/script>' +
+closeButtonHtml +
+'</div></body></html>');
 }
 
 function escapeHtml(str) {

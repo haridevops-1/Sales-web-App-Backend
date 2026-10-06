@@ -383,5 +383,27 @@
       "overall": {},
       "ip": {}
     }
+  },
+  {
+    "name": "workdrive-download-api",
+    "source_endpoint": "/workdrive/download",
+    "target_endpoint": "/server/workdrive-auth/?action=download",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-download-options-api",
+    "source_endpoint": "/workdrive/download",
+    "target_endpoint": "/server/workdrive-auth/?action=download",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
   }
 ]

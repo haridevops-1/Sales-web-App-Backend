@@ -45,10 +45,13 @@ function getOAuthConfig() {
 // No user identity is known yet at this point - state is a plain CSRF nonce (proves
 // the callback belongs to a browser session that actually started this flow), not a
 // carrier for "which salesperson." Identity comes from Zoho's own login, after the fact.
-function buildAuthorizeUrl(customAccountsDomain) {
+function buildAuthorizeUrl(customAccountsDomain, clientOrigin) {
 	const domain = (customAccountsDomain || getAccountsDomain()).replace(/\/+$/, "");
 	const { clientId, redirectUri } = getOAuthConfig();
-	const state = signPayload(`nonce.${crypto.randomBytes(16).toString("hex")}`, 2 * 60 * 60 * 1000); // 2 hours TTL
+	const nonce = crypto.randomBytes(16).toString("hex");
+	const safeOrigin = clientOrigin ? encodeURIComponent(String(clientOrigin).trim()) : "";
+	const statePayload = safeOrigin ? `nonce.${nonce}.${safeOrigin}` : `nonce.${nonce}`;
+	const state = signPayload(statePayload, 2 * 60 * 60 * 1000); // 2 hours TTL
 	const url = new URL(`${domain}/oauth/v2/auth`);
 	url.searchParams.set("scope", WORKDRIVE_SCOPES);
 	url.searchParams.set("client_id", clientId);
@@ -61,7 +64,17 @@ function buildAuthorizeUrl(customAccountsDomain) {
 }
 
 function verifyState(state) {
-	return verifySignedPayload(state) !== null;
+	const payload = verifySignedPayload(state);
+	if (!payload) return null;
+	const parts = payload.split(".");
+	if (parts.length >= 3 && parts[0] === "nonce") {
+		try {
+			return { nonce: parts[1], origin: decodeURIComponent(parts[2]) };
+		} catch {
+			return { nonce: parts[1], origin: null };
+		}
+	}
+	return { nonce: payload, origin: null };
 }
 
 async function exchangeCodeForToken(code, accountsDomain) {

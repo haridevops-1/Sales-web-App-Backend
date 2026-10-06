@@ -790,11 +790,22 @@ function escapeQueryValue(value) {
 // that produced "header contains multiple values" and the browser rejected the response outright).
 // The public Slate proposal page (spikra-ai-proposal.onslate.com) and local dev aren't in that
 // allowlist, so this endpoint - fetched from both - still needs to set its own header for them.
-const CATALYST_COVERED_ORIGIN = "https://spikra-ai-proposal-app.onslate.com";
+const CATALYST_COVERED_ORIGINS = [
+	"https://spikra-ai-proposal-app.onslate.com",
+	"https://spikra-ai-proposal.onslate.com"
+];
+
+function isCatalystCoveredOrigin(origin) {
+	if (!origin) return false;
+	const clean = String(origin).trim().toLowerCase();
+	return CATALYST_COVERED_ORIGINS.some((cov) => clean === cov.toLowerCase());
+}
 
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	if (!isCatalystCoveredOrigin(origin)) {
+		res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	}
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 	res.setHeader("Access-Control-Max-Age", "86400");
