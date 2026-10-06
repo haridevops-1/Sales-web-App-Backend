@@ -594,8 +594,6 @@ function parseJsonBody(bodyString) {
 
 function setCorsHeaders(req, res) {
 	setAllowOriginHeader(req, res);
-	res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token");
 }
 
 function sendJson(res, statusCode, payload) {

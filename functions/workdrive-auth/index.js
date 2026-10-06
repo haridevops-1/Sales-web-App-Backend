@@ -51,9 +51,10 @@ function setSecurityAndCorsHeaders(req, res) {
 		res.setHeader("Access-Control-Allow-Origin", origin);
 	}
 
-	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token, session_token");
+	res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token, session_token, x-catalyst-session-token");
 	res.setHeader("Access-Control-Allow-Credentials", "true");
+	res.setHeader("Access-Control-Max-Age", "86400");
 
 	// Standard security headers on every response
 	res.setHeader("X-Content-Type-Options", "nosniff");

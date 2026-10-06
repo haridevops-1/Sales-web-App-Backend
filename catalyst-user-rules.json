@@ -154,11 +154,44 @@
     }
   },
   {
+    "name": "workdrive-status-options-api",
+    "source_endpoint": "/workdrive/status",
+    "target_endpoint": "/server/workdrive-auth/?action=status",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-authorize-options-api",
+    "source_endpoint": "/workdrive/authorize",
+    "target_endpoint": "/server/workdrive-auth/?action=authorize",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
     "name": "workdrive-disconnect-api",
     "source_endpoint": "/workdrive/disconnect",
     "target_endpoint": "/server/workdrive-auth/?action=disconnect",
     "target": "advancedio",
     "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-disconnect-options-api",
+    "source_endpoint": "/workdrive/disconnect",
+    "target_endpoint": "/server/workdrive-auth/?action=disconnect",
+    "target": "advancedio",
+    "method": "OPTIONS",
     "throttling": {
       "overall": {},
       "ip": {}
@@ -176,11 +209,55 @@
     }
   },
   {
+    "name": "workdrive-list-options-api",
+    "source_endpoint": "/workdrive/list",
+    "target_endpoint": "/server/workdrive-auth/?action=list",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
     "name": "workdrive-metadata-api",
     "source_endpoint": "/workdrive/metadata",
     "target_endpoint": "/server/workdrive-auth/?action=metadata",
     "target": "advancedio",
     "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-metadata-options-api",
+    "source_endpoint": "/workdrive/metadata",
+    "target_endpoint": "/server/workdrive-auth/?action=metadata",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-search-api",
+    "source_endpoint": "/workdrive/search",
+    "target_endpoint": "/server/workdrive-auth/?action=search",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-search-options-api",
+    "source_endpoint": "/workdrive/search",
+    "target_endpoint": "/server/workdrive-auth/?action=search",
+    "target": "advancedio",
+    "method": "OPTIONS",
     "throttling": {
       "overall": {},
       "ip": {}
@@ -220,11 +297,55 @@
     }
   },
   {
+    "name": "proposal-discovery-options-api",
+    "source_endpoint": "/proposal/discovery",
+    "target_endpoint": "/server/proposal-discovery/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
     "name": "proposal-processor-api",
     "source_endpoint": "/proposal/processor/process",
     "target_endpoint": "/server/proposal-processor/",
     "target": "advancedio",
     "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-processor-options-api",
+    "source_endpoint": "/proposal/processor/process",
+    "target_endpoint": "/server/proposal-processor/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-processor-status-get-api",
+    "source_endpoint": "/proposal/processor/status",
+    "target_endpoint": "/server/proposal-processor/",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-processor-status-options-api",
+    "source_endpoint": "/proposal/processor/status",
+    "target_endpoint": "/server/proposal-processor/",
+    "target": "advancedio",
+    "method": "OPTIONS",
     "throttling": {
       "overall": {},
       "ip": {}
@@ -247,6 +368,17 @@
     "target_endpoint": "/server/proposal-api/",
     "target": "advancedio",
     "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "proposal-api-options-api",
+    "source_endpoint": "/proposal/api",
+    "target_endpoint": "/server/proposal-api/",
+    "target": "advancedio",
+    "method": "OPTIONS",
     "throttling": {
       "overall": {},
       "ip": {}
