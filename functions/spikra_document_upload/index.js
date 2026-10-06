@@ -70,10 +70,9 @@ module.exports = async (req, res) => {
 		let documentSourceType = "LOCAL_FILE";
 
 		if (contentType && contentType.toLowerCase().startsWith("application/json")) {
-			// Picked from Zoho WorkDrive instead of uploaded from disk - downloads the file
-			// through the shared WorkDrive integration and feeds it into the exact same
-			// insert/storage logic below as a local upload. Requires a WorkDrive session
-			// (the connected salesperson's own access is used to fetch the file).
+			// Legacy WorkDrive path (no logo support - a JSON body can't carry a binary
+			// file). Kept for compatibility; the frontend now sends WorkDrive picks as
+			// multipart instead, below, so a business logo can travel alongside them.
 			const rawBody = await readRequestBody(req, 64 * 1024);
 			const body = parseJsonBody(rawBody);
 
@@ -107,8 +106,23 @@ module.exports = async (req, res) => {
 			businessName = getTextField(formData, "business_name");
 			projectName = getTextField(formData, "project_name");
 			description = getTextField(formData, "description") || "";
-			uploadedDocument = formData.files.document || formData.files.file;
 			uploadedLogo = formData.files.business_logo || formData.files.logo;
+
+			// Picked from Zoho WorkDrive instead of uploaded from disk - downloads the file
+			// through the shared WorkDrive integration and feeds it into the exact same
+			// insert/storage logic below as a local upload. Sent as a plain text field
+			// alongside the optional business_logo file, since a document field won't be
+			// present in this case. Requires a WorkDrive session (the connected
+			// salesperson's own access is used to fetch the file).
+			const workdriveFileId = getTextField(formData, "workdrive_file_id");
+			if (workdriveFileId) {
+				const user = requireSession(req);
+				const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId);
+				uploadedDocument = { fileName, contentType: mimeType, data: buffer };
+				documentSourceType = "WORKDRIVE";
+			} else {
+				uploadedDocument = formData.files.document || formData.files.file;
+			}
 		} else {
 			return sendJson(res, 400, {
 				success: false,
