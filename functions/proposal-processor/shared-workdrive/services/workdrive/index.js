@@ -87,7 +87,7 @@ function normalizeItem(raw) {
 	const attrs = raw.attributes || {};
 	const isFolder = raw.type === "files"
 		? (attrs.type === "folder" || attrs.is_folder === true)
-		: (raw.type === "folder" || raw.type === "workspace" || raw.type === "private_space");
+		: (raw.type === "folder" || raw.type === "workspace" || raw.type === "private_space" || raw.type === "teamfolders");
 
 	const ext = attrs.extn ? `.${attrs.extn.replace(/^\./, "")}` : "";
 	const size = Number(attrs.storage_info?.size_in_bytes || attrs.size || 0);
@@ -459,7 +459,11 @@ async function listRootItems(app, email, session) {
 	let zuid = null;
 	try {
 		const userRes = await request("GET", "/users/me", { accessToken, email, session });
-		zuid = (userRes && userRes.data && (userRes.data.id || (userRes.data.attributes && (userRes.data.attributes.zid || userRes.data.attributes.zuid)))) || null;
+		const userAttrs = (userRes && userRes.data && userRes.data.attributes) || {};
+		// zid is the documented ZUID field. data.id is the "users" resource id, which is
+		// not guaranteed to equal the ZUID - checking it first silently broke team/team
+		// folder discovery whenever the two differed.
+		zuid = userAttrs.zid || userAttrs.zuid || (userRes && userRes.data && userRes.data.id) || null;
 	} catch (e) {
 		console.warn("[WorkDrive] Could not fetch /users/me:", e.message);
 	}
@@ -485,35 +489,44 @@ async function listRootItems(app, email, session) {
 		}
 	}
 
-	// 2. Fetch user teams / workspaces if permitted
+	// 2. Fetch user teams / team folders if permitted. "Get All Teams of User" returns a
+	// single team object (not an array) for the common case of a user belonging to one
+	// team - treating a non-array response as "no teams" silently hid every Team Folder.
 	let teamIds = [];
 	if (zuid) {
 		try {
 			const teamsRes = await request("GET", `/users/${encodeURIComponent(zuid)}/teams`, { accessToken, email, session });
-			const teamList = Array.isArray(teamsRes && teamsRes.data) ? teamsRes.data : [];
+			const rawTeamData = teamsRes && teamsRes.data;
+			const teamList = Array.isArray(rawTeamData) ? rawTeamData : (rawTeamData ? [rawTeamData] : []);
 			teamIds = teamList.map((t) => t.id).filter(Boolean);
-		} catch {}
+		} catch (e) {
+			console.warn("[WorkDrive] Could not fetch /users/:zuid/teams:", e.message);
+		}
 	}
 
 	for (const teamId of teamIds) {
-		// Workspaces (Team Folders)
+		// Team Folders - the real endpoint is /teams/{id}/teamfolders. The previous
+		// /teams/{id}/workspaces path isn't a documented Zoho WorkDrive endpoint and
+		// always failed, so Team Folders never appeared even when teamIds resolved.
 		try {
-			const wsRes = await request("GET", `/teams/${encodeURIComponent(teamId)}/workspaces`, { accessToken, email, session });
-			const wsList = Array.isArray(wsRes && wsRes.data) ? wsRes.data : [];
-			for (const ws of wsList) {
-				const attrs = ws.attributes || {};
+			const tfRes = await request("GET", `/teams/${encodeURIComponent(teamId)}/teamfolders`, { accessToken, email, session });
+			const tfList = Array.isArray(tfRes && tfRes.data) ? tfRes.data : [];
+			for (const tf of tfList) {
+				const attrs = tf.attributes || {};
 				items.push({
-					id: ws.id,
-					type: "workspace",
+					id: tf.id,
+					type: "teamfolders",
 					attributes: {
 						name: attrs.name || attrs.display_name || "Team Folder",
-						type: "workspace",
+						type: "folder",
 						is_folder: true,
-						modified_time: attrs.modified_time || attrs.updated_time || null
+						modified_time: attrs.modified_time || attrs.last_accessed_time || null
 					}
 				});
 			}
-		} catch {}
+		} catch (e) {
+			console.warn("[WorkDrive] Could not fetch team folders for team", teamId, ":", e.message);
+		}
 
 		// Private Space fallback per team
 		if (!privateSpaceId && zuid) {
@@ -564,6 +577,52 @@ async function listRootItems(app, email, session) {
 	}
 
 	return items;
+}
+
+function nameMatchesQuery(name, cleanQuery) {
+	const n = String(name || "").trim().toLowerCase();
+	return n.length > 0 && (n.includes(cleanQuery) || cleanQuery.includes(n));
+}
+
+// Finds the business/client folder matching a free-text name typed in the UI. Root-level
+// names are checked first (fast path - covers "Private Space" folders the user made
+// directly), then each root-level folder's immediate children are checked one level
+// deeper (covers the common real-world layout: a Team Folder containing one subfolder
+// per client). Sequential with an early return on the first match, and bounded, so a
+// single search never turns into an unbounded account-wide crawl or a pile of parallel
+// calls - it does exactly the fetches it needs and stops.
+const MAX_FOLDERS_TO_SCAN = 25;
+
+async function findBusinessFolder(app, email, session, query) {
+	const cleanQuery = String(query || "").trim().toLowerCase();
+	if (!cleanQuery) return null;
+
+	const rawRootItems = await listRootItems(app, email, session);
+	const rootItems = rawRootItems.map(normalizeItem).filter(Boolean);
+	const rootFolders = rootItems.filter((i) => i.isFolder);
+
+	const directMatch = rootFolders.find((f) => nameMatchesQuery(f.name, cleanQuery));
+	if (directMatch) {
+		return { folder: directMatch, breadcrumb: [directMatch] };
+	}
+
+	let scanned = 0;
+	for (const folder of rootFolders) {
+		if (scanned >= MAX_FOLDERS_TO_SCAN) break;
+		scanned += 1;
+		try {
+			const children = await listFiles(app, email, folder.id, session);
+			const normalizedChildren = children.map(normalizeItem).filter(Boolean);
+			const childMatch = normalizedChildren.find((c) => c.isFolder && nameMatchesQuery(c.name, cleanQuery));
+			if (childMatch) {
+				return { folder: childMatch, breadcrumb: [folder, childMatch] };
+			}
+		} catch (e) {
+			console.warn("[WorkDrive] Could not scan folder", folder.id, "for business match:", e.message);
+		}
+	}
+
+	return null;
 }
 
 async function getFileMetadata(app, email, fileId, session) {
@@ -648,6 +707,7 @@ module.exports = {
 	getValidAccessToken,
 	listFiles,
 	listRootItems,
+	findBusinessFolder,
 	getFileMetadata,
 	downloadFile,
 	disconnectConnection,

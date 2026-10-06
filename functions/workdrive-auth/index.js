@@ -250,6 +250,30 @@ module.exports = async (req, res) => {
 				});
 			}
 
+			// Business-name search, routed through the one gateway path (/workdrive/list)
+			// that reliably deploys - the dedicated /workdrive/search route never registered
+			// on the live API Gateway despite matching config, so search rides along here
+			// instead of depending on it.
+			const rawQuery = !folderId ? (urlObj.searchParams.get("query") || (req.query && req.query.query)) : null;
+			const cleanQuery = rawQuery ? sanitizeSearchQuery(rawQuery) : "";
+
+			if (cleanQuery) {
+				const match = await workdrive.findBusinessFolder(app, session.email, session, cleanQuery);
+				if (!match) {
+					return sendJson(res, 200, { success: true, matched: false, folder_id: null, items: [] });
+				}
+				const rawChildren = await workdrive.listFiles(app, session.email, match.folder.id, session);
+				const items = Array.isArray(rawChildren) ? rawChildren.map(workdrive.normalizeItem).filter(Boolean) : [];
+				return sendJson(res, 200, {
+					success: true,
+					matched: true,
+					folder_id: match.folder.id,
+					folder_name: match.folder.name,
+					breadcrumb: match.breadcrumb.map((b) => ({ id: b.id, name: b.name })),
+					items
+				});
+			}
+
 			const rawItems = folderId
 				? await workdrive.listFiles(app, session.email, folderId, session)
 				: await workdrive.listRootItems(app, session.email, session);
