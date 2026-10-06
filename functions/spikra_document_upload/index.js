@@ -86,7 +86,7 @@ module.exports = async (req, res) => {
 			}
 
 			const user = requireSession(req);
-			const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId);
+			const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId, user);
 			uploadedDocument = { fileName, contentType: mimeType, data: buffer };
 			documentSourceType = "WORKDRIVE";
 		} else if (contentType && contentType.toLowerCase().startsWith("multipart/form-data")) {
@@ -117,7 +117,7 @@ module.exports = async (req, res) => {
 			const workdriveFileId = getTextField(formData, "workdrive_file_id");
 			if (workdriveFileId) {
 				const user = requireSession(req);
-				const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId);
+				const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId, user);
 				uploadedDocument = { fileName, contentType: mimeType, data: buffer };
 				documentSourceType = "WORKDRIVE";
 			} else {
