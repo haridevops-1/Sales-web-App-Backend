@@ -710,10 +710,31 @@ async function getOwnedPackageWithFiles(app, packageId, userId) {
 
 	const query = `SELECT * FROM ${DISCOVERY_FILES_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME ASC`;
 	let fileRows = [];
-	try {
-		const result = await app.zcql().executeZCQLQuery(query);
-		fileRows = (result || []).map((item) => item[DISCOVERY_FILES_TABLE] || item);
-	} catch {}
+	let lastQueryErr = null;
+
+	// packagesTable.getRow() above is a direct ROWID lookup and is consistent
+	// immediately; this ZCQL query runs through a separate query layer that can
+	// briefly lag behind a write that just happened in the previous request (seen
+	// live: a package demonstrably created with 2 files reporting 0 here moments
+	// later). This retries the one read within this one request/response - the
+	// caller (this same HTTP call) is never retried or duplicated, and nothing
+	// billable (no Zia Agent call) happens until real file rows are found.
+	for (let attempt = 1; attempt <= 4; attempt++) {
+		try {
+			const result = await app.zcql().executeZCQLQuery(query);
+			fileRows = (result || []).map((item) => item[DISCOVERY_FILES_TABLE] || item);
+			lastQueryErr = null;
+		} catch (err) {
+			lastQueryErr = err;
+			fileRows = [];
+		}
+		if (fileRows.length > 0 || attempt === 4) break;
+		await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+	}
+
+	if (lastQueryErr) {
+		console.error("[proposal-processor] Discovery files query failed after retries:", lastQueryErr.message);
+	}
 
 	return { packageRow, fileRows };
 }

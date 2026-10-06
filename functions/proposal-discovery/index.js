@@ -435,10 +435,19 @@ async function getPackageWithFiles(app, packageId, userId, preloadedRow) {
 	const packageRow = preloadedRow || (await getOwnedPackageRow(app, packageId, userId));
 	const query = `SELECT * FROM ${DISCOVERY_FILES_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME ASC`;
 	let fileRows = [];
-	try {
-		const result = await app.zcql().executeZCQLQuery(query);
-		fileRows = (result || []).map((item) => item[DISCOVERY_FILES_TABLE] || item);
-	} catch {}
+	// See proposal-processor's getOwnedPackageWithFiles for why: this ZCQL query can
+	// briefly lag behind a write from the request that just created this package.
+	for (let attempt = 1; attempt <= 4; attempt++) {
+		try {
+			const result = await app.zcql().executeZCQLQuery(query);
+			fileRows = (result || []).map((item) => item[DISCOVERY_FILES_TABLE] || item);
+		} catch (err) {
+			fileRows = [];
+			console.error("[proposal-discovery] Package files query failed:", err.message);
+		}
+		if (fileRows.length > 0 || attempt === 4) break;
+		await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+	}
 
 	return {
 		session_id: String(packageRow.ROWID || packageId),
