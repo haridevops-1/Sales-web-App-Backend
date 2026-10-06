@@ -154,7 +154,7 @@ module.exports = async (req, res) => {
 			);
 		}
 
-		validateUploadedDocument(uploadedDocument);
+		validateUploadedDocument(uploadedDocument, documentSourceType);
 
 		if (uploadedLogo) {
 			validateUploadedLogo(uploadedLogo);
@@ -593,7 +593,7 @@ function validateTextField(value, fieldName, maximumLength) {
 	}
 }
 
-function validateUploadedDocument(file) {
+function validateUploadedDocument(file, sourceType) {
 	const extension = path.extname(file.fileName).toLowerCase();
 	const expectedMimeType = ALLOWED_DOCUMENT_TYPES[extension];
 
@@ -603,7 +603,12 @@ function validateUploadedDocument(file) {
 		);
 	}
 
-	if (file.contentType !== expectedMimeType) {
+	// The browser's File API reliably reports the exact MIME type for a local upload,
+	// so that's checked as defense-in-depth. A WorkDrive-sourced file's content type
+	// instead comes from Zoho's own file metadata, which isn't guaranteed to match this
+	// exact string (it can report a generic or Zoho-specific type for the same real
+	// .docx/.pdf) - the extension check above is the reliable signal there instead.
+	if (sourceType !== "WORKDRIVE" && file.contentType !== expectedMimeType) {
 		throw new ValidationError(
 			`The uploaded document must have the ${expectedMimeType} MIME type.`
 		);
