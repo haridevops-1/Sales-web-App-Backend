@@ -22,7 +22,11 @@ const { URL, URLSearchParams } = require("url");
 const { WorkdriveError } = require("../../utils/errors");
 
 const DEFAULT_ACCOUNTS_DOMAIN = "https://accounts.zoho.com";
-const WORKDRIVE_SCOPES = "WorkDrive.files.READ,ZohoFiles.files.READ,AaaServer.profile.READ";
+// WorkDrive.users.READ ("Get All Teams of User") and WorkDrive.teamfolders.READ ("Get
+// Team Folders in a Team") are required to discover Team Folders at all - without them
+// every /teams/*/teamfolders call is silently denied and the root listing falls back to
+// showing only My Folders (Private Space), which is exactly what was happening.
+const WORKDRIVE_SCOPES = "WorkDrive.files.READ,WorkDrive.users.READ,WorkDrive.teamfolders.READ,ZohoFiles.files.READ,AaaServer.profile.READ";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function getAccountsDomain() {
