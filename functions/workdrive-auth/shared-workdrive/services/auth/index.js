@@ -62,7 +62,10 @@ function buildAuthorizeUrl(customAccountsDomain, clientOrigin) {
 	url.searchParams.set("response_type", "code");
 	url.searchParams.set("access_type", "offline");
 	url.searchParams.set("redirect_uri", redirectUri);
-	url.searchParams.set("prompt", "consent");
+	// No "prompt" param: Zoho shows the approve screen only when there isn't already a live
+	// grant for these scopes (first connect, or after disconnect revokes it below). Forcing
+	// prompt=consent made Zoho re-ask on every single "Open WorkDrive" click even for a
+	// salesperson who already approved access and never disconnected.
 	url.searchParams.set("state", state);
 	return url.toString();
 }
