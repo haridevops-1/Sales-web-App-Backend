@@ -431,21 +431,43 @@ async function getOwnedPackageRow(app, packageId, userId) {
 	return row;
 }
 
+// Reads every row of a table through the Row API (getPagedRows - the same family as the
+// single-row getRow, not the ZCQL query engine) and filters by package_id in memory. Used
+// instead of a ZCQL SELECT because ZCQL can lag behind a just-committed write from the
+// previous request; this table is scoped to one internal sales tool's discovery files, so
+// a bounded full scan is cheap.
+async function getFileRowsByPackageId(app, packageId, tableName) {
+	const table = app.datastore().table(tableName);
+	const targetId = String(packageId);
+	const collected = [];
+	let nextToken;
+
+	for (let page = 0; page < 25; page++) {
+		const response = await table.getPagedRows(nextToken ? { nextToken, maxRows: 200 } : { maxRows: 200 });
+		const rows = Array.isArray(response && response.data) ? response.data : [];
+		for (const row of rows) {
+			if (String(row.package_id) === targetId) collected.push(row);
+		}
+		if (!response || !response.more_records || !response.next_token) break;
+		nextToken = response.next_token;
+	}
+
+	collected.sort((a, b) => new Date(a.CREATEDTIME || 0) - new Date(b.CREATEDTIME || 0));
+	return collected;
+}
+
 async function getPackageWithFiles(app, packageId, userId, preloadedRow) {
 	const packageRow = preloadedRow || (await getOwnedPackageRow(app, packageId, userId));
-	const query = `SELECT * FROM ${DISCOVERY_FILES_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME ASC`;
 	let fileRows = [];
-	// See proposal-processor's getOwnedPackageWithFiles for why: this ZCQL query can
-	// briefly lag behind a write from the request that just created this package.
-	for (let attempt = 1; attempt <= 4; attempt++) {
+	// See proposal-processor's getOwnedPackageWithFiles for why ZCQL is avoided here.
+	for (let attempt = 1; attempt <= 3; attempt++) {
 		try {
-			const result = await app.zcql().executeZCQLQuery(query);
-			fileRows = (result || []).map((item) => item[DISCOVERY_FILES_TABLE] || item);
+			fileRows = await getFileRowsByPackageId(app, packageId, DISCOVERY_FILES_TABLE);
 		} catch (err) {
 			fileRows = [];
-			console.error("[proposal-discovery] Package files query failed:", err.message);
+			console.error("[proposal-discovery] Package files lookup failed:", err.message);
 		}
-		if (fileRows.length > 0 || attempt === 4) break;
+		if (fileRows.length > 0 || attempt === 3) break;
 		await new Promise((resolve) => setTimeout(resolve, attempt * 400));
 	}
 

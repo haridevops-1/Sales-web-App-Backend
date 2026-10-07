@@ -691,6 +691,31 @@ async function retrieveFileBuffer(app, user, fileRow) {
 	return buffer;
 }
 
+// Reads every row of a table through the Row API (getPagedRows - the same family as the
+// single-row getRow, not the ZCQL query engine) and filters by package_id in memory. Used
+// instead of a ZCQL SELECT because ZCQL can lag behind a just-committed write from the
+// previous request; this table is scoped to one internal sales tool's discovery files, so
+// a bounded full scan is cheap.
+async function getFileRowsByPackageId(app, packageId, tableName) {
+	const table = app.datastore().table(tableName);
+	const targetId = String(packageId);
+	const collected = [];
+	let nextToken;
+
+	for (let page = 0; page < 25; page++) {
+		const response = await table.getPagedRows(nextToken ? { nextToken, maxRows: 200 } : { maxRows: 200 });
+		const rows = Array.isArray(response && response.data) ? response.data : [];
+		for (const row of rows) {
+			if (String(row.package_id) === targetId) collected.push(row);
+		}
+		if (!response || !response.more_records || !response.next_token) break;
+		nextToken = response.next_token;
+	}
+
+	collected.sort((a, b) => new Date(a.CREATEDTIME || 0) - new Date(b.CREATEDTIME || 0));
+	return collected;
+}
+
 async function getOwnedPackageWithFiles(app, packageId, userId) {
 	const datastore = app.datastore();
 	const packagesTable = datastore.table(DISCOVERY_PACKAGES_TABLE);
@@ -708,32 +733,29 @@ async function getOwnedPackageWithFiles(app, packageId, userId) {
 		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery session.", 403);
 	}
 
-	const query = `SELECT * FROM ${DISCOVERY_FILES_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME ASC`;
+	// packagesTable.getRow() above is a direct ROWID lookup and is consistent immediately.
+	// A ZCQL SELECT against this table is not: it runs through a separate query layer that
+	// can briefly lag behind a write from the request that just created this package (seen
+	// live: a package demonstrably created with 2 files reporting 0 here moments later) -
+	// confirmed to persist even across several seconds of retried ZCQL reads. getFileRowsByPackageId
+	// below reads through the Row API (the same family as getRow) instead of ZCQL, which does
+	// not show that lag. The short retry around it is just a safety net, not the real fix.
 	let fileRows = [];
 	let lastQueryErr = null;
-
-	// packagesTable.getRow() above is a direct ROWID lookup and is consistent
-	// immediately; this ZCQL query runs through a separate query layer that can
-	// briefly lag behind a write that just happened in the previous request (seen
-	// live: a package demonstrably created with 2 files reporting 0 here moments
-	// later). This retries the one read within this one request/response - the
-	// caller (this same HTTP call) is never retried or duplicated, and nothing
-	// billable (no Zia Agent call) happens until real file rows are found.
-	for (let attempt = 1; attempt <= 4; attempt++) {
+	for (let attempt = 1; attempt <= 3; attempt++) {
 		try {
-			const result = await app.zcql().executeZCQLQuery(query);
-			fileRows = (result || []).map((item) => item[DISCOVERY_FILES_TABLE] || item);
+			fileRows = await getFileRowsByPackageId(app, packageId, DISCOVERY_FILES_TABLE);
 			lastQueryErr = null;
 		} catch (err) {
 			lastQueryErr = err;
 			fileRows = [];
 		}
-		if (fileRows.length > 0 || attempt === 4) break;
+		if (fileRows.length > 0 || attempt === 3) break;
 		await new Promise((resolve) => setTimeout(resolve, attempt * 400));
 	}
 
 	if (lastQueryErr) {
-		console.error("[proposal-processor] Discovery files query failed after retries:", lastQueryErr.message);
+		console.error("[proposal-processor] Discovery files lookup failed after retries:", lastQueryErr.message);
 	}
 
 	return { packageRow, fileRows };
