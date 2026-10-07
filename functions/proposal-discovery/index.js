@@ -101,8 +101,16 @@ module.exports = async (req, res) => {
 				const rawBody = await readRequestBody(req, 4 * 1024 * 1024);
 				const body = parseJsonBody(rawBody);
 
+				// The frontend sends { action: 'add_from_workdrive', ... } as a JSON body field,
+				// not a URL query param - `action` above only ever reads the query string, so
+				// this branch was never reached for a JSON request and silently fell through to
+				// plain createPackage() below, which creates an empty package and ignores
+				// file_ids entirely (confirmed live: package rows were created successfully with
+				// the right name, but zero file rows, then processing failed with "no documents
+				// to process" every time).
+				const effectiveAction = (action || String(body.action || "").toLowerCase());
 				const effectivePackageId = packageId || body.package_id || body.session_id || null;
-				if (action === "add_from_workdrive") {
+				if (effectiveAction === "add_from_workdrive") {
 					if (!sessionUser) {
 						throw new ProposalError("WORKDRIVE_AUTH_FAILED", "Connect Zoho WorkDrive to add files from WorkDrive.", 401);
 					}
@@ -119,7 +127,7 @@ module.exports = async (req, res) => {
 						const result = await createPackageFromUpload(app, user.userId, sessionName, files);
 						sendJson(res, 201, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
 					}
-				} else if (effectivePackageId && action === "add_files") {
+				} else if (effectivePackageId && effectiveAction === "add_files") {
 					operation = "add_files";
 					const result = await addFilesToPackage(app, effectivePackageId, user.userId, body.files);
 					sendJson(res, 200, { success: true, session: result, package: result, session_id: result.session_id, package_id: result.package_id });
