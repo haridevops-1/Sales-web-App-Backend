@@ -39,54 +39,23 @@ function renderListItems(items, emptyText, itemClass = "") {
 	return `<ul class="styled-list ${itemClass}">${list.map((item) => `<li><span class="list-dot"></span><span>${escapeHtml(item)}</span></li>`).join("")}</ul>`;
 }
 
+// Two-column info table - matches the reference Spikra Commercial Proposal's dominant
+// layout pattern ("Your requirement / How this proposal responds", "Work area / Key
+// deliverables", "# Cost component / What it covers", etc.) rather than a card grid.
 function renderSubsections(subsections) {
 	if (!Array.isArray(subsections) || subsections.length === 0) return "";
 
-	return `<div class="card-grid">${subsections.map((sub, i) => {
+	const rows = subsections.map((sub, i) => {
 		const title = typeof sub === "object" ? (sub.title || sub.heading || `Item ${i + 1}`) : `Item ${i + 1}`;
 		const content = typeof sub === "object" ? (sub.content || sub.description || "") : String(sub);
-		const numStr = (i + 1 < 10 ? "0" : "") + (i + 1);
-
 		return `
-		<div class="deliverable-card">
-			<div class="card-header">
-				<div class="card-number">${numStr}</div>
-				<h3 class="card-title">${escapeHtml(title)}</h3>
-			</div>
-			<div class="card-desc">${escapeHtml(content)}</div>
-		</div>`;
-	}).join("")}</div>`;
-}
+		<tr>
+			<td class="info-table-key">${escapeHtml(title)}</td>
+			<td class="info-table-val">${escapeHtml(content)}</td>
+		</tr>`;
+	}).join("");
 
-function buildDocumentSwitcherHtml(activeDocType, proposalId, options = {}) {
-	const baseUrl = options.baseUrl || "";
-	const buildUrl = (type) => {
-		if (options.buildDocUrl && typeof options.buildDocUrl === "function") {
-			return options.buildDocUrl(type);
-		}
-		if (proposalId) {
-			return `${baseUrl}?proposal_id=${encodeURIComponent(proposalId)}&type=${type}`;
-		}
-		return `?type=${type}`;
-	};
-
-	const docs = [
-		{ id: "technical", label: "Technical Document", icon: "M10 2a8 8 0 100 16 8 8 0 000-16zm1 11H9v-2h2v2zm0-4H9V5h2v4z" },
-		{ id: "commercial", label: "Commercial Proposal", icon: "M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" },
-		{ id: "tos", label: "TOS Document", icon: "M9 2a1 1 0 000 2h2a1 1 0 100-2H9z M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" }
-	];
-
-	return `
-	<div class="doc-switcher" role="tablist" aria-label="Document Type Switcher">
-		${docs.map((d) => {
-			const isActive = d.id === activeDocType;
-			return `
-			<a href="${buildUrl(d.id)}" class="doc-tab ${isActive ? "active" : ""}" role="tab" aria-selected="${isActive}">
-				<span class="tab-dot"></span>
-				<span class="tab-label">${escapeHtml(d.label)}</span>
-			</a>`;
-		}).join("")}
-	</div>`;
+	return `<table class="info-table"><tbody>${rows}</tbody></table>`;
 }
 
 function renderSharedDocumentTemplate({
@@ -107,6 +76,7 @@ function renderSharedDocumentTemplate({
 	const safeDocTitle = escapeHtml(docTitle || `${customerName} — Solution Document`);
 	const safeEyebrow = escapeHtml(eyebrow || "SPIKRA CUSTOMER PROPOSAL");
 	const safeBadge = escapeHtml(badgeLabel || "Spikra Document");
+	const safeProposalId = escapeHtml(String(proposalId || "Pending"));
 
 	const generatedDate = generatedAt ? new Date(generatedAt) : new Date();
 	const dateStr = isNaN(generatedDate.getTime())
@@ -117,30 +87,24 @@ function renderSharedDocumentTemplate({
 		? sections
 		: [{ heading: "Executive Summary", content: "Details to be finalized during alignment.", subsections: [] }];
 
-	// Dynamic sub-navigation links
-	const navLinksHtml = validSections.map((sec, idx) => {
-		const secId = `section-${idx + 1}`;
+	// Plain contents list (matches the reference proposal's own "Contents" page) - static
+	// text, not a functional nav bar and not a document switcher.
+	const contentsHtml = validSections.map((sec, idx) => {
 		const headingText = sec.heading || `Section ${idx + 1}`;
-		return `<a href="#${secId}">${escapeHtml(headingText)}</a>`;
+		return `<li><span class="contents-num">${idx + 1}.</span><span>${escapeHtml(headingText)}</span></li>`;
 	}).join("");
 
-	// Sections content HTML
+	// Sections content HTML - numbered heading, narrative paragraph, then a two-column
+	// info table for any subsections (matches the reference document's table-driven layout).
 	const sectionsHtml = validSections.map((sec, idx) => {
 		const secId = `section-${idx + 1}`;
 		const headingText = sec.heading || `Section ${idx + 1}`;
 		const contentText = sec.content || "";
-		const numStr = (idx + 1 < 10 ? "0" : "") + (idx + 1);
 
 		return `
-		<section class="proposal-section" id="${secId}">
-			<div class="section-header">
-				<div>
-					<span class="section-number">${numStr}</span>
-					<h2 class="section-title">${escapeHtml(headingText)}</h2>
-				</div>
-				<span class="section-badge">${safeBadge}</span>
-			</div>
-			${contentText ? `<div class="section-narrative">${escapeHtml(contentText)}</div>` : ""}
+		<section class="doc-section" id="${secId}">
+			<h2 class="section-title">${idx + 1}. ${escapeHtml(headingText)}</h2>
+			${contentText ? `<p class="section-narrative">${escapeHtml(contentText)}</p>` : ""}
 			${renderSubsections(sec.subsections)}
 		</section>`;
 	}).join("");
@@ -184,449 +148,202 @@ function renderSharedDocumentTemplate({
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Top Bar */
-  .top-brand-bar {
-    background: #ffffff;
-    border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    box-shadow: 0 1px 3px rgba(12, 44, 62, 0.04);
+  /* Diagonal brand banner - orange to deep-navy, matching the reference Spikra Commercial
+     Proposal's cover header exactly. No tabs, no document switcher, no in-page nav links -
+     just the brand mark, the document category, and an optional print action. */
+  .top-diagonal-banner {
+    background: linear-gradient(100deg, var(--flame) 0%, var(--flame-2) 46%, var(--deep) 54%, var(--deep) 100%);
+    padding: 18px 32px;
   }
-  .brand-bar-inner {
-    max-width: 1140px;
+  .banner-inner {
+    max-width: 960px;
     margin: 0 auto;
-    padding: 12px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
   }
-  .brand-logo-wrap {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .spikra-brand-badge {
+  .banner-logo {
     font-family: 'Poppins', sans-serif;
-    font-size: 20px;
+    font-size: 21px;
     font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--deep);
+    letter-spacing: 0.01em;
+    color: #ffffff;
   }
-  .spikra-brand-badge span { color: var(--flame); }
-  .partner-tag {
-    font-size: 11.5px;
-    font-weight: 600;
-    background: var(--flame-soft);
-    color: var(--flame);
-    padding: 3px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(244, 97, 31, 0.2);
+  .banner-logo span { opacity: 0.85; }
+  .banner-doctype {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    color: #ffffff;
   }
-
-  /* Document Switcher */
-  .doc-switcher {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--paper);
-    padding: 4px;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-  }
-  .doc-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--muted);
-    text-decoration: none;
-    border-radius: 7px;
-    transition: all 0.15s ease;
-  }
-  .doc-tab:hover {
-    color: var(--deep);
-    background: rgba(255, 255, 255, 0.7);
-  }
-  .doc-tab.active {
-    background: #ffffff;
-    color: var(--deep);
-    box-shadow: 0 1px 3px rgba(12, 44, 62, 0.08);
-  }
-  .doc-tab .tab-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--line);
-  }
-  .doc-tab.active .tab-dot {
-    background: var(--doc-accent);
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .print-btn {
+  .banner-print-btn {
     font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--deep);
-    background: #ffffff;
-    border: 1px solid var(--line);
-    padding: 6px 14px;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .print-btn:hover {
-    background: var(--paper);
-    border-color: var(--muted);
-  }
-
-  /* Sticky Sub-Navigation */
-  .sub-nav {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 57px;
-    z-index: 90;
-  }
-  .sub-nav-inner {
-    max-width: 1140px;
-    margin: 0 auto;
-    padding: 8px 24px;
-    display: flex;
-    gap: 20px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .sub-nav-inner::-webkit-scrollbar { display: none; }
-  .sub-nav-inner a {
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--muted);
-    text-decoration: none;
-    white-space: nowrap;
-    padding: 4px 0;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s ease;
-  }
-  .sub-nav-inner a:hover {
-    color: var(--deep);
-    border-color: var(--doc-accent);
-  }
-
-  /* Container */
-  .container {
-    max-width: 1140px;
-    margin: 0 auto;
-    padding: 32px 24px 64px;
-  }
-
-  /* Hero Card */
-  .hero-card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 40px 36px;
-    box-shadow: var(--shadow);
-    margin-bottom: 28px;
-    position: relative;
-    overflow: hidden;
-  }
-  .hero-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: var(--doc-accent);
-  }
-  .hero-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 24px;
-    margin-bottom: 24px;
-  }
-  .hero-eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
     font-size: 11.5px;
+    font-weight: 600;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    padding: 5px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .banner-print-btn:hover { background: rgba(255, 255, 255, 0.28); }
+
+  /* Page container - single constrained column, matching a printed proposal's page width */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 32px 56px;
+  }
+
+  /* Cover block - eyebrow, title, "prepared for / by", metadata table - all centered,
+     mirroring the reference proposal's title page. */
+  .cover-block {
+    text-align: center;
+    padding-bottom: 36px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--line);
+  }
+  .cover-eyebrow {
+    font-size: 12.5px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--doc-accent);
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
-  .hero-eyebrow::before {
-    content: "";
-    width: 18px;
-    height: 2px;
-    background: var(--doc-accent);
-  }
-  .hero-title {
+  .cover-title {
     font-family: 'Poppins', sans-serif;
-    font-size: clamp(24px, 3.2vw, 36px);
+    font-size: clamp(28px, 4vw, 40px);
     font-weight: 700;
     color: var(--deep);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     line-height: 1.15;
-    margin-bottom: 12px;
+    margin-bottom: 18px;
   }
-  .hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 16px;
+  .cover-rule {
+    width: 64px;
+    height: 3px;
+    background: var(--doc-accent);
+    margin: 0 auto 22px;
+    border-radius: 2px;
+  }
+  .cover-prepared {
+    font-size: 14px;
     color: var(--muted);
-    font-size: 13px;
-  }
-  .client-badge-box {
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 14px 20px;
-    text-align: center;
-    min-width: 180px;
-    flex-shrink: 0;
-  }
-  .client-badge-label {
-    font-size: 10.5px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
     margin-bottom: 4px;
   }
-  .client-badge-name {
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
+  .cover-prepared strong {
     color: var(--deep);
+    font-weight: 600;
   }
-
-  /* Method KPI Grid */
-  .method-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1px;
-    background: var(--line);
+  .cover-meta-table {
+    width: 100%;
+    max-width: 560px;
+    margin: 28px auto 0;
+    border-collapse: collapse;
     border: 1px solid var(--line);
     border-radius: 10px;
     overflow: hidden;
-    margin-top: 24px;
+    text-align: left;
   }
-  .method-cell {
-    background: var(--card);
-    padding: 16px 20px;
+  .cover-meta-table tr:nth-child(even) { background: var(--paper); }
+  .cover-meta-table td {
+    padding: 10px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--line);
   }
-  .method-cell-label {
-    font-size: 11px;
+  .cover-meta-table tr:last-child td { border-bottom: none; }
+  .cover-meta-key {
     font-weight: 600;
     color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 4px;
+    width: 42%;
   }
-  .method-cell-val {
-    font-family: 'Poppins', sans-serif;
-    font-size: 14.5px;
-    font-weight: 600;
+  .cover-meta-val {
     color: var(--deep);
+    font-weight: 500;
   }
 
-  /* Proposal Section */
-  .proposal-section {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 36px 36px;
-    box-shadow: var(--shadow);
-    margin-bottom: 28px;
+  /* Static contents list - plain text, not a functional nav */
+  .contents-block {
+    margin-bottom: 40px;
   }
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    border-bottom: 1px solid var(--line);
-    padding-bottom: 16px;
-    margin-bottom: 24px;
-  }
-  .section-header > div {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .section-number {
+  .contents-heading {
     font-family: 'Poppins', sans-serif;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
-    color: #ffffff;
-    background: var(--deep);
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    color: var(--deep);
+    margin-bottom: 12px;
+  }
+  .contents-block ul {
+    list-style: none;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .contents-block li {
+    display: flex;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--ink);
+  }
+  .contents-num {
+    font-weight: 700;
+    color: var(--doc-accent);
+    min-width: 20px;
+  }
+
+  /* Document sections - plain numbered headings, paragraph body, two-column info tables -
+     matches the reference document's structure (no cards, no badges). */
+  .doc-section {
+    margin-bottom: 36px;
   }
   .section-title {
     font-family: 'Poppins', sans-serif;
-    font-size: 20px;
-    font-weight: 600;
+    font-size: 19px;
+    font-weight: 700;
     color: var(--deep);
     letter-spacing: -0.01em;
-  }
-  .section-badge {
-    font-size: 11.5px;
-    font-weight: 600;
-    background: var(--paper);
-    color: var(--muted);
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 2px solid var(--doc-accent);
   }
   .section-narrative {
     font-size: 14.5px;
     color: var(--ink);
-    margin-bottom: 24px;
-    line-height: 1.65;
+    margin-bottom: 18px;
+    line-height: 1.7;
     white-space: pre-line;
   }
 
-  /* Deliverable Card Grid */
-  .card-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 18px;
-    margin-top: 16px;
-  }
-  .deliverable-card {
-    background: var(--paper);
+  /* Two-column info table */
+  .info-table {
+    width: 100%;
+    border-collapse: collapse;
     border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 20px 22px;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 8px;
   }
-  .deliverable-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(12, 44, 62, 0.06);
-    border-color: #cbd5e1;
+  .info-table tr:nth-child(even) { background: var(--paper); }
+  .info-table td {
+    padding: 11px 16px;
+    font-size: 13.5px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
   }
-  .card-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-  .card-number {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--doc-accent);
-    background: var(--flame-soft);
-    padding: 2px 7px;
-    border-radius: 5px;
-    flex-shrink: 0;
-  }
-  .card-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
+  .info-table tr:last-child td { border-bottom: none; }
+  .info-table-key {
     font-weight: 600;
     color: var(--deep);
-    line-height: 1.3;
+    width: 32%;
   }
-  .card-desc {
-    font-size: 13.5px;
-    color: var(--muted);
-    line-height: 1.55;
-    white-space: pre-line;
-  }
-
-  /* Styled List */
-  .styled-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 12px;
-  }
-  .styled-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    font-size: 14px;
+  .info-table-val {
     color: var(--ink);
-    line-height: 1.55;
-  }
-  .list-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--doc-accent);
-    margin-top: 8px;
-    flex-shrink: 0;
-  }
-
-  /* Badge Wrap */
-  .badge-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .app-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    font-weight: 500;
-    background: #ffffff;
-    border: 1px solid var(--line);
-    padding: 6px 12px;
-    border-radius: 8px;
-    color: var(--deep);
-  }
-  .badge-icon {
-    width: 14px;
-    height: 14px;
-    color: var(--success);
-  }
-
-  /* Terms Callout */
-  .terms-box {
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--doc-accent);
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin-bottom: 16px;
-  }
-  .terms-title {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 6px;
-  }
-  .terms-value {
-    font-size: 14px;
-    color: var(--deep);
-    font-weight: 500;
+    line-height: 1.6;
     white-space: pre-line;
   }
 
@@ -671,85 +388,52 @@ function renderSharedDocumentTemplate({
   }
 
   @media (max-width: 768px) {
-    .container { padding: 20px 16px 48px; }
-    .hero-card, .proposal-section { padding: 24px 20px; }
-    .hero-top { flex-direction: column; }
-    .client-badge-box { width: 100%; }
+    .container { padding: 32px 18px 40px; }
     .signoff-box { grid-template-columns: 1fr; gap: 20px; }
   }
 
   @media print {
-    .top-brand-bar, .sub-nav, .print-btn { display: none !important; }
+    .banner-print-btn { display: none !important; }
     body { background: #ffffff !important; }
     .container { max-width: 100% !important; padding: 0 !important; }
-    .hero-card, .proposal-section { border: 1px solid #ddd !important; box-shadow: none !important; page-break-inside: avoid; }
   }
 </style>
 </head>
 <body>
 
-<!-- Top Brand Bar with 3-Document Switcher -->
-<header class="top-brand-bar">
-  <div class="brand-bar-inner">
-    <div class="brand-logo-wrap">
-      <div class="spikra-brand-badge">SPIKRA<span>.</span></div>
-      <span class="partner-tag">Zoho Advanced Partner</span>
-    </div>
-
-    ${buildDocumentSwitcherHtml(docType, proposalId, options)}
-
-    <div class="header-actions">
-      <button class="print-btn" onclick="window.print()">Export / Print</button>
-    </div>
+<!-- Diagonal brand banner - no tabs, no document switcher, no links to the other documents -->
+<header class="top-diagonal-banner">
+  <div class="banner-inner">
+    <div class="banner-logo">SPIKRA<span>.</span></div>
+    <div class="banner-doctype">${safeBadge}</div>
+    <button class="banner-print-btn" onclick="window.print()">Export / Print</button>
   </div>
 </header>
 
-<!-- Sticky Sub-Navigation -->
-<nav class="sub-nav">
-  <div class="sub-nav-inner">
-    ${navLinksHtml}
-  </div>
-</nav>
-
 <div class="container">
 
-  <!-- Hero Card -->
-  <section class="hero-card" id="hero">
-    <div class="hero-top">
-      <div>
-        <div class="hero-eyebrow">${safeEyebrow}</div>
-        <h1 class="hero-title">${safeDocTitle}</h1>
-        <div class="hero-meta">
-          <span>Prepared for <strong>${escapeHtml(customerName)}</strong></span>
-          ${industryText ? `<span>· Industry: <strong>${escapeHtml(industryText)}</strong></span>` : ""}
-          <span>· Date: <strong>${dateStr}</strong></span>
-        </div>
-      </div>
-      <div class="client-badge-box">
-        <div class="client-badge-label">Client Organization</div>
-        <div class="client-badge-name">${escapeHtml(customerName)}</div>
-      </div>
-    </div>
+  <!-- Cover -->
+  <section class="cover-block">
+    <div class="cover-eyebrow">${safeEyebrow}</div>
+    <h1 class="cover-title">${safeDocTitle}</h1>
+    <div class="cover-rule"></div>
+    <p class="cover-prepared">Prepared for <strong>${escapeHtml(customerName)}</strong>${industryText ? ` · ${escapeHtml(industryText)}` : ""}</p>
+    <p class="cover-prepared">Prepared by <strong>Spikra — Zoho Premium Partner &amp; IT Consulting</strong></p>
 
-    <!-- Method KPI Cell -->
-    <div class="method-grid">
-      <div class="method-cell">
-        <div class="method-cell-label">Document Purpose</div>
-        <div class="method-cell-val">${safeBadge}</div>
-      </div>
-      <div class="method-cell">
-        <div class="method-cell-label">Architecture</div>
-        <div class="method-cell-val">Zoho Enterprise Ecosystem</div>
-      </div>
-      <div class="method-cell">
-        <div class="method-cell-label">Delivery Partner</div>
-        <div class="method-cell-val">Spikra Solutions</div>
-      </div>
-      <div class="method-cell">
-        <div class="method-cell-label">Engagement Status</div>
-        <div class="method-cell-val" style="color: var(--doc-accent);">Executive Baseline</div>
-      </div>
-    </div>
+    <table class="cover-meta-table">
+      <tbody>
+        <tr><td class="cover-meta-key">Document Reference</td><td class="cover-meta-val">${safeProposalId}</td></tr>
+        <tr><td class="cover-meta-key">Date</td><td class="cover-meta-val">${dateStr}</td></tr>
+        <tr><td class="cover-meta-key">Version</td><td class="cover-meta-val">Draft v1.0 — For Client Review</td></tr>
+        <tr><td class="cover-meta-key">Basis Document</td><td class="cover-meta-val">Discovery documentation provided by ${escapeHtml(customerName)}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Contents (static text, matches the reference document's own Contents page) -->
+  <section class="contents-block">
+    <div class="contents-heading">Contents</div>
+    <ul>${contentsHtml}</ul>
   </section>
 
   <!-- Content Sections -->
@@ -769,8 +453,8 @@ function renderSharedDocumentTemplate({
 
   <!-- Footer -->
   <footer class="proposal-footer">
-    <p>Spikra Solutions · Zoho Advanced Partner · Confidential &amp; Proprietary</p>
-    <p style="margin-top: 4px; font-size: 11px;">Prepared exclusively for ${escapeHtml(customerName)}.</p>
+    <p>Confidential — ${safeBadge} for ${escapeHtml(customerName)}</p>
+    <p style="margin-top: 4px; font-size: 11px;">Spikra — Zoho Premium Partner · sales@spikra.com</p>
   </footer>
 
 </div>
