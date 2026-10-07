@@ -32,7 +32,7 @@ class ProposalZiaAgentClient {
 		return Boolean(this.endpoint);
 	}
 
-	async generateProposal(discoveryInput, { businessName, industry } = {}, connectionCredentials) {
+	async generateProposal(discoveryInput, { businessName, industry } = {}, connectionCredentials, rawSourceText) {
 		const discoveryText = typeof discoveryInput === "object"
 			? JSON.stringify(discoveryInput, null, 2)
 			: String(discoveryInput || "").trim();
@@ -47,7 +47,7 @@ class ProposalZiaAgentClient {
 			);
 		}
 
-		const query = buildQuery(discoveryText, { businessName, industry });
+		const query = buildQuery(discoveryText, { businessName, industry }, rawSourceText);
 		const payload = { query, systemArgs: {}, reasoning: false, attachments: [] };
 
 		const responseData = await this._callAgentEndpoint(payload, connectionCredentials);
@@ -123,33 +123,33 @@ class ProposalZiaAgentClient {
 	}
 }
 
-function buildQuery(consolidatedJsonString, { businessName, industry }) {
+function buildQuery(consolidatedJsonString, { businessName, industry }, rawSourceText) {
 	const customerName = businessName ? `Customer: ${businessName}` : "";
 	const ind = industry ? `Industry: ${industry}` : "";
 	const context = [customerName, ind].filter(Boolean).join("\n");
+	const hasRawSource = typeof rawSourceText === "string" && rawSourceText.trim().length > 0;
 
 	return [
 		context,
-		"You are the Customer Proposal Generation Agent for Spikra. Analyze the following Consolidated Customer JSON (extracted and combined from all discovery documents) and generate THREE distinct structured proposal documents:",
-		"1. technical_document: Technical Architecture, Systems, Functional & Technical Requirements, Integrations, and Technical Deliverables.",
-		"2. commercial_document: Commercial Scope, Executive Summary, Deliverables Catalog, Implementation Milestones, and Commercial/Licensing Structure.",
-		"3. tos_document: Terms of Service, Scope Governance, Assumptions, Dependencies, Risks, SLA & Support Hypercare.",
+		"You are the Customer Proposal Generation Agent for Spikra. You are given the actual uploaded discovery documents (verbatim text) below, plus a pre-classified summary of them. Read the real documents yourself rather than relying only on the summary - the summary is a convenience aid and can miss or flatten details (pricing tables, SLA wording, specific technical requirements) that are present in the real text. From that source material, generate THREE separate, independent documents:",
+		"1. technical_document: ONLY technical content - architecture, systems, functional & technical requirements, integrations, technical deliverables. Do not include pricing, payment terms, or legal/SLA commitments here.",
+		"2. commercial_document: ONLY commercial content - executive summary, scope of work, deliverables catalog, implementation milestones/timeline, and pricing/licensing/payment terms. Pull any actual pricing figures, cost breakdowns, payment schedules, or licensing costs that appear anywhere in the source documents into this document - do not discard them. Do not include technical architecture detail or TOS/legal clauses here.",
+		"3. tos_document: ONLY terms-of-service content - scope governance, assumptions, dependencies, risks, SLA, support/hypercare, and any legal or contractual terms found in the source documents. Do not include technical architecture or pricing detail here.",
 		"",
-		"RULES & CONSTRAINTS:",
-		"- Ground every single field strictly in the provided Consolidated Customer JSON.",
-		"- Do NOT invent customer information.",
-		"- Do NOT invent pricing.",
-		"- Do NOT invent payment terms.",
-		"- Do NOT invent timelines.",
-		"- Do NOT invent legal/TOS commitments.",
-		"- If commercial, timeline, or TOS details were not explicitly stated in the source documents, clearly state that they are subject to mutual commercial alignment or keep them empty.",
+		"SEPARATION RULE: each document is read on its own by the client and must stand alone - never repeat a fact that belongs in one document inside another (e.g. a price figure belongs only in commercial_document, an SLA response time belongs only in tos_document, an integration list belongs only in technical_document).",
+		"",
+		"GROUNDING RULES:",
+		"- Every fact in every document must come from the source documents below (verbatim text) or the pre-classified summary - never invent customer information, pricing, payment terms, timelines, or legal/TOS commitments.",
+		"- If a document genuinely contains no commercial or TOS detail at all, say so plainly (e.g. \"subject to mutual commercial alignment\") instead of inventing numbers - but check the real source text first, since these details are often present in a table or a section the summary didn't capture.",
 		"- The document generator applies the visual presentation templates. Do NOT generate HTML, CSS, JavaScript or visual UI.",
 		"",
 		"Return ONLY a valid JSON object matching this exact structure, with no markdown code blocks, no backticks, and no wrapper key:",
 		'{\n  "technical_document": {\n    "title": "Technical Document",\n    "sections": [\n      {\n        "heading": "Architecture & System Blueprint",\n        "content": "...",\n        "subsections": [\n          { "title": "Key Technical Requirements", "content": "..." }\n        ]\n      }\n    ]\n  },\n  "commercial_document": {\n    "title": "Commercial Proposal",\n    "sections": [\n      {\n        "heading": "Executive Summary & Commercial Scope",\n        "content": "...",\n        "subsections": [\n          { "title": "Deliverables & Modules", "content": "..." }\n        ]\n      }\n    ]\n  },\n  "tos_document": {\n    "title": "TOS Document",\n    "sections": [\n      {\n        "heading": "Scope Governance & Terms of Service",\n        "content": "...",\n        "subsections": [\n          { "title": "Key Assumptions & Responsibilities", "content": "..." }\n        ]\n      }\n    ]\n  }\n}',
 		"",
-		"Consolidated Customer JSON:",
-		consolidatedJsonString.trim()
+		"Pre-classified summary (Consolidated Customer JSON):",
+		consolidatedJsonString.trim(),
+		hasRawSource ? "Actual uploaded discovery documents (verbatim text - this is the source of truth):" : "",
+		hasRawSource ? rawSourceText.trim() : ""
 	].filter(Boolean).join("\n\n");
 }
 

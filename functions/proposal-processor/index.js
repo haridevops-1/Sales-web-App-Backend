@@ -212,10 +212,17 @@ module.exports = async (req, res) => {
 		}
 
 		// Combine all extracted information from 1 or N documents into Consolidated Customer JSON
-		const { consolidated_json, consolidated_text } = documentProcessing.consolidateExtractedDocuments(extractedDocs, {
+		const { consolidated_json, source_blocks } = documentProcessing.consolidateExtractedDocuments(extractedDocs, {
 			sessionName: packageRow.package_name,
 			businessName: packageRow.package_name
 		});
+
+		// consolidated_json is a regex-classified summary (goals/requirements/etc. buckets) -
+		// useful for the customer name/industry, but it can miss pricing tables, SLA wording,
+		// or technical specifics the classifier's patterns don't match. Sending the capped raw
+		// source text alongside it lets the Agent read the actual uploaded documents itself
+		// instead of relying only on that pre-classified summary.
+		const rawSourceText = capDiscoveryContent(source_blocks, MAX_DISCOVERY_CONTENT_CHARS);
 
 		let connectionCredentials = null;
 		if (PROPOSAL_ZIA_CONNECTION_LINK_NAME) {
@@ -238,7 +245,8 @@ module.exports = async (req, res) => {
 				businessName: consolidated_json.customer?.company_name || packageRow.package_name,
 				industry: consolidated_json.customer?.industry || ""
 			},
-			connectionCredentials
+			connectionCredentials,
+			rawSourceText
 		);
 
 		// Debug: log what the Agent returned (keys only, no sensitive data)
