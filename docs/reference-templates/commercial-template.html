@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>{{proposal_title}} — Spikra Proposal</title>
+<style>
+  /* =========================================================
+     SPIKRA COMMERCIAL PROPOSAL MASTER TEMPLATE
+     Visual reference: supplied Commercial Proposal PDF
+     Theme colors sampled from supplied PDF header:
+       Blue  #1F4E79
+       Orange #F26522
+  ========================================================= */
+  :root {
+    --spikra-blue: #1F4E79;
+    --spikra-orange: #F26522;
+    --spikra-light: #EEF3F8;
+    --spikra-border: #D7E0E8;
+    --text: #202020;
+    --muted: #666666;
+    --white: #FFFFFF;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; background: #f3f3f3; }
+
+  body {
+    font-family: "Carlito", "Calibri", Arial, sans-serif;
+    color: var(--text);
+    font-size: 10.2pt;
+    line-height: 1.38;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Caladea is visually close to the serif heading used in the PDF.
+     The fallback stack keeps the template portable. */
+  h1, h2, h3, h4, .serif {
+    font-family: "Caladea", Georgia, "Times New Roman", serif;
+  }
+
+  .document {
+    width: 8.5in;
+    margin: 24px auto;
+  }
+
+  .page {
+    position: relative;
+    width: 8.5in;
+    min-height: 11in;
+    background: #fff;
+    padding: 0.78in 0.70in 0.62in;
+    margin: 0 auto 18px;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .page:last-child { page-break-after: auto; break-after: auto; }
+
+  /* ---------- Header ---------- */
+  .topbar {
+    height: 0.56in;
+    width: 100%;
+    position: relative;
+    display: flex;
+    overflow: hidden;
+    margin-bottom: 0.34in;
+  }
+
+  .topbar .orange {
+    width: 40%;
+    background: var(--spikra-orange);
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding-left: 25px;
+  }
+
+  .topbar .orange::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -47px;
+    width: 86px;
+    height: 100%;
+    background: var(--spikra-orange);
+    transform: skewX(-29deg);
+    transform-origin: top;
+  }
+
+  .topbar .blue {
+    flex: 1;
+    background: var(--spikra-blue);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 26px;
+  }
+
+  .topbar-logo {
+    position: relative;
+    z-index: 2;
+    height: 30px;
+    width: auto;
+    object-fit: contain;
+  }
+
+  .topbar-title {
+    position: relative;
+    z-index: 3;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    position: absolute;
+    left: 0.70in;
+    right: 0.70in;
+    bottom: 0.23in;
+    border-top: 1px solid #DADADA;
+    padding-top: 7px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #555;
+    font-size: 7.5pt;
+  }
+
+  .footer .brand { color: var(--spikra-blue); }
+  .footer .page-no { white-space: nowrap; }
+
+  /* ---------- Cover ---------- */
+  .cover .topbar { margin-bottom: 0.46in; }
+  .cover-body { text-align: center; }
+  .cover-logo {
+    width: 76px;
+    height: 60px;
+    object-fit: contain;
+    margin: 0 auto 11px;
+  }
+
+  .cover-kicker {
+    color: var(--spikra-orange);
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.7px;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+  }
+
+  .cover-title {
+    margin: 0;
+    color: var(--spikra-blue);
+    font-size: 24px;
+    line-height: 1.1;
+    font-weight: 700;
+  }
+
+  .cover-subtitle {
+    margin: 6px 0 22px;
+    color: #53616e;
+    font-size: 11px;
+  }
+
+  .orange-rule {
+    height: 2px;
+    background: var(--spikra-orange);
+    margin: 0 0 28px;
+  }
+
+  .prepared-label { color: #777; font-size: 9px; margin-bottom: 3px; }
+  .prepared-name {
+    color: var(--spikra-blue);
+    font-family: Georgia, serif;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 13px;
+  }
+
+  .cover-context {
+    margin: 18px 0 12px;
+    padding: 11px 14px;
+    border-left: 4px solid var(--spikra-orange);
+    background: var(--spikra-light);
+    color: #3d4b57;
+    font-size: 9.2pt;
+    line-height: 1.45;
+  }
+
+  .cover-meta {
+    width: 72%;
+    margin: 0 auto;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 8.5pt;
+  }
+
+  .cover-meta td {
+    border: 1px solid var(--spikra-border);
+    padding: 5px 7px;
+    vertical-align: top;
+  }
+
+  .cover-meta td:first-child {
+    width: 35%;
+    background: var(--spikra-light);
+    color: #46627a;
+    font-weight: 700;
+  }
+
+  /* ---------- General typography ---------- */
+  .section-title {
+    margin: 0 0 9px;
+    color: var(--spikra-blue);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15px;
+    line-height: 1.2;
+    font-weight: 700;
+    border-bottom: 1.5px solid var(--spikra-orange);
+    padding-bottom: 5px;
+  }
+
+  .sub-title {
+    color: var(--spikra-blue);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 12px;
+    font-weight: 700;
+    margin: 15px 0 5px;
+  }
+
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 4px 0 9px 19px; padding: 0; }
+  li { margin: 0 0 4px; }
+  strong { font-weight: 700; }
+
+  .callout {
+    margin: 10px 0 14px;
+    background: var(--spikra-light);
+    border-left: 4px solid var(--spikra-orange);
+    padding: 9px 12px;
+    font-size: 8.9pt;
+  }
+
+  .callout-title {
+    color: var(--spikra-orange);
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+
+  /* ---------- Tables ---------- */
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 13px;
+    font-size: 8.2pt;
+  }
+
+  .data th {
+    background: var(--spikra-blue);
+    color: #fff;
+    text-align: left;
+    font-weight: 700;
+    padding: 6px 7px;
+    border: 1px solid var(--spikra-blue);
+  }
+
+  .data td {
+    border: 1px solid var(--spikra-border);
+    padding: 5px 7px;
+    vertical-align: top;
+  }
+
+  .data tbody tr:nth-child(even) td { background: #F2F5F8; }
+  .data .num { text-align: right; white-space: nowrap; }
+
+  .total-row td {
+    background: var(--spikra-blue) !important;
+    color: #fff;
+    font-weight: 700;
+    border-color: var(--spikra-blue);
+  }
+
+  .total-row td:last-child {
+    background: var(--spikra-orange) !important;
+    text-align: right;
+  }
+
+  .compact td, .compact th { padding: 4.5px 6px; }
+
+  /* ---------- Contents ---------- */
+  .toc-title { margin-bottom: 18px; }
+  .toc-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 6px;
+    align-items: baseline;
+    color: var(--spikra-blue);
+    font-weight: 700;
+    margin: 7px 0;
+    font-size: 9.2pt;
+  }
+  .toc-row .dots { border-bottom: 1px dotted #777; height: 1px; }
+  .toc-row.sub { padding-left: 28px; font-weight: 400; margin: 4px 0; }
+
+  /* ---------- Signature ---------- */
+  .signature-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 58px;
+    margin-top: 26px;
+  }
+  .signature-name { color: var(--spikra-blue); font-weight: 700; margin-bottom: 25px; }
+  .signature-line { border-top: 1px solid #888; margin-bottom: 7px; }
+  .signature-caption { font-size: 8pt; color: #555; margin-bottom: 18px; }
+
+  /* ---------- Print ---------- */
+  @page { size: Letter; margin: 0; }
+  @media print {
+    html, body { background: #fff; }
+    .document { width: auto; margin: 0; }
+    .page { margin: 0; width: 8.5in; height: 11in; min-height: 11in; }
+  }
+
+  /* ---------- Screen ---------- */
+  @media screen and (max-width: 900px) {
+    .document { transform-origin: top center; }
+    .page { width: 100%; min-height: auto; aspect-ratio: 8.5 / 11; }
+    .footer { position: relative; left: auto; right: auto; bottom: auto; margin-top: 30px; }
+  }
+.logo-img-fix { object-fit: contain; object-position: center; display:block; }
+</style>
+</head>
+<body>
+<div class="document" id="proposalDocument">
+
+  <!-- ======================== PAGE 1 ======================== -->
+  <section class="page cover">
+    <div class="topbar">
+      <div class="orange"><img class="topbar-logo logo-img-fix" id="headerLogo1" alt="Spikra"></div>
+      <div class="blue"><div class="topbar-title" id="headerTitle1">Commercial Proposal</div></div>
+    </div>
+
+    <div class="cover-body">
+      <img class="cover-logo logo-img-fix" id="coverLogo" alt="Spikra logo">
+      <div class="cover-kicker" id="coverKicker">Commercial Proposal</div>
+      <h1 class="cover-title" id="coverTitle">Zoho CRM Implementation</h1>
+      <div class="cover-subtitle" id="coverSubtitle">Sales Transformation &amp; Field-Force Enablement</div>
+      <div class="orange-rule"></div>
+
+      <div class="prepared-label">Prepared for</div>
+      <div class="prepared-name" id="customerName"></div>
+      <div class="prepared-label">Prepared by</div>
+      <div class="prepared-name" id="preparedBy"></div>
+
+      <div class="cover-context" id="coverContext"></div>
+
+      <table class="cover-meta">
+        <tbody id="coverMeta"></tbody>
+      </table>
+    </div>
+
+    <div class="footer"><span>Confidential — <span id="footerDocTitle1">Commercial Proposal</span> for <span id="footerCustomer1"></span></span><span class="page-no">Page 1 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 2 ======================== -->
+  <section class="page">
+    <div class="topbar">
+      <div class="orange"><img class="topbar-logo logo-img-fix" id="headerLogo2" alt="Spikra"></div>
+      <div class="blue"><div class="topbar-title">Commercial Proposal</div></div>
+    </div>
+    <h2 class="section-title toc-title">Contents</h2>
+    <div id="toc"></div>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 2 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 3 ======================== -->
+  <section class="page">
+    <div class="topbar"><div class="orange"><img class="topbar-logo header-logo logo-img-fix" alt="Spikra"></div><div class="blue"><div class="topbar-title">Commercial Proposal</div></div></div>
+    <section>
+      <h2 class="section-title">1. <span id="s1Title">Executive Summary</span></h2>
+      <div id="executiveSummary"></div>
+      <div class="callout">
+        <div class="callout-title" id="glanceTitle">At a glance</div>
+        <div id="atGlance"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">2. <span id="s2Title">Understanding of Your Requirements</span></h2>
+      <p id="requirementsIntro"></p>
+      <table class="data compact">
+        <thead><tr><th id="reqHead1">Your requirement (per BRD)</th><th id="reqHead2">How this proposal responds</th></tr></thead>
+        <tbody id="requirementsTable"></tbody>
+      </table>
+      <div class="callout" id="directlyMappedBox">
+        <div class="callout-title">Directly mapped to your BRD</div>
+        <div id="directlyMapped"></div>
+      </div>
+    </section>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 3 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 4 ======================== -->
+  <section class="page">
+    <div class="topbar"><div class="orange"><img class="topbar-logo header-logo logo-img-fix" alt="Spikra"></div><div class="blue"><div class="topbar-title">Commercial Proposal</div></div></div>
+    <section>
+      <h2 class="section-title">3. <span id="s3Title">Scope Overview</span></h2>
+      <h3 class="sub-title" id="scopeInTitle">In Scope — Phase 1</h3>
+      <div id="inScope"></div>
+      <h3 class="sub-title" id="phase2Title">Phase 2</h3>
+      <div id="phase2"></div>
+      <h3 class="sub-title" id="outScopeTitle">Out of Scope (this phase)</h3>
+      <div id="outScope"></div>
+    </section>
+    <section>
+      <h2 class="section-title">4. <span id="s4Title">Deliverables</span></h2>
+      <p id="deliverablesIntro"></p>
+      <table class="data compact">
+        <thead><tr><th>Work area</th><th>Key deliverables</th><th>Reference</th></tr></thead>
+        <tbody id="deliverablesTable"></tbody>
+      </table>
+    </section>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 4 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 5 ======================== -->
+  <section class="page">
+    <div class="topbar"><div class="orange"><img class="topbar-logo header-logo logo-img-fix" alt="Spikra"></div><div class="blue"><div class="topbar-title">Commercial Proposal</div></div></div>
+    <section>
+      <table class="data compact"><thead><tr><th>Work area</th><th>Key deliverables</th><th>Reference</th></tr></thead><tbody id="deliverablesContinuation"></tbody></table>
+    </section>
+    <section>
+      <h2 class="section-title">5. <span id="s5Title">Implementation Approach &amp; Timeline</span></h2>
+      <p id="implementationIntro"></p>
+      <table class="data compact">
+        <thead><tr><th>Phase</th><th>Focus</th><th>Indicative duration</th><th>Exit gate</th></tr></thead>
+        <tbody id="timelineTable"></tbody>
+      </table>
+      <div class="callout">
+        <div class="callout-title">Indicative Phase 1 timeline</div>
+        <div id="timelineSummary"></div>
+      </div>
+      <h3 class="sub-title">Principles we work to</h3>
+      <div id="principles"></div>
+    </section>
+    <section>
+      <h2 class="section-title">6. <span id="s6Title">Commercial Proposal</span></h2>
+      <p id="commercialIntro"></p>
+      <h3 class="sub-title" id="feeTitle">6.1 Implementation Fee</h3>
+      <table class="data compact"><thead><tr><th>#</th><th>Cost component</th><th>What it covers</th></tr></thead><tbody id="costTable"></tbody></table>
+    </section>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 5 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 6 ======================== -->
+  <section class="page">
+    <div class="topbar"><div class="orange"><img class="topbar-logo header-logo logo-img-fix" alt="Spikra"></div><div class="blue"><div class="topbar-title">Commercial Proposal</div></div></div>
+    <table class="data compact"><thead><tr><th>#</th><th>Cost component</th><th>What it covers</th></tr></thead><tbody id="costContinuation"></tbody></table>
+    <table class="data compact" id="totalTable"></table>
+    <h3 class="sub-title">6.2 Payment Schedule</h3>
+    <p id="paymentIntro"></p>
+    <table class="data compact"><thead><tr><th>Milestone</th><th>Month / Phase</th><th>Value</th></tr></thead><tbody id="paymentTable"></tbody></table>
+    <div id="paymentNotes"></div>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 6 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 7 ======================== -->
+  <section class="page">
+    <div class="topbar"><div class="orange"><img class="topbar-logo header-logo logo-img-fix" alt="Spikra"></div><div class="blue"><div class="topbar-title">Commercial Proposal</div></div></div>
+    <h3 class="sub-title">6.3 <span id="licensingTitle">Zoho Licensing</span></h3>
+    <div id="licensing"></div>
+    <h2 class="section-title">7. <span id="s7Title">Assumptions &amp; Exclusions</span></h2>
+    <h3 class="sub-title">Assumptions</h3>
+    <div id="assumptions"></div>
+    <h3 class="sub-title">Exclusions</h3>
+    <div id="exclusions"></div>
+    <h2 class="section-title">8. <span id="s8Title">Terms &amp; Conditions</span></h2>
+    <div id="terms"></div>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 7 of 8</span></div>
+  </section>
+
+  <!-- ======================== PAGE 8 ======================== -->
+  <section class="page">
+    <div class="topbar"><div class="orange"><img class="topbar-logo header-logo logo-img-fix" alt="Spikra"></div><div class="blue"><div class="topbar-title">Commercial Proposal</div></div></div>
+    <h2 class="section-title">9. <span id="s9Title">Why Spikra</span></h2>
+    <table class="data compact"><thead><tr><th>What you get</th><th>Why it matters</th></tr></thead><tbody id="whySpikra"></tbody></table>
+    <h2 class="section-title">10. <span id="s10Title">Next Steps</span></h2>
+    <div id="nextSteps"></div>
+    <div class="signature-grid">
+      <div>
+        <div class="signature-name" id="signatureCustomer"></div>
+        <div class="signature-line"></div><div class="signature-caption">Name / Designation</div>
+        <div class="signature-line"></div><div class="signature-caption">Signature &amp; Date</div>
+      </div>
+      <div>
+        <div class="signature-name">For Spikra</div>
+        <div class="signature-line"></div><div class="signature-caption">Name / Designation</div>
+        <div class="signature-line"></div><div class="signature-caption">Signature &amp; Date</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:18px;color:var(--spikra-blue);font-size:8.5pt;">
+      <strong>Spikra</strong> — Zoho Premium Partner · <span id="contactEmail">sales@spikra.com</span>
+    </div>
+    <div class="footer"><span>Confidential — <span class="footerDocTitle">Commercial Proposal</span> for <span class="footerCustomer"></span></span><span class="page-no">Page 8 of 8</span></div>
+  </section>
+</div>
+
+<script>
+/* ============================================================
+   DYNAMIC CONTENT LAYER
+   ------------------------------------------------------------
+   Keep the HTML/CSS above as the fixed Spikra visual template.
+   The backend/Zia output should replace ONLY this data object.
+   The renderer does not need to change the design.
+============================================================ */
+
+/*
+AGENT CONTENT CONTRACT — COMMERCIAL DOCUMENT
+1. Customer identity comes from the uploaded customer documents. Never hard-code the customer name.
+2. Keep the Spikra visual theme/layout fixed. Change only customer/project content.
+3. Return a commercial_document with: title + sections[].
+4. Recommended section order: Executive Summary, Understanding Requirements, Scope Overview,
+   Deliverables, Implementation Approach & Timeline, Commercial Proposal, Zoho Licensing,
+   Assumptions & Exclusions, Terms & Conditions, Why Spikra, Next Steps.
+5. Each section may contain content and subsections[]. Use only facts grounded in the uploaded documents.
+6. If pricing, payment terms, timeline, licensing, SLA, or legal terms are not present, use "To be confirmed".
+7. Do not generate HTML/CSS/JavaScript. The renderer owns presentation.
+*/
+
+const DEFAULT_PROPOSAL_DATA = {
+  documentType: "Commercial Proposal",
+  projectTitle: "Solution Proposal",
+  subtitle: "Customer-specific commercial proposal",
+  customerName: "",
+  preparedBy: "Spikra — Zoho Premium Partner & IT Consulting",
+  contactEmail: "sales@spikra.com",
+  coverContext: "",
+  meta: [
+    ["Proposal reference", "To be confirmed"],
+    ["Date", "To be confirmed"],
+    ["Version", "To be confirmed"],
+    ["Basis document", "Customer discovery documents"],
+    ["Total commercial value", "To be confirmed"],
+    ["Validity", "To be confirmed"]
+  ],
+  toc: [], executiveSummary: [], atGlance: [], requirementsIntro: "", requirements: [], directlyMapped: "",
+  scopeInTitle: "Scope Overview", scopeIn: [], phase2: "", outScope: [], deliverablesIntro: "", deliverables: [],
+  implementationIntro: "", timeline: [], timelineSummary: "", principles: [], commercialIntro: "", costRows: [],
+  total: "To be confirmed", paymentIntro: "", payments: [], paymentNotes: [], licensing: "", assumptions: [],
+  exclusions: [], terms: [], whySpikra: [], nextSteps: []
+};
+
+// Workspace 2 supplies customer-specific content after document extraction + Zia generation.
+// Supported input forms:
+//   window.PROPOSAL_DATA = normalized renderer payload
+//   window.PROPOSAL_RESPONSE = raw Zia response
+//   <script id="proposal-data" type="application/json">...</script>
+function getIncomingProposalData() {
+  try {
+    if (window.PROPOSAL_DATA && typeof window.PROPOSAL_DATA === "object") return window.PROPOSAL_DATA;
+    const node = document.getElementById("proposal-data");
+    if (node && node.textContent.trim()) return JSON.parse(node.textContent);
+    if (window.PROPOSAL_RESPONSE && typeof window.PROPOSAL_RESPONSE === "object") return window.PROPOSAL_RESPONSE;
+  } catch (e) {
+    console.warn("Unable to read dynamic proposal data:", e);
+  }
+  return DEFAULT_PROPOSAL_DATA;
+}
+
+const PROPOSAL_DATA = getIncomingProposalData();
+
+/* --------------------- Helpers --------------------- */
+const esc = (value) => String(value ?? "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#039;");
+
+const html = (value) => String(value ?? "");
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? "";
+}
+
+function setHTML(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = value ?? "";
+}
+
+function renderList(id, items, ordered=false) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const tag = ordered ? "ol" : "ul";
+  el.innerHTML = `<${tag}>${(items || []).map(x => `<li>${html(x)}</li>`).join("")}</${tag}>`;
+}
+
+function renderParagraphs(id, items) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = (items || []).map(x => `<p>${html(x)}</p>`).join("");
+}
+
+function renderRows(id, rows, cols=3) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = (rows || []).map(row => `<tr>${row.slice(0, cols).map((cell, i) => `<td class="${i === row.length-1 && typeof cell === 'string' && /^\d/.test(cell) ? 'num' : ''}">${html(cell)}</td>`).join("")}</tr>`).join("");
+}
+
+function logoDataUri(kind = "cover") {
+  // The original template embedded base64 PNG payloads here (extracted from the supplied
+  // Commercial Proposal PDF). Hand-retyping a multi-thousand-character base64 string risks
+  // silent corruption, so this stored copy omits them and instead reuses the frontend's
+  // own verified-correct brand assets (src/assets/brand/spikra-logo-white.png and
+  // spikra-logo.png) - see shared/services/document-render/logos.js, which loads those
+  // files from disk and base64-encodes them at require time.
+  return "";
+}
+
+function normalizeIncomingPayload(payload) {
+  if (!payload || typeof payload !== "object") return DEFAULT_PROPOSAL_DATA;
+  if (payload.customerName || payload.meta || payload.costRows || payload.whySpikra) {
+    return { ...DEFAULT_PROPOSAL_DATA, ...payload };
+  }
+  if (payload.proposal && !payload.commercial_document) {
+    payload = { ...payload, commercial_document: payload.proposal };
+  }
+  const doc = payload.commercial_document || payload.commercial || {};
+  const customer = payload.customer || payload.project_information || {};
+  const sections = Array.isArray(doc.sections) ? doc.sections : [];
+  const text = v => typeof v === "string" ? v : JSON.stringify(v ?? "");
+  const clean = v => String(v ?? "").replace(/\s+/g, " ").trim();
+  const find = (...terms) => sections.find(s => terms.some(t => String(s.title || "").toLowerCase().includes(t)));
+  const allContent = section => {
+    if (!section) return "";
+    const out = [];
+    if (section.content) out.push(text(section.content));
+    (section.subsections || []).forEach(sub => {
+      if (sub.title) out.push(`<strong>${html(sub.title)}</strong>`);
+      if (sub.content) out.push(text(sub.content));
+    });
+    return out.join("\n\n");
+  };
+  const sectionParagraphs = section => {
+    if (!section) return [];
+    const out = [];
+    if (section.content) out.push(text(section.content));
+    (section.subsections || []).forEach(sub => {
+      if (sub.content) out.push(text(sub.content));
+    });
+    return out;
+  };
+  const exec = find("executive summary", "overview");
+  const req = find("understanding", "requirement");
+  const scope = find("scope");
+  const del = find("deliverable");
+  const impl = find("implementation", "timeline");
+  const comm = find("commercial", "cost", "pricing");
+  const pay = find("payment");
+  const lic = find("licens");
+  const ass = find("assumption", "exclusion");
+  const terms = find("terms", "condition");
+  const next = find("next step", "acceptance", "sign-off");
+  const businessNeed = clean(
+    payload.coverContext || customer.business_need || customer.business_context ||
+    customer.requirement_summary || (exec && exec.content) || ""
+  );
+  const companyName = clean(
+    customer.company_name || customer.customer_name || payload.customer_name ||
+    customer.business_name || payload.business_name || ""
+  );
+  const industry = clean(customer.industry || customer.vertical || "");
+  const subtitle = doc.subtitle || (industry ? `${industry} — Customer-specific commercial proposal` : "Customer-specific commercial proposal");
+  return {
+    ...DEFAULT_PROPOSAL_DATA,
+    documentType: doc.title || "Commercial Proposal",
+    projectTitle: doc.project_title || doc.solution_title || "Solution Proposal",
+    subtitle,
+    customerName: companyName,
+    preparedBy: payload.preparedBy || "Spikra — Zoho Premium Partner & IT Consulting",
+    contactEmail: payload.contactEmail || "sales@spikra.com",
+    coverContext: businessNeed,
+    meta: payload.meta || [
+      ["Proposal reference", payload.proposal_reference || doc.proposal_reference || "To be confirmed"],
+      ["Date", payload.date || doc.date || "To be confirmed"],
+      ["Version", payload.version || doc.version || "To be confirmed"],
+      ["Basis document", payload.basis_document || "Customer discovery documents"],
+      ["Total commercial value", payload.total_commercial_value || "To be confirmed"],
+      ["Validity", payload.validity || "To be confirmed"]
+    ],
+    toc: sections.map((s, i) => [`${i + 1}. ${s.title || "Section"}`, ""]),
+    executiveSummary: exec ? sectionParagraphs(exec) : [],
+    atGlance: payload.atGlance || [],
+    requirementsIntro: allContent(req),
+    requirements: payload.requirements || [],
+    directlyMapped: payload.directlyMapped || "",
+    scopeInTitle: scope?.title || "Scope Overview",
+    scopeIn: payload.scopeIn || (scope ? sectionParagraphs(scope) : []),
+    phase2: payload.phase2 || "",
+    outScope: payload.outScope || [],
+    deliverablesIntro: payload.deliverablesIntro || (del ? allContent(del) : ""),
+    deliverables: payload.deliverables || [],
+    implementationIntro: payload.implementationIntro || allContent(impl),
+    timeline: payload.timeline || [],
+    timelineSummary: payload.timelineSummary || "",
+    principles: payload.principles || [],
+    commercialIntro: payload.commercialIntro || allContent(comm),
+    costRows: payload.costRows || [],
+    total: payload.total || payload.total_commercial_value || "To be confirmed",
+    paymentIntro: payload.paymentIntro || allContent(pay),
+    payments: payload.payments || [],
+    paymentNotes: payload.paymentNotes || [],
+    licensing: payload.licensing || allContent(lic),
+    assumptions: payload.assumptions || (ass ? sectionParagraphs(ass) : []),
+    exclusions: payload.exclusions || [],
+    terms: payload.terms || (terms ? sectionParagraphs(terms) : []),
+    whySpikra: payload.whySpikra || [],
+    nextSteps: payload.nextSteps || (next ? sectionParagraphs(next) : []),
+    rawSections: sections
+  };
+}
+
+function renderProposal(data) {
+  data = normalizeIncomingPayload(data);
+  document.title = `${data.projectTitle || data.documentType} — ${data.customerName || "Spikra"}`;
+  const headerLogo = logoDataUri("header");
+  const coverLogo = logoDataUri("cover");
+  document.querySelectorAll(".header-logo, .topbar-logo").forEach(img => img.src = headerLogo);
+  document.getElementById("coverLogo").src = coverLogo;
+  setText("headerTitle1", data.documentType);
+  document.querySelectorAll(".topbar-title").forEach(e => e.textContent = data.documentType);
+  setText("coverKicker", data.documentType);
+  setText("coverTitle", data.projectTitle);
+  setText("coverSubtitle", data.subtitle);
+  setText("coverContext", data.coverContext || "");
+  const contextEl = document.getElementById("coverContext");
+  if (contextEl) contextEl.style.display = data.coverContext ? "block" : "none";
+  setText("customerName", data.customerName);
+  setText("preparedBy", data.preparedBy);
+  setText("footerDocTitle1", data.documentType);
+  setText("footerCustomer1", data.customerName);
+  setText("signatureCustomer", `For ${data.customerName}`);
+  setText("contactEmail", data.contactEmail);
+  document.querySelectorAll(".footerDocTitle").forEach(e => e.textContent = data.documentType);
+  document.querySelectorAll(".footerCustomer").forEach(e => e.textContent = data.customerName);
+  document.getElementById("coverMeta").innerHTML = (data.meta || []).map(row =>
+    `<tr><td>${esc(row[0])}</td><td>${html(row[1])}</td></tr>`).join("");
+  document.getElementById("toc").innerHTML = (data.toc || []).map((row, i) => {
+    return `<div class="toc-row ${i >= 6 && i <= 8 ? "sub" : ""}"><span>${esc(row[0])}</span><span class="dots"></span><span>${esc(row[1])}</span></div>`;
+  }).join("");
+  renderParagraphs("executiveSummary", data.executiveSummary);
+  setHTML("atGlance", (data.atGlance || []).map(x => `<div>${html(x)}</div>`).join(""));
+  setText("requirementsIntro", data.requirementsIntro);
+  document.getElementById("requirementsTable").innerHTML = (data.requirements || []).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td></tr>`).join("");
+  setText("directlyMapped", data.directlyMapped);
+  setText("scopeInTitle", data.scopeInTitle || "In Scope — Phase 1");
+  renderList("inScope", data.scopeIn);
+  setHTML("phase2", `<p>${html(data.phase2)}</p>`);
+  renderList("outScope", data.outScope);
+  setText("deliverablesIntro", data.deliverablesIntro);
+  const delRows = data.deliverables || [];
+  document.getElementById("deliverablesTable").innerHTML = delRows.slice(0,5).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td><td>${html(r[2])}</td></tr>`).join("");
+  document.getElementById("deliverablesContinuation").innerHTML = delRows.slice(5).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td><td>${html(r[2])}</td></tr>`).join("");
+  setText("implementationIntro", data.implementationIntro);
+  document.getElementById("timelineTable").innerHTML = (data.timeline || []).map(r => `<tr>${r.map(x => `<td>${html(x)}</td>`).join("")}</tr>`).join("");
+  setText("timelineSummary", data.timelineSummary);
+  renderList("principles", data.principles);
+  setText("commercialIntro", data.commercialIntro);
+  const costs = data.costRows || [];
+  document.getElementById("costTable").innerHTML = costs.slice(0,5).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td><td>${html(r[2])}</td></tr>`).join("");
+  document.getElementById("costContinuation").innerHTML = costs.slice(5).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td><td>${html(r[2])}</td></tr>`).join("");
+  document.getElementById("totalTable").innerHTML = `<tbody><tr class="total-row"><td colspan="2">Total commercial value (exclusive of applicable taxes)</td><td>${esc(data.total)}</td></tr></tbody>`;
+  setText("paymentIntro", data.paymentIntro);
+  document.getElementById("paymentTable").innerHTML = (data.payments || []).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td><td class="num">${html(r[2])}</td></tr>`).join("");
+  renderList("paymentNotes", data.paymentNotes);
+  setHTML("licensing", `<p>${html(data.licensing)}</p>`);
+  renderList("assumptions", data.assumptions);
+  renderList("exclusions", data.exclusions);
+  renderList("terms", data.terms, true);
+  document.getElementById("whySpikra").innerHTML = (data.whySpikra || []).map(r => `<tr><td>${html(r[0])}</td><td>${html(r[1])}</td></tr>`).join("");
+  renderList("nextSteps", data.nextSteps, true);
+}
+
+window.renderCustomerProposal = function(payload) {
+  renderProposal(payload);
+};
+
+renderProposal(PROPOSAL_DATA);
+</script>
+</body>
+</html>

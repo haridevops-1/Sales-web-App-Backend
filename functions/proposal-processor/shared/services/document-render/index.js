@@ -3,16 +3,25 @@
 /**
  * Spikra Customer Solution Document Renderer
  *
- * Implements the approved Spikra Design System (fixed theme from approved Spikra
- * Commercial Proposal reference: Poppins & Inter typography, Spikra color tokens,
- * sticky top brand bar with 3-document switcher, client badge, sticky anchor navigation,
- * deliverable cards, phased roadmap, and governance/commercials).
+ * Visual theme matches the approved Spikra Commercial Proposal reference template
+ * (Commercial-template.html, stored verbatim at docs/reference-templates/ in this repo):
+ * same colors (blue #1F4E79 / orange #F26522), same typography (Carlito/Calibri body,
+ * Georgia/Caladea headings), same diagonal orange-to-blue topbar with the real Spikra
+ * logo artwork, same cover-page layout, same Contents page, same table styling, same
+ * footer wording.
  *
- * Provides three separate logical templates:
- * 1. Technical Template (Architecture, Systems, Tech Requirements, Integrations, Deliverables)
- * 2. Commercial Template (Commercial Scope, Deliverables Catalog, Milestones, Licensing & Pricing)
- * 3. TOS Template (Terms of Service, Scope Governance, SLAs, Hypercare, Assumptions, Sign-off)
+ * Unlike the reference file (which binds content to fixed, Commercial-specific section
+ * IDs - pricing, payment schedule, licensing, "Why Spikra"), this renderer displays
+ * whatever sections the Zia Agent actually returns, under their own real titles, for all
+ * three document types. That's deliberate: Technical and TOS documents have completely
+ * different sections than Commercial, and forcing their content into Commercial-only
+ * slots would either fabricate "To be confirmed" placeholders over real content or
+ * silently drop content that doesn't match a hardcoded section name - exactly what must
+ * not happen per the "ground everything in the uploaded documents, never invent" rule
+ * that governs all three documents.
  */
+
+const { HEADER_LOGO_DATA_URI, COVER_LOGO_DATA_URI } = require("./logos");
 
 function escapeHtml(str) {
 	return String(str == null ? "" : str)
@@ -23,58 +32,36 @@ function escapeHtml(str) {
 		.replace(/'/g, "&#39;");
 }
 
-function renderBadgeList(items, emptyText) {
-	const list = (Array.isArray(items) ? items : []).map((s) => String(s || "").trim()).filter(Boolean);
-	if (list.length === 0) {
-		return `<p class="empty-note">${escapeHtml(emptyText)}</p>`;
-	}
-	return `<div class="badge-wrap">${list.map((item) => `<span class="app-badge"><svg class="badge-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>${escapeHtml(item)}</span>`).join("")}</div>`;
-}
-
-function renderListItems(items, emptyText, itemClass = "") {
-	const list = (Array.isArray(items) ? items : []).map((s) => String(s || "").trim()).filter(Boolean);
-	if (list.length === 0) {
-		return `<p class="empty-note">${escapeHtml(emptyText)}</p>`;
-	}
-	return `<ul class="styled-list ${itemClass}">${list.map((item) => `<li><span class="list-dot"></span><span>${escapeHtml(item)}</span></li>`).join("")}</ul>`;
-}
-
-// Two-column info table - matches the reference Spikra Commercial Proposal's dominant
-// layout pattern ("Your requirement / How this proposal responds", "Work area / Key
-// deliverables", "# Cost component / What it covers", etc.) rather than a card grid.
+// Two-column info table - matches the reference template's dominant layout pattern
+// ("Your requirement / How this proposal responds", "Work area / Key deliverables", etc.)
+// Generic "Topic / Details" header since subsections aren't tied to one fixed meaning
+// across Technical, Commercial and TOS documents the way the reference's named columns are.
 function renderSubsections(subsections) {
 	if (!Array.isArray(subsections) || subsections.length === 0) return "";
 
 	const rows = subsections.map((sub, i) => {
 		const title = typeof sub === "object" ? (sub.title || sub.heading || `Item ${i + 1}`) : `Item ${i + 1}`;
 		const content = typeof sub === "object" ? (sub.content || sub.description || "") : String(sub);
-		return `
-		<tr>
-			<td class="info-table-key">${escapeHtml(title)}</td>
-			<td class="info-table-val">${escapeHtml(content)}</td>
-		</tr>`;
+		return `<tr><td class="info-key">${escapeHtml(title)}</td><td class="info-val">${escapeHtml(content)}</td></tr>`;
 	}).join("");
 
-	return `<table class="info-table"><tbody>${rows}</tbody></table>`;
+	return `<table class="data"><thead><tr><th>Topic</th><th>Details</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderSharedDocumentTemplate({
-	docType,
 	docTitle,
-	eyebrow,
+	kicker,
 	badgeLabel,
-	accentColor,
 	companyName,
 	industry,
 	generatedAt,
 	proposalId,
-	sections,
-	options = {}
+	sections
 }) {
 	const customerName = String(companyName || "Customer Organization").trim();
 	const industryText = String(industry || "").trim();
 	const safeDocTitle = escapeHtml(docTitle || `${customerName} — Solution Document`);
-	const safeEyebrow = escapeHtml(eyebrow || "SPIKRA CUSTOMER PROPOSAL");
+	const safeKicker = escapeHtml(kicker || "SPIKRA PROPOSAL");
 	const safeBadge = escapeHtml(badgeLabel || "Spikra Document");
 	const safeProposalId = escapeHtml(String(proposalId || "Pending"));
 
@@ -85,26 +72,22 @@ function renderSharedDocumentTemplate({
 
 	const validSections = Array.isArray(sections) && sections.length > 0
 		? sections
-		: [{ heading: "Executive Summary", content: "Details to be finalized during alignment.", subsections: [] }];
+		: [{ heading: "Summary", content: "No content was found in the uploaded documents for this section.", subsections: [] }];
 
-	// Plain contents list (matches the reference proposal's own "Contents" page) - static
+	// Plain contents list (matches the reference template's own Contents page) - static
 	// text, not a functional nav bar and not a document switcher.
 	const contentsHtml = validSections.map((sec, idx) => {
 		const headingText = sec.heading || `Section ${idx + 1}`;
-		return `<li><span class="contents-num">${idx + 1}.</span><span>${escapeHtml(headingText)}</span></li>`;
+		return `<div class="toc-row"><span>${idx + 1}. ${escapeHtml(headingText)}</span><span class="toc-dots"></span></div>`;
 	}).join("");
 
-	// Sections content HTML - numbered heading, narrative paragraph, then a two-column
-	// info table for any subsections (matches the reference document's table-driven layout).
 	const sectionsHtml = validSections.map((sec, idx) => {
-		const secId = `section-${idx + 1}`;
 		const headingText = sec.heading || `Section ${idx + 1}`;
 		const contentText = sec.content || "";
-
 		return `
-		<section class="doc-section" id="${secId}">
+		<section class="doc-section">
 			<h2 class="section-title">${idx + 1}. ${escapeHtml(headingText)}</h2>
-			${contentText ? `<p class="section-narrative">${escapeHtml(contentText)}</p>` : ""}
+			${contentText ? `<p>${escapeHtml(contentText)}</p>` : ""}
 			${renderSubsections(sec.subsections)}
 		</section>`;
 	}).join("");
@@ -115,348 +98,230 @@ function renderSharedDocumentTemplate({
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${safeDocTitle} | Spikra</title>
-<meta name="description" content="${escapeHtml(customerName)} — ${safeDocTitle} prepared by Spikra Solutions">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="description" content="${escapeHtml(customerName)} — ${safeDocTitle} prepared by Spikra">
 <style>
+  /* =========================================================
+     Theme copied from the approved Spikra Commercial Proposal
+     reference template (docs/reference-templates/commercial-template.html)
+  ========================================================= */
   :root {
-    --ink: #14415A;
-    --deep: #0C2C3E;
-    --flame: #F4611F;
-    --flame-2: #E8402E;
-    --flame-soft: #FFF3EC;
-    --sky: #2C7CB8;
-    --paper: #F7F9FA;
-    --card: #FFFFFF;
-    --line: #E3E9ED;
-    --muted: #6B7C87;
-    --radius: 14px;
-    --shadow: 0 1px 2px rgba(12, 44, 62, .05), 0 8px 24px rgba(12, 44, 62, .06);
-    --success: #10b981;
-    --success-soft: #ecfdf5;
-    --doc-accent: ${accentColor || "var(--flame)"};
+    --spikra-blue: #1F4E79;
+    --spikra-orange: #F26522;
+    --spikra-light: #EEF3F8;
+    --spikra-border: #D7E0E8;
+    --text: #202020;
+    --muted: #666666;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
+
+  html, body { background: #f3f3f3; }
+
   body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background: var(--paper);
-    color: var(--ink);
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
+    font-family: "Carlito", "Calibri", Arial, sans-serif;
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.55;
   }
 
-  /* Diagonal brand banner - orange to deep-navy, matching the reference Spikra Commercial
-     Proposal's cover header exactly. No tabs, no document switcher, no in-page nav links -
-     just the brand mark, the document category, and an optional print action. */
-  .top-diagonal-banner {
-    background: linear-gradient(100deg, var(--flame) 0%, var(--flame-2) 46%, var(--deep) 54%, var(--deep) 100%);
-    padding: 18px 32px;
-  }
-  .banner-inner {
-    max-width: 960px;
-    margin: 0 auto;
+  h1, h2, h3 { font-family: "Caladea", Georgia, "Times New Roman", serif; }
+
+  /* ---------- Diagonal topbar (orange / blue split) - identical construction to the
+     reference template: a 40%-width orange block with a skewed trailing edge, flush
+     against a flex-fill blue block. ---------- */
+  .topbar { height: 54px; width: 100%; position: relative; display: flex; overflow: hidden; }
+  .topbar .orange {
+    width: 40%;
+    background: var(--spikra-orange);
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
+    padding-left: 28px;
   }
-  .banner-logo {
-    font-family: 'Poppins', sans-serif;
-    font-size: 21px;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    color: #ffffff;
-  }
-  .banner-logo span { opacity: 0.85; }
-  .banner-doctype {
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #ffffff;
-  }
-  .banner-print-btn {
-    font-family: inherit;
-    font-size: 11.5px;
-    font-weight: 600;
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.16);
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    padding: 5px 12px;
-    border-radius: 7px;
-    cursor: pointer;
-  }
-  .banner-print-btn:hover { background: rgba(255, 255, 255, 0.28); }
-
-  /* Page container - single constrained column, matching a printed proposal's page width */
-  .container {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 48px 32px 56px;
-  }
-
-  /* Cover block - eyebrow, title, "prepared for / by", metadata table - all centered,
-     mirroring the reference proposal's title page. */
-  .cover-block {
-    text-align: center;
-    padding-bottom: 36px;
-    margin-bottom: 40px;
-    border-bottom: 1px solid var(--line);
-  }
-  .cover-eyebrow {
-    font-size: 12.5px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--doc-accent);
-    margin-bottom: 10px;
-  }
-  .cover-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: clamp(28px, 4vw, 40px);
-    font-weight: 700;
-    color: var(--deep);
-    letter-spacing: -0.01em;
-    line-height: 1.15;
-    margin-bottom: 18px;
-  }
-  .cover-rule {
+  .topbar .orange::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -32px;
     width: 64px;
-    height: 3px;
-    background: var(--doc-accent);
-    margin: 0 auto 22px;
-    border-radius: 2px;
+    height: 100%;
+    background: var(--spikra-orange);
+    transform: skewX(-29deg);
+    transform-origin: top;
   }
-  .cover-prepared {
-    font-size: 14px;
-    color: var(--muted);
-    margin-bottom: 4px;
+  .topbar .blue {
+    flex: 1;
+    background: var(--spikra-blue);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 28px;
   }
-  .cover-prepared strong {
-    color: var(--deep);
-    font-weight: 600;
+  .topbar-logo { position: relative; z-index: 2; height: 26px; width: auto; object-fit: contain; }
+  .topbar-title {
+    position: relative;
+    z-index: 3;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
   }
-  .cover-meta-table {
-    width: 100%;
-    max-width: 560px;
-    margin: 28px auto 0;
-    border-collapse: collapse;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    overflow: hidden;
+
+  .page-shell { max-width: 820px; margin: 0 auto; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .content-pad { padding: 44px 48px 56px; }
+
+  /* ---------- Cover ---------- */
+  .cover-body { text-align: center; padding-bottom: 8px; }
+  .cover-logo { width: 70px; height: 55px; object-fit: contain; margin: 0 auto 12px; display: block; }
+  .cover-kicker {
+    color: var(--spikra-orange);
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .cover-title { color: var(--spikra-blue); font-size: 28px; line-height: 1.15; font-weight: 700; margin-bottom: 18px; }
+  .orange-rule { height: 2px; width: 70px; background: var(--spikra-orange); margin: 0 auto 26px; }
+  .prepared-label { color: #777; font-size: 11px; margin-bottom: 3px; }
+  .prepared-name { color: var(--spikra-blue); font-family: Georgia, serif; font-size: 15px; font-weight: 700; margin-bottom: 15px; }
+
+  .cover-context {
     text-align: left;
-  }
-  .cover-meta-table tr:nth-child(even) { background: var(--paper); }
-  .cover-meta-table td {
-    padding: 10px 16px;
-    font-size: 13px;
-    border-bottom: 1px solid var(--line);
-  }
-  .cover-meta-table tr:last-child td { border-bottom: none; }
-  .cover-meta-key {
-    font-weight: 600;
-    color: var(--muted);
-    width: 42%;
-  }
-  .cover-meta-val {
-    color: var(--deep);
-    font-weight: 500;
-  }
-
-  /* Static contents list - plain text, not a functional nav */
-  .contents-block {
-    margin-bottom: 40px;
-  }
-  .contents-heading {
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--deep);
-    margin-bottom: 12px;
-  }
-  .contents-block ul {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .contents-block li {
-    display: flex;
-    gap: 10px;
+    margin: 20px 0 16px;
+    padding: 13px 16px;
+    border-left: 4px solid var(--spikra-orange);
+    background: var(--spikra-light);
+    color: #3d4b57;
     font-size: 13.5px;
-    color: var(--ink);
-  }
-  .contents-num {
-    font-weight: 700;
-    color: var(--doc-accent);
-    min-width: 20px;
+    line-height: 1.55;
   }
 
-  /* Document sections - plain numbered headings, paragraph body, two-column info tables -
-     matches the reference document's structure (no cards, no badges). */
-  .doc-section {
-    margin-bottom: 36px;
-  }
+  .cover-meta { width: 100%; max-width: 560px; margin: 24px auto 0; border-collapse: collapse; text-align: left; font-size: 13px; }
+  .cover-meta td { border: 1px solid var(--spikra-border); padding: 8px 12px; vertical-align: top; }
+  .cover-meta td:first-child { width: 36%; background: var(--spikra-light); color: #46627a; font-weight: 700; }
+
+  /* ---------- Contents ---------- */
+  .toc-block { margin: 36px 0; padding-top: 28px; border-top: 1px solid var(--spikra-border); }
+  .toc-block h2 { color: var(--spikra-blue); font-size: 18px; margin-bottom: 16px; }
+  .toc-row { display: flex; align-items: baseline; gap: 8px; color: var(--spikra-blue); font-weight: 700; font-size: 14px; margin: 9px 0; }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #999; height: 1px; }
+
+  /* ---------- Sections ---------- */
+  .doc-section { margin: 30px 0; }
   .section-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 19px;
+    color: var(--spikra-blue);
+    font-size: 18px;
     font-weight: 700;
-    color: var(--deep);
-    letter-spacing: -0.01em;
-    padding-bottom: 10px;
+    border-bottom: 2px solid var(--spikra-orange);
+    padding-bottom: 8px;
     margin-bottom: 14px;
-    border-bottom: 2px solid var(--doc-accent);
   }
-  .section-narrative {
-    font-size: 14.5px;
-    color: var(--ink);
-    margin-bottom: 18px;
-    line-height: 1.7;
-    white-space: pre-line;
-  }
+  .doc-section p { margin-bottom: 12px; line-height: 1.65; white-space: pre-line; }
 
-  /* Two-column info table */
-  .info-table {
-    width: 100%;
-    border-collapse: collapse;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-    margin-top: 8px;
-  }
-  .info-table tr:nth-child(even) { background: var(--paper); }
-  .info-table td {
-    padding: 11px 16px;
-    font-size: 13.5px;
-    border-bottom: 1px solid var(--line);
-    vertical-align: top;
-  }
-  .info-table tr:last-child td { border-bottom: none; }
-  .info-table-key {
-    font-weight: 600;
-    color: var(--deep);
-    width: 32%;
-  }
-  .info-table-val {
-    color: var(--ink);
-    line-height: 1.6;
-    white-space: pre-line;
-  }
+  /* ---------- Tables ---------- */
+  table.data { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 13.5px; }
+  .data th { background: var(--spikra-blue); color: #fff; text-align: left; font-weight: 700; padding: 9px 12px; border: 1px solid var(--spikra-blue); }
+  .data td { border: 1px solid var(--spikra-border); padding: 9px 12px; vertical-align: top; }
+  .data tbody tr:nth-child(even) td { background: #F2F5F8; }
+  .info-key { font-weight: 700; color: var(--spikra-blue); width: 30%; }
+  .info-val { white-space: pre-line; }
 
-  /* Sign-off Block */
-  .signoff-box {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 28px;
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 28px 32px;
-    margin-top: 32px;
-  }
-  .sign-col h5 {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--deep);
-    margin-bottom: 28px;
-  }
-  .sign-line {
-    border-top: 1px dashed var(--muted);
-    padding-top: 8px;
-    font-size: 12px;
-    color: var(--muted);
-  }
+  .empty-note { color: var(--muted); font-style: italic; font-size: 13.5px; }
 
-  /* Footer */
-  .proposal-footer {
+  /* ---------- Sign-off ---------- */
+  .signoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; margin-top: 40px; }
+  .signoff-name { color: var(--spikra-blue); font-weight: 700; margin-bottom: 22px; }
+  .signoff-line { border-top: 1px solid #888; margin-bottom: 6px; }
+  .signoff-caption { font-size: 11px; color: #666; margin-bottom: 16px; }
+
+  /* ---------- Footer ---------- */
+  .doc-footer {
     text-align: center;
-    padding-top: 40px;
-    color: var(--muted);
+    padding-top: 22px;
+    margin-top: 40px;
+    border-top: 1px solid var(--spikra-border);
+    color: #666;
     font-size: 12px;
-    border-top: 1px solid var(--line);
-    margin-top: 48px;
   }
-
-  .empty-note {
-    color: var(--muted);
-    font-style: italic;
-    font-size: 13.5px;
-  }
-
-  @media (max-width: 768px) {
-    .container { padding: 32px 18px 40px; }
-    .signoff-box { grid-template-columns: 1fr; gap: 20px; }
-  }
+  .doc-footer .brand { color: var(--spikra-blue); font-weight: 700; }
 
   @media print {
-    .banner-print-btn { display: none !important; }
-    body { background: #ffffff !important; }
-    .container { max-width: 100% !important; padding: 0 !important; }
+    html, body { background: #fff; }
+    .page-shell { max-width: 100%; box-shadow: none; }
+  }
+
+  @media (max-width: 640px) {
+    .content-pad { padding: 28px 18px 36px; }
+    .signoff-grid { grid-template-columns: 1fr; gap: 24px; }
   }
 </style>
 </head>
 <body>
 
-<!-- Diagonal brand banner - no tabs, no document switcher, no links to the other documents -->
-<header class="top-diagonal-banner">
-  <div class="banner-inner">
-    <div class="banner-logo">SPIKRA<span>.</span></div>
-    <div class="banner-doctype">${safeBadge}</div>
-    <button class="banner-print-btn" onclick="window.print()">Export / Print</button>
-  </div>
-</header>
+<div class="page-shell">
 
-<div class="container">
+  <header class="topbar">
+    <div class="orange"><img class="topbar-logo" src="${HEADER_LOGO_DATA_URI}" alt="Spikra"></div>
+    <div class="blue"><div class="topbar-title">${safeBadge}</div></div>
+  </header>
 
-  <!-- Cover -->
-  <section class="cover-block">
-    <div class="cover-eyebrow">${safeEyebrow}</div>
-    <h1 class="cover-title">${safeDocTitle}</h1>
-    <div class="cover-rule"></div>
-    <p class="cover-prepared">Prepared for <strong>${escapeHtml(customerName)}</strong>${industryText ? ` · ${escapeHtml(industryText)}` : ""}</p>
-    <p class="cover-prepared">Prepared by <strong>Spikra — Zoho Premium Partner &amp; IT Consulting</strong></p>
+  <div class="content-pad">
 
-    <table class="cover-meta-table">
-      <tbody>
-        <tr><td class="cover-meta-key">Document Reference</td><td class="cover-meta-val">${safeProposalId}</td></tr>
-        <tr><td class="cover-meta-key">Date</td><td class="cover-meta-val">${dateStr}</td></tr>
-        <tr><td class="cover-meta-key">Version</td><td class="cover-meta-val">Draft v1.0 — For Client Review</td></tr>
-        <tr><td class="cover-meta-key">Basis Document</td><td class="cover-meta-val">Discovery documentation provided by ${escapeHtml(customerName)}</td></tr>
-      </tbody>
-    </table>
-  </section>
+    <!-- Cover -->
+    <section class="cover-body">
+      <img class="cover-logo" src="${COVER_LOGO_DATA_URI}" alt="Spikra">
+      <div class="cover-kicker">${safeKicker}</div>
+      <h1 class="cover-title">${safeDocTitle}</h1>
+      <div class="orange-rule"></div>
+      <div class="prepared-label">Prepared for</div>
+      <div class="prepared-name">${escapeHtml(customerName)}${industryText ? ` <span style="color:#777;font-weight:400;font-size:12px;">(${escapeHtml(industryText)})</span>` : ""}</div>
+      <div class="prepared-label">Prepared by</div>
+      <div class="prepared-name">Spikra — Zoho Premium Partner &amp; IT Consulting</div>
 
-  <!-- Contents (static text, matches the reference document's own Contents page) -->
-  <section class="contents-block">
-    <div class="contents-heading">Contents</div>
-    <ul>${contentsHtml}</ul>
-  </section>
+      <table class="cover-meta">
+        <tbody>
+          <tr><td>Document Reference</td><td>${safeProposalId}</td></tr>
+          <tr><td>Date</td><td>${dateStr}</td></tr>
+          <tr><td>Version</td><td>Draft v1.0 — For Client Review</td></tr>
+          <tr><td>Basis Document</td><td>Discovery documentation provided by ${escapeHtml(customerName)}</td></tr>
+        </tbody>
+      </table>
+    </section>
 
-  <!-- Content Sections -->
-  ${sectionsHtml}
+    <!-- Contents (static text, matches the reference template's own Contents page) -->
+    <section class="toc-block">
+      <h2>Contents</h2>
+      ${contentsHtml}
+    </section>
 
-  <!-- Sign-off Block -->
-  <div class="signoff-box">
-    <div class="sign-col">
-      <h5>Prepared by Spikra Solutions</h5>
-      <div class="sign-line">Authorized Signatory · Spikra Solutions</div>
+    <!-- Content Sections -->
+    ${sectionsHtml}
+
+    <!-- Sign-off -->
+    <div class="signoff-grid">
+      <div>
+        <div class="signoff-name">For ${escapeHtml(customerName)}</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Name / Designation</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Signature &amp; Date</div>
+      </div>
+      <div>
+        <div class="signoff-name">For Spikra</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Name / Designation</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Signature &amp; Date</div>
+      </div>
     </div>
-    <div class="sign-col">
-      <h5>Accepted by Customer</h5>
-      <div class="sign-line">Authorized Signatory · ${escapeHtml(customerName)}</div>
-    </div>
+
+    <!-- Footer -->
+    <footer class="doc-footer">
+      <p>Confidential — ${safeBadge} for ${escapeHtml(customerName)}</p>
+      <p style="margin-top: 4px;"><span class="brand">Spikra</span> — Zoho Premium Partner · sales@spikra.com</p>
+    </footer>
+
   </div>
-
-  <!-- Footer -->
-  <footer class="proposal-footer">
-    <p>Confidential — ${safeBadge} for ${escapeHtml(customerName)}</p>
-    <p style="margin-top: 4px; font-size: 11px;">Spikra — Zoho Premium Partner · sales@spikra.com</p>
-  </footer>
-
 </div>
 
 </body>
@@ -464,8 +329,9 @@ function renderSharedDocumentTemplate({
 }
 
 /**
- * 1. Technical Document Template
- * Focuses on Technical Architecture, Requirements, Systems, Integrations, and Technical Deliverables.
+ * Unwraps whatever shape a single-document payload arrives in (direct {title,sections},
+ * or the wider proposal/content envelope) into a flat {title, sections, proposalId,
+ * customerName, industry} record.
  */
 function unwrapDocumentData(inputData) {
 	if (!inputData || typeof inputData !== "object") return { data: {}, proposalId: null, customerName: null, industry: null };
@@ -477,8 +343,10 @@ function unwrapDocumentData(inputData) {
 }
 
 /**
- * 1. Technical Document Template
- * Focuses on Technical Specifications, Architecture, Integrations, and Security.
+ * 1. Technical Document
+ * Only technical content from the uploaded documents: architecture, systems, functional &
+ * technical requirements, integrations, technical deliverables - whatever sections the
+ * Agent actually produced, under their own titles.
  */
 function renderTechnicalDocument(technicalData, options = {}) {
 	const unwrapped = unwrapDocumentData(technicalData);
@@ -490,24 +358,21 @@ function renderTechnicalDocument(technicalData, options = {}) {
 	const sections = data.sections || (technicalData && technicalData.sections) || [];
 
 	return renderSharedDocumentTemplate({
-		docType: "technical",
 		docTitle: title,
-		eyebrow: "SPIKRA SOLUTIONS · TECHNICAL SPECIFICATION & ARCHITECTURE",
+		kicker: "Technical Document",
 		badgeLabel: "Technical Document",
-		accentColor: "var(--sky)",
 		companyName: customerName,
 		industry,
 		generatedAt: options.generatedAt,
 		proposalId,
-		sections,
-		options
+		sections
 	});
 }
 
 /**
- * 2. Commercial Document Template
- * Reference: Approved Spikra Commercial Proposal (iSteel_Proposal_Site.html)
- * Focuses on Commercial Scope, Deliverables Catalog, Milestones, Licensing & Pricing.
+ * 2. Commercial Document
+ * Only commercial content from the uploaded documents: scope, deliverables, timeline,
+ * pricing/licensing/payment terms - whatever sections the Agent actually produced.
  */
 function renderCommercialDocument(commercialData, options = {}) {
 	const unwrapped = unwrapDocumentData(commercialData);
@@ -519,23 +384,21 @@ function renderCommercialDocument(commercialData, options = {}) {
 	const sections = data.sections || (commercialData && commercialData.sections) || [];
 
 	return renderSharedDocumentTemplate({
-		docType: "commercial",
 		docTitle: title,
-		eyebrow: "SPIKRA SOLUTIONS · COMMERCIAL PROPOSAL",
+		kicker: "Commercial Proposal",
 		badgeLabel: "Commercial Proposal",
-		accentColor: "var(--flame)",
 		companyName: customerName,
 		industry,
 		generatedAt: options.generatedAt,
 		proposalId,
-		sections,
-		options
+		sections
 	});
 }
 
 /**
- * 3. TOS Document Template
- * Focuses on Terms of Service, Scope Governance, Assumptions, Dependencies, Risks, SLA & Hypercare.
+ * 3. TOS Document
+ * Only terms-of-service content from the uploaded documents: scope governance,
+ * assumptions, dependencies, SLA & support - whatever sections the Agent actually produced.
  */
 function renderTosDocument(tosData, options = {}) {
 	const unwrapped = unwrapDocumentData(tosData);
@@ -543,27 +406,23 @@ function renderTosDocument(tosData, options = {}) {
 	const customerName = options.customerName || unwrapped.customerName || "Customer Organization";
 	const industry = options.industry || unwrapped.industry || "";
 	const proposalId = options.proposalId || unwrapped.proposalId;
-	const title = data.title || (tosData && tosData.title) || `${customerName} — Terms of Service & SLA`;
+	const title = data.title || (tosData && tosData.title) || `${customerName} — Terms of Service`;
 	const sections = data.sections || (tosData && tosData.sections) || [];
 
 	return renderSharedDocumentTemplate({
-		docType: "tos",
 		docTitle: title,
-		eyebrow: "SPIKRA SOLUTIONS · TERMS OF SERVICE & SLA",
+		kicker: "Terms of Service",
 		badgeLabel: "TOS Document",
-		accentColor: "var(--ink)",
 		companyName: customerName,
 		industry,
 		generatedAt: options.generatedAt,
 		proposalId,
-		sections,
-		options
+		sections
 	});
 }
 
 /**
- * Renders all three documents and returns an object:
- * { technical: html, commercial: html, tos: html }
+ * Renders all three documents and returns { technical: html, commercial: html, tos: html }.
  */
 function renderAllDocuments(threeDocOutputs, options = {}) {
 	const customerName = options.customerName || (threeDocOutputs && threeDocOutputs.customer && threeDocOutputs.customer.company_name) || "Customer Organization";
