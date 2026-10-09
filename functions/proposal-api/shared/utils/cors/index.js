@@ -1,11 +1,19 @@
 "use strict";
 
-// Catalyst's platform-level CORS injection for "covered" origins is not reliable across
-// every execution domain a request can arrive on (e.g. the raw *.development.catalystserverless.com
-// execution URL vs. a custom/production domain) - confirmed via direct curl that the header
-// is sometimes absent even for the hub domain depending on which domain the request hits.
-// So this function always sets its own Access-Control-Allow-Origin header for every known
-// origin instead of trusting the platform to inject it.
+// Ground truth confirmed directly via the Catalyst project's own Authorised Domains list
+// (queried through the Catalyst MCP API, not guesswork): these 3 origins are registered
+// there with CORS enabled, so Catalyst's platform/gateway injects Access-Control-Allow-Origin
+// for them on its own. If this function ALSO sets the header for one of them, the response
+// ends up with two separate Access-Control-Allow-Origin header lines, which browsers treat
+// as an invalid CORS response and reject outright - so this function must skip setting its
+// own header for exactly these origins. Keep this list in sync with the project's actual
+// Authorised Domains; anything not in it still needs this function's own header.
+const PLATFORM_COVERED_ORIGINS = [
+	"https://spikra-ai-proposal-app.onslate.com",
+	"https://spikra-ai-proposal.onslate.com",
+	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
+];
+
 const ALLOWED_ORIGIN_PATTERNS = [
 	"https://spikra-ai-proposal-app.onslate.com",
 	"https://spikra-ai-proposal.onslate.com",
@@ -17,7 +25,9 @@ const ALLOWED_ORIGIN_PATTERNS = [
 
 function setAllowOriginHeader(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (ALLOWED_ORIGIN_PATTERNS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
+	if (PLATFORM_COVERED_ORIGINS.includes(origin)) {
+		// Deliberately not set - the platform already injects this header for these origins.
+	} else if (ALLOWED_ORIGIN_PATTERNS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
 		res.setHeader("Access-Control-Allow-Origin", origin);
 	} else if (!origin) {
 		res.setHeader("Access-Control-Allow-Origin", "*");

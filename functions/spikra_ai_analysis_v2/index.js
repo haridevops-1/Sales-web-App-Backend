@@ -466,15 +466,24 @@ module.exports = async (req, res) => {
 	}
 };
 
-// Catalyst's platform-level CORS injection for "covered" origins is not reliable across
-// every execution domain a request can arrive on (e.g. the raw *.development.catalystserverless.com
-// execution URL vs. a custom/production domain) - confirmed via direct curl that the header
-// is sometimes absent even for the hub domain depending on which domain the request hits.
-// So this function always sets its own Access-Control-Allow-Origin header instead of
-// trusting the platform to inject it.
+// Ground truth confirmed directly via the Catalyst project's own Authorised Domains list
+// (queried through the Catalyst MCP API, not guesswork): these 3 origins are registered
+// there with CORS enabled, so Catalyst's platform/gateway injects Access-Control-Allow-Origin
+// for them on its own. If this function ALSO sets the header for one of them, the response
+// ends up with two separate Access-Control-Allow-Origin header lines, which browsers treat
+// as an invalid CORS response and reject outright - so skip setting our own header for
+// exactly these origins. Keep this list in sync with the project's actual Authorised Domains.
+const PLATFORM_COVERED_ORIGINS = [
+	"https://spikra-ai-proposal-app.onslate.com",
+	"https://spikra-ai-proposal.onslate.com",
+	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
+];
+
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	if (!PLATFORM_COVERED_ORIGINS.includes(origin)) {
+		res.setHeader("Access-Control-Allow-Origin", origin || "*");
+	}
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
