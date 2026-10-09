@@ -33,23 +33,12 @@ function sanitizeSearchQuery(query) {
 		.slice(0, 100);
 }
 
-// Only the internal hub domain is actually covered by Catalyst's own platform-level
-// CORS injection - confirmed repeatedly via direct curl (Access-Control-Allow-Origin is
-// present for spikra-ai-proposal-app.onslate.com, absent for spikra-ai-proposal.onslate.com,
-// the public showcase domain). An earlier version of this list wrongly included the public
-// domain here too, which made this function skip setting its own header for it - exactly
-// the "No 'Access-Control-Allow-Origin' header is present" failure seen live on the public
-// showcase page. Do not add the public domain back here without first reconfirming via curl.
-const CATALYST_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com"
-];
-
-function isCatalystCoveredOrigin(origin) {
-	if (!origin) return false;
-	const clean = String(origin).trim().toLowerCase();
-	return CATALYST_COVERED_ORIGINS.some((cov) => clean === cov.toLowerCase());
-}
-
+// Catalyst's platform-level CORS injection for "covered" origins is not reliable across
+// every execution domain a request can arrive on (e.g. the raw *.development.catalystserverless.com
+// execution URL vs. a custom/production domain) - confirmed via direct curl that the header
+// is sometimes absent even for the hub domain depending on which domain the request hits.
+// So this function always sets its own Access-Control-Allow-Origin header instead of
+// trusting the platform to inject it.
 const ALLOWED_ORIGINS = [
 	"https://spikra-ai-proposal-app.onslate.com",
 	"https://spikra-ai-proposal.onslate.com",
@@ -61,14 +50,12 @@ const ALLOWED_ORIGINS = [
 
 function setSecurityAndCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (!isCatalystCoveredOrigin(origin)) {
-		if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
-			res.setHeader("Access-Control-Allow-Origin", origin);
-		} else if (!origin) {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-		} else {
-			res.setHeader("Access-Control-Allow-Origin", origin);
-		}
+	if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
+		res.setHeader("Access-Control-Allow-Origin", origin);
+	} else if (!origin) {
+		res.setHeader("Access-Control-Allow-Origin", "*");
+	} else {
+		res.setHeader("Access-Control-Allow-Origin", origin);
 	}
 
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");

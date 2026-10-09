@@ -466,32 +466,15 @@ module.exports = async (req, res) => {
 	}
 };
 
-// Catalyst's own CORS allowlist already injects Access-Control-Allow-Origin for
-// spikra-ai-proposal-app.onslate.com (confirmed live - setting our own value on top of that produced
-// "header contains multiple values" and the browser rejected the response outright). Every other
-// origin (local dev, etc.) isn't in that allowlist, so it still needs our own header.
-// Only the internal hub domain is actually covered by Catalyst's own platform-level
-// CORS injection - confirmed repeatedly via direct curl (Access-Control-Allow-Origin is
-// present for spikra-ai-proposal-app.onslate.com, absent for spikra-ai-proposal.onslate.com,
-// the public showcase domain). An earlier version of this list wrongly included the public
-// domain here too, which made this function skip setting its own header for it - exactly
-// the "No 'Access-Control-Allow-Origin' header is present" failure seen live on the public
-// showcase page. Do not add the public domain back here without first reconfirming via curl.
-const CATALYST_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com"
-];
-
-function isCatalystCoveredOrigin(origin) {
-	if (!origin) return false;
-	const clean = String(origin).trim().toLowerCase();
-	return CATALYST_COVERED_ORIGINS.some((cov) => clean === cov.toLowerCase());
-}
-
+// Catalyst's platform-level CORS injection for "covered" origins is not reliable across
+// every execution domain a request can arrive on (e.g. the raw *.development.catalystserverless.com
+// execution URL vs. a custom/production domain) - confirmed via direct curl that the header
+// is sometimes absent even for the hub domain depending on which domain the request hits.
+// So this function always sets its own Access-Control-Allow-Origin header instead of
+// trusting the platform to inject it.
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (!isCatalystCoveredOrigin(origin)) {
-		res.setHeader("Access-Control-Allow-Origin", origin || "*");
-	}
+	res.setHeader("Access-Control-Allow-Origin", origin || "*");
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
