@@ -790,9 +790,15 @@ function escapeQueryValue(value) {
 // that produced "header contains multiple values" and the browser rejected the response outright).
 // The public Slate proposal page (spikra-ai-proposal.onslate.com) and local dev aren't in that
 // allowlist, so this endpoint - fetched from both - still needs to set its own header for them.
+// Only the internal hub domain is actually covered by Catalyst's own platform-level
+// CORS injection - confirmed repeatedly via direct curl (Access-Control-Allow-Origin is
+// present for spikra-ai-proposal-app.onslate.com, absent for spikra-ai-proposal.onslate.com,
+// the public showcase domain). An earlier version of this list wrongly included the public
+// domain here too, which made this function skip setting its own header for it - exactly
+// the "No 'Access-Control-Allow-Origin' header is present" failure seen live on the public
+// showcase page. Do not add the public domain back here without first reconfirming via curl.
 const CATALYST_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com"
+	"https://spikra-ai-proposal-app.onslate.com"
 ];
 
 function isCatalystCoveredOrigin(origin) {

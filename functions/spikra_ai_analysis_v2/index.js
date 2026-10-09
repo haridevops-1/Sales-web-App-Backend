@@ -470,9 +470,15 @@ module.exports = async (req, res) => {
 // spikra-ai-proposal-app.onslate.com (confirmed live - setting our own value on top of that produced
 // "header contains multiple values" and the browser rejected the response outright). Every other
 // origin (local dev, etc.) isn't in that allowlist, so it still needs our own header.
+// Only the internal hub domain is actually covered by Catalyst's own platform-level
+// CORS injection - confirmed repeatedly via direct curl (Access-Control-Allow-Origin is
+// present for spikra-ai-proposal-app.onslate.com, absent for spikra-ai-proposal.onslate.com,
+// the public showcase domain). An earlier version of this list wrongly included the public
+// domain here too, which made this function skip setting its own header for it - exactly
+// the "No 'Access-Control-Allow-Origin' header is present" failure seen live on the public
+// showcase page. Do not add the public domain back here without first reconfirming via curl.
 const CATALYST_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com"
+	"https://spikra-ai-proposal-app.onslate.com"
 ];
 
 function isCatalystCoveredOrigin(origin) {
