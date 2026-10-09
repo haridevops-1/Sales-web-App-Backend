@@ -325,13 +325,12 @@ module.exports = async (req, res) => {
 	}
 };
 
-// Ground truth confirmed directly via the Catalyst project's own Authorised Domains list
-// (queried through the Catalyst MCP API, not guesswork): these 3 origins are registered
-// there with CORS enabled, so Catalyst's platform/gateway injects Access-Control-Allow-Origin
-// for them on its own. If this function ALSO sets the header for one of them, the response
-// ends up with two separate Access-Control-Allow-Origin header lines, which browsers treat
-// as an invalid CORS response and reject outright - so skip setting our own header for
-// exactly these origins. Keep this list in sync with the project's actual Authorised Domains.
+// Strict allowlist: ONLY these origins, confirmed live via the Catalyst MCP API as the
+// project's actual Authorised Domains (CORS enabled), are permitted. Any other origin gets
+// no Access-Control-Allow-Origin header at all, so the browser blocks the request - this is
+// intentional, not a bug. Catalyst's own platform/gateway already injects this header for
+// these exact origins, so this function deliberately stays silent for them to avoid a
+// duplicate header. To allow a new domain: add it in Catalyst Authorised Domains AND here.
 const PLATFORM_COVERED_ORIGINS = [
 	"https://spikra-ai-proposal-app.onslate.com",
 	"https://spikra-ai-proposal.onslate.com",
@@ -341,7 +340,8 @@ const PLATFORM_COVERED_ORIGINS = [
 function setCorsHeaders(res, req) {
 	const origin = (req && req.headers && (req.headers.origin || req.headers.Origin)) || "";
 	if (!PLATFORM_COVERED_ORIGINS.includes(origin)) {
-		res.setHeader("Access-Control-Allow-Origin", origin || "*");
+		// Not an authorised origin - no header set, so the browser's CORS check fails closed.
+		return;
 	}
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token");

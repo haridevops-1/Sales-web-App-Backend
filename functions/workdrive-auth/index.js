@@ -33,44 +33,30 @@ function sanitizeSearchQuery(query) {
 		.slice(0, 100);
 }
 
-// Ground truth confirmed directly via the Catalyst project's own Authorised Domains list
-// (queried through the Catalyst MCP API, not guesswork): these 3 origins are registered
-// there with CORS enabled, so Catalyst's platform/gateway injects Access-Control-Allow-Origin
-// for them on its own. If this function ALSO sets the header for one of them, the response
-// ends up with two separate Access-Control-Allow-Origin header lines, which browsers treat
-// as an invalid CORS response and reject outright - so skip setting our own header for
-// exactly these origins. Keep this list in sync with the project's actual Authorised Domains.
+// Strict allowlist: ONLY these origins, confirmed live via the Catalyst MCP API as the
+// project's actual Authorised Domains (CORS enabled), are permitted. Any other origin gets
+// no Access-Control-Allow-Origin header at all, so the browser blocks the request - this is
+// intentional, not a bug. Catalyst's own platform/gateway already injects this header for
+// these exact origins, so this function deliberately stays silent for them to avoid a
+// duplicate header. To allow a new domain: add it in Catalyst Authorised Domains AND here.
 const PLATFORM_COVERED_ORIGINS = [
 	"https://spikra-ai-proposal-app.onslate.com",
 	"https://spikra-ai-proposal.onslate.com",
 	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
 ];
 
-const ALLOWED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com",
-	"http://localhost:5173",
-	"http://localhost:3000",
-	"http://127.0.0.1:5173",
-	"http://127.0.0.1:3000"
-];
-
 function setSecurityAndCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (PLATFORM_COVERED_ORIGINS.includes(origin)) {
-		// Deliberately not set - the platform already injects this header for these origins.
-	} else if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".onslate.com") || origin.endsWith(".zohocatalyst.com") || origin.endsWith(".zohocatalyst.in")) {
-		res.setHeader("Access-Control-Allow-Origin", origin);
-	} else if (!origin) {
-		res.setHeader("Access-Control-Allow-Origin", "*");
-	} else {
-		res.setHeader("Access-Control-Allow-Origin", origin);
-	}
+	const isAuthorisedOrigin = PLATFORM_COVERED_ORIGINS.includes(origin);
 
-	res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token, session_token, x-catalyst-session-token");
-	res.setHeader("Access-Control-Allow-Credentials", "true");
-	res.setHeader("Access-Control-Max-Age", "86400");
+	if (isAuthorisedOrigin) {
+		// The platform already sets Access-Control-Allow-Origin for these origins - don't duplicate it.
+		res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+		res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token, session_token, x-catalyst-session-token");
+		res.setHeader("Access-Control-Allow-Credentials", "true");
+		res.setHeader("Access-Control-Max-Age", "86400");
+	}
+	// Not an authorised origin - no CORS headers set at all, so the browser's CORS check fails closed.
 
 	// Standard security headers on every response
 	res.setHeader("X-Content-Type-Options", "nosniff");
