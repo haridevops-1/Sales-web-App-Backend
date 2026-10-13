@@ -40,8 +40,9 @@ Catalyst packages each function directory on its own, so shared code must be cop
 ## Deploying
 
 ```bash
-npm run deploy          # syncs shared code, then `catalyst deploy`
+npm run deploy          # secret check, sync shared code, then `catalyst deploy`
 npm run check:shared    # fails if any generated copy is stale
+npm run check:secrets   # fails if a credential-looking value or a secret in a function config is found
 ```
 
 A bare `catalyst deploy` skips the sync step — use `npm run deploy` (or run `npm run sync:shared` first). On a fresh clone the generated copies do not exist until you sync.

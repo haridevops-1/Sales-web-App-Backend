@@ -6,7 +6,8 @@
   "scripts": {
     "sync:shared": "node scripts/sync-shared.js",
     "check:shared": "node scripts/sync-shared.js --check",
-    "deploy": "npm run sync:shared && catalyst deploy"
+    "deploy": "npm run check:secrets && npm run sync:shared && catalyst deploy",
+    "check:secrets": "node scripts/check-secrets.js"
   },
   "dependencies": {
     "zcatalyst-cli": "^1.27.2"
