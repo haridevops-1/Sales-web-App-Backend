@@ -101,7 +101,7 @@
   {
     "name": "workdrive-status-api",
     "source_endpoint": "/workdrive/status",
-    "target_endpoint": "/server/workdrive-auth/?action=status",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -112,7 +112,7 @@
   {
     "name": "workdrive-authorize-api",
     "source_endpoint": "/workdrive/authorize",
-    "target_endpoint": "/server/workdrive-auth/?action=authorize",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -123,7 +123,7 @@
   {
     "name": "workdrive-callback-api",
     "source_endpoint": "/workdrive/callback",
-    "target_endpoint": "/server/workdrive-auth/?action=callback",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -134,7 +134,7 @@
   {
     "name": "workdrive-status-options-api",
     "source_endpoint": "/workdrive/status",
-    "target_endpoint": "/server/workdrive-auth/?action=status",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -145,7 +145,7 @@
   {
     "name": "workdrive-authorize-options-api",
     "source_endpoint": "/workdrive/authorize",
-    "target_endpoint": "/server/workdrive-auth/?action=authorize",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -156,7 +156,7 @@
   {
     "name": "workdrive-disconnect-api",
     "source_endpoint": "/workdrive/disconnect",
-    "target_endpoint": "/server/workdrive-auth/?action=disconnect",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "POST",
     "throttling": {
@@ -167,7 +167,7 @@
   {
     "name": "workdrive-disconnect-options-api",
     "source_endpoint": "/workdrive/disconnect",
-    "target_endpoint": "/server/workdrive-auth/?action=disconnect",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -178,7 +178,7 @@
   {
     "name": "workdrive-list-api",
     "source_endpoint": "/workdrive/list",
-    "target_endpoint": "/server/workdrive-auth/?action=list",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -189,7 +189,7 @@
   {
     "name": "workdrive-list-options-api",
     "source_endpoint": "/workdrive/list",
-    "target_endpoint": "/server/workdrive-auth/?action=list",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -200,7 +200,7 @@
   {
     "name": "workdrive-metadata-api",
     "source_endpoint": "/workdrive/metadata",
-    "target_endpoint": "/server/workdrive-auth/?action=metadata",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -211,7 +211,7 @@
   {
     "name": "workdrive-metadata-options-api",
     "source_endpoint": "/workdrive/metadata",
-    "target_endpoint": "/server/workdrive-auth/?action=metadata",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -365,7 +365,7 @@
   {
     "name": "auth-login-get-api",
     "source_endpoint": "/auth/login",
-    "target_endpoint": "/server/app-auth/?action=login",
+    "target_endpoint": "/server/app-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -376,7 +376,7 @@
   {
     "name": "auth-callback-get-api",
     "source_endpoint": "/auth/callback",
-    "target_endpoint": "/server/app-auth/?action=callback",
+    "target_endpoint": "/server/app-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -387,7 +387,7 @@
   {
     "name": "auth-me-get-api",
     "source_endpoint": "/auth/me",
-    "target_endpoint": "/server/app-auth/?action=me",
+    "target_endpoint": "/server/app-auth/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -398,7 +398,7 @@
   {
     "name": "auth-logout-post-api",
     "source_endpoint": "/auth/logout",
-    "target_endpoint": "/server/app-auth/?action=logout",
+    "target_endpoint": "/server/app-auth/",
     "target": "advancedio",
     "method": "POST",
     "throttling": {
@@ -409,7 +409,7 @@
   {
     "name": "auth-me-options-api",
     "source_endpoint": "/auth/me",
-    "target_endpoint": "/server/app-auth/?action=me",
+    "target_endpoint": "/server/app-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -420,7 +420,7 @@
   {
     "name": "auth-logout-options-api",
     "source_endpoint": "/auth/logout",
-    "target_endpoint": "/server/app-auth/?action=logout",
+    "target_endpoint": "/server/app-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -431,7 +431,7 @@
   {
     "name": "workdrive-connect-api",
     "source_endpoint": "/workdrive/connect",
-    "target_endpoint": "/server/workdrive-auth/?action=connect",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "POST",
     "throttling": {
@@ -442,7 +442,7 @@
   {
     "name": "workdrive-connect-options-api",
     "source_endpoint": "/workdrive/connect",
-    "target_endpoint": "/server/workdrive-auth/?action=connect",
+    "target_endpoint": "/server/workdrive-auth/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {

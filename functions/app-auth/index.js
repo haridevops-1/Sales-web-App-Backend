@@ -45,7 +45,10 @@ function resolveAction(urlObj) {
 	const fromQuery = String(urlObj.searchParams.get("action") || "").toLowerCase();
 	if (ACTIONS.has(fromQuery)) return fromQuery;
 	const last = urlObj.pathname.replace(/\/+$/, "").split("/").pop().toLowerCase();
-	return ACTIONS.has(last) ? last : null;
+	if (ACTIONS.has(last)) return last;
+	// Zoho's redirect carries code/error + state and no action parameter.
+	if (urlObj.searchParams.get("state") && (urlObj.searchParams.get("code") || urlObj.searchParams.get("error"))) return "callback";
+	return null;
 }
 
 module.exports = async (req, res) => {
