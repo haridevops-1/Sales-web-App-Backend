@@ -19,7 +19,10 @@ const ERROR_CODES = {
 	NOT_FOUND: "The requested resource was not found.",
 	INVALID_FOLDER_ID: "Malformed folder identifier.",
 	INVALID_FILE_ID: "Malformed file identifier.",
-	SEARCH_FAILED: "Failed to search Zoho WorkDrive."
+	SEARCH_FAILED: "Failed to search Zoho WorkDrive.",
+	CONFIG_ERROR: "Server configuration error.",
+	WORKDRIVE_NOT_CONNECTED: "Zoho WorkDrive is not connected for this account.",
+	FORBIDDEN: "Your account is not allowed to use this application."
 };
 
 class WorkdriveError extends Error {

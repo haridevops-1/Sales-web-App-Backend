@@ -11,7 +11,8 @@
       "proposal-api",
       "proposal-discovery",
       "proposal-processor",
-      "workdrive-auth"
+      "workdrive-auth",
+      "app-auth"
     ],
     "ignore": [
       "**/*.log"

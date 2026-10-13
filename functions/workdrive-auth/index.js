@@ -1,469 +1,214 @@
 "use strict";
 
+// Zoho WorkDrive connection for the signed-in app user. This is separate from app sign-in:
+// the user approves WorkDrive access once, the encrypted refresh token is stored in their
+// WORKDRIVE_CONNECTIONS row, and they are not asked again until they disconnect.
+//
+// Connect flow (browser redirect, no popup):
+//   1. GET  /workdrive/authorize  (signed in) -> { authorize_url, binding }. The state is signed and
+//      bound to the user and to sha256(binding); the browser keeps `binding` privately.
+//   2. Zoho redirects to GET /workdrive/callback, which only forwards the one-time code to the
+//      allow-listed app origin inside the URL fragment.
+//   3. POST /workdrive/connect { code, state, binding } (signed in) verifies the state, the user
+//      and the binding, then exchanges the code. A forged link cannot attach someone else's
+//      WorkDrive to an account because it cannot supply the matching binding.
+
+const crypto = require("crypto");
 const catalyst = require("zcatalyst-sdk-node");
+const { requireSession } = require("./shared-auth/utils/session");
+const { WorkdriveError, toErrorResponse } = require("./shared-auth/utils/errors");
+const { getAllowedOrigins, allowedOriginOrNull, resolveRegion } = require("./shared-auth/utils/config");
+const auth = require("./shared-auth/services/auth");
+const workdrive = require("./shared-auth/services/workdrive");
 
-let requireSession, decodeSession, WorkdriveError, toErrorResponse, workdrive, auth;
-
-try {
-	({ requireSession, decodeSession } = require("./shared-workdrive/utils/session"));
-	({ WorkdriveError, toErrorResponse } = require("./shared-workdrive/utils/errors"));
-	workdrive = require("./shared-workdrive/services/workdrive");
-	auth = require("./shared-workdrive/services/auth");
-} catch {
-	({ requireSession, decodeSession } = require("../../shared-workdrive/utils/session"));
-	({ WorkdriveError, toErrorResponse } = require("../../shared-workdrive/utils/errors"));
-	workdrive = require("../../shared-workdrive/services/workdrive");
-	auth = require("../../shared-workdrive/services/auth");
-}
-
-// Alphanumeric ID validation regex for Zoho WorkDrive IDs (folder_id, file_id)
+const ACTIONS = new Set(["status", "authorize", "callback", "connect", "disconnect", "list", "metadata"]);
 const WORKDRIVE_ID_REGEX = /^[a-zA-Z0-9_-]{10,64}$/;
+const MAX_BODY_BYTES = 16 * 1024;
 
-function isValidWorkdriveId(id) {
-	if (!id || typeof id !== "string") return false;
-	return WORKDRIVE_ID_REGEX.test(id.trim());
-}
+const isValidWorkdriveId = (id) => typeof id === "string" && WORKDRIVE_ID_REGEX.test(id.trim());
 
 function sanitizeSearchQuery(query) {
-	if (!query) return "";
-	return String(query)
-		.replace(/[\x00-\x1f\x7f]/g, "")
-		.replace(/['"<>\\;]/g, "")
-		.trim()
-		.slice(0, 100);
+	return String(query || "").replace(/[\x00-\x1f\x7f]/g, "").replace(/['"<>\\;]/g, "").trim().slice(0, 100);
 }
 
-// Strict allowlist: ONLY these origins, confirmed live via the Catalyst MCP API as the
-// project's actual Authorised Domains (CORS enabled), are permitted. Any other origin gets
-// no Access-Control-Allow-Origin header at all, so the browser blocks the request - this is
-// intentional, not a bug. Catalyst's own platform/gateway already injects this header for
-// these exact origins, so this function deliberately stays silent for them to avoid a
-// duplicate header. To allow a new domain: add it in Catalyst Authorised Domains AND here.
-const PLATFORM_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com",
-	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
-];
-
-function setSecurityAndCorsHeaders(req, res) {
-	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	const isAuthorisedOrigin = PLATFORM_COVERED_ORIGINS.includes(origin);
-
-	if (isAuthorisedOrigin) {
-		// The platform already sets Access-Control-Allow-Origin for these origins - don't duplicate it.
-		res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-		res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token, session_token, x-catalyst-session-token");
-		res.setHeader("Access-Control-Allow-Credentials", "true");
+function setHeaders(req, res) {
+	// The gateway already sets Access-Control-Allow-Origin for Authorised Domains.
+	if (allowedOriginOrNull(req.headers && req.headers.origin)) {
+		res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+		res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
 		res.setHeader("Access-Control-Max-Age", "86400");
+		res.setHeader("Vary", "Origin");
 	}
-	// Not an authorised origin - no CORS headers set at all, so the browser's CORS check fails closed.
-
-	// Standard security headers on every response
 	res.setHeader("X-Content-Type-Options", "nosniff");
-	res.setHeader("X-Frame-Options", "SAMEORIGIN");
-	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+	res.setHeader("X-Frame-Options", "DENY");
+	res.setHeader("Cache-Control", "no-store");
+	res.setHeader("Referrer-Policy", "no-referrer");
 }
 
 function sendJson(res, statusCode, payload) {
 	res.statusCode = statusCode;
 	res.setHeader("Content-Type", "application/json; charset=utf-8");
-	res.setHeader("X-Content-Type-Options", "nosniff");
-	res.setHeader("X-Frame-Options", "SAMEORIGIN");
-	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
 	res.end(JSON.stringify(payload));
 }
 
-// No Catalyst login anywhere in this function. Clicking "Open WorkDrive" goes straight
-// to Zoho's own login/consent page - Zoho's login IS the identity check. Once it
-// succeeds, we look up the salesperson's email (Zoho's own user-info endpoint), store
-// their OAuth token (never their password - it's entered only on Zoho's page and never
-// reaches us) in WORKDRIVE_CONNECTIONS, and hand the frontend a signed session token so
-// later requests know who they are. Shared by both Workspace 1 and Workspace 2 - a
-// salesperson's WorkDrive connection is the same regardless of which pipeline uses it.
+function readJsonBody(req) {
+	return new Promise((resolve, reject) => {
+		if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return resolve(req.body);
+		const parse = (raw) => {
+			try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new WorkdriveError("VALIDATION_FAILED", "Request body must be valid JSON.", 400)); }
+		};
+		if (Buffer.isBuffer(req.body)) return parse(req.body.toString("utf8"));
+		if (typeof req.body === "string") return parse(req.body);
+		const chunks = [];
+		let size = 0;
+		req.on("data", (chunk) => {
+			size += chunk.length;
+			if (size > MAX_BODY_BYTES) { req.destroy(); return reject(new WorkdriveError("VALIDATION_FAILED", "Request body is too large.", 413)); }
+			chunks.push(chunk);
+		});
+		req.on("end", () => parse(Buffer.concat(chunks).toString("utf8")));
+		req.on("error", reject);
+	});
+}
+
+function resolveAction(urlObj) {
+	const fromQuery = String(urlObj.searchParams.get("action") || "").toLowerCase();
+	if (ACTIONS.has(fromQuery)) return fromQuery;
+	const last = urlObj.pathname.replace(/\/+$/, "").split("/").pop().toLowerCase();
+	return ACTIONS.has(last) ? last : null;
+}
+
 module.exports = async (req, res) => {
-	let action = "unknown";
-
 	try {
-		setSecurityAndCorsHeaders(req, res);
+		setHeaders(req, res);
+		getAllowedOrigins();
 
-		if (req.method === "OPTIONS") {
-			res.statusCode = 204;
-			res.end();
-			return;
-		}
+		if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
 		if (req.method !== "GET" && req.method !== "POST") {
-			sendJson(res, 405, { success: false, error: { code: "VALIDATION_FAILED", message: "Only GET and POST requests are supported." } });
-			return;
+			throw new WorkdriveError("VALIDATION_FAILED", "Only GET and POST requests are supported.", 405);
 		}
 
 		const app = catalyst.initialize(req);
-		const urlObj = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-		
-		// Robust action detection: works whether invoked via query param, API gateway path, or direct function path
-		const rawPath = String(req.url || urlObj.pathname || "").toLowerCase();
-		const headerSource = String(req.headers["x-catalyst-source-url"] || req.headers["x-original-url"] || "").toLowerCase();
-		const queryAction = urlObj.searchParams.get("action") || (req.query && req.query.action);
-		const pathname = (req.url || "").split("?")[0].toLowerCase();
+		const urlObj = new URL(req.url, "http://localhost");
+		const action = resolveAction(urlObj);
+		if (!action) throw new WorkdriveError("NOT_FOUND", "Unknown WorkDrive endpoint.", 404);
 
-		const code = urlObj.searchParams.get("code");
-		const state = urlObj.searchParams.get("state");
-		const oauthError = urlObj.searchParams.get("error");
+		if (req.method === "GET" && action === "callback") return handleCallback(urlObj, res);
 
-		if (code || state || oauthError || rawPath.includes("/callback") || headerSource.includes("/callback")) {
-			action = "callback";
-		} else if (queryAction === "search" || pathname.endsWith("/search") || rawPath.includes("/search")) {
-			action = "search";
-		} else if (queryAction) {
-			action = String(queryAction).toLowerCase();
-		} else if (rawPath.includes("/authorize") || headerSource.includes("/authorize")) {
-			action = "authorize";
-		} else if (rawPath.includes("/disconnect") || headerSource.includes("/disconnect")) {
-			action = "disconnect";
-		} else if (rawPath.includes("/list") || headerSource.includes("/list")) {
-			action = "list";
-		} else if (rawPath.includes("/download") || headerSource.includes("/download")) {
-			action = "download";
-		} else if (rawPath.includes("/metadata") || headerSource.includes("/metadata")) {
-			action = "metadata";
-		} else {
-			action = "status";
-		}
-
-		if (req.method === "GET" && action === "callback") {
-			await handleCallback(app, urlObj, res, req);
-			return;
-		}
+		const user = await requireSession(app, req);
 
 		if (req.method === "GET" && action === "authorize") {
-			const reqDc = String(urlObj.searchParams.get("dc") || urlObj.searchParams.get("domain") || "").toLowerCase();
-			const reqOrigin = urlObj.searchParams.get("origin") || (req.headers && (req.headers.origin || req.headers.referer)) || null;
-			let customAccountsDomain = null;
-			if (reqDc === "in" || reqDc.includes(".zoho.in")) {
-				customAccountsDomain = "https://accounts.zoho.in";
-			} else if (reqDc === "eu" || reqDc.includes(".zoho.eu")) {
-				customAccountsDomain = "https://accounts.zoho.eu";
-			} else if (reqDc === "com" || reqDc.includes(".zoho.com")) {
-				customAccountsDomain = "https://accounts.zoho.com";
-			} else if (reqDc.startsWith("http")) {
-				customAccountsDomain = reqDc;
-			}
-
-			const authorizeUrl = auth.buildAuthorizeUrl(customAccountsDomain, reqOrigin);
-			const format = String(urlObj.searchParams.get("format") || "").toLowerCase();
-			const accept = String(req.headers["accept"] || "").toLowerCase();
-			// If requested as JSON (e.g. via AJAX/fetch with ?format=json or Accept: application/json), return JSON
-			if (format === "json" || (accept.includes("application/json") && !accept.includes("text/html"))) {
-				sendJson(res, 200, { success: true, authorize_url: authorizeUrl });
-				return;
-			}
-			// For browser navigations, directly redirect to Zoho OAuth login / consent page
-			res.statusCode = 302;
-			res.setHeader("Location", authorizeUrl);
-			res.setHeader("Cache-Control", "no-store");
-			res.end();
-			return;
+			const binding = crypto.randomBytes(32).toString("base64url");
+			const authorizeUrl = auth.buildAuthorizeUrl({
+				purpose: "workdrive",
+				regionInput: urlObj.searchParams.get("dc"),
+				clientOrigin: req.headers && req.headers.origin,
+				extra: { u: user.email, b: auth.sha256Hex(binding) }
+			});
+			return sendJson(res, 200, { success: true, authorize_url: authorizeUrl, binding });
 		}
+
+		if (req.method === "POST" && action === "connect") return await handleConnect(app, user, req, res);
 
 		if (req.method === "GET" && action === "status") {
-			// Anonymous-friendly route: checking status before connecting returns connected: false
-			let session = null;
-			try {
-				session = requireSession(req);
-			} catch {
-				sendJson(res, 200, { success: true, connected: false, provider: "Zoho WorkDrive" });
-				return;
-			}
-			const status = await workdrive.checkConnectionStatus(app, session.email, session);
-			sendJson(res, 200, { success: true, ...status });
-			return;
+			return sendJson(res, 200, { success: true, ...(await workdrive.getConnectionStatus(app, user)) });
 		}
-
-		// Search handler with input sanitization and lean payload projection
-		if (req.method === "GET" && action === "search") {
-			try {
-				const session = await decodeSession(req);
-				if (!session || (!session.accessToken && !session.email)) {
-					return sendJson(res, 401, {
-						success: false,
-						error: { code: "WORKDRIVE_AUTH_FAILED", message: "WorkDrive session is invalid or expired." }
-					});
-				}
-
-				const rawQuery = urlObj.searchParams.get("query") || (req.query && req.query.query) || "";
-				const query = sanitizeSearchQuery(rawQuery);
-				const rawFolderId = urlObj.searchParams.get("folder_id") || (req.query && req.query.folder_id);
-				const folderId = rawFolderId ? String(rawFolderId).trim() : null;
-
-				if (folderId && !isValidWorkdriveId(folderId)) {
-					return sendJson(res, 400, {
-						success: false,
-						error: { code: "INVALID_FOLDER_ID", message: "Malformed folder identifier." }
-					});
-				}
-
-				const result = await workdrive.searchWorkDriveItems({ session, query, folderId, app });
-				return sendJson(res, 200, {
-					success: true,
-					query: result.query,
-					folderId: result.folderId,
-					items: result.items
-				});
-			} catch (err) {
-				console.error("[WorkDrive Search Error]:", err.message);
-				const statusCode = err.statusCode || (err.name === "WorkdriveError" ? err.statusCode : 500);
-				return sendJson(res, statusCode || 500, {
-					success: false,
-					error: { code: err.code || "SEARCH_FAILED", message: err.message || "Failed to search Zoho WorkDrive." }
-				});
-			}
-		}
-
-		// Every subsequent action requires a valid session
-		const session = requireSession(req);
 
 		if (req.method === "POST" && action === "disconnect") {
-			const result = await workdrive.disconnectConnection(app, session.email, session);
-			sendJson(res, 200, { success: true, ...result });
-			return;
+			return sendJson(res, 200, { success: true, ...(await workdrive.disconnectConnection(app, user)) });
 		}
 
 		if (req.method === "GET" && action === "list") {
-			const rawFolderId = urlObj.searchParams.get("folder_id") || (req.query && req.query.folder_id);
-			const folderId = rawFolderId ? String(rawFolderId).trim() : null;
+			const folderId = String(urlObj.searchParams.get("folder_id") || "").trim() || null;
+			if (folderId && !isValidWorkdriveId(folderId)) throw new WorkdriveError("INVALID_FOLDER_ID", "Malformed folder identifier.", 400);
 
-			if (folderId && !isValidWorkdriveId(folderId)) {
-				return sendJson(res, 400, {
-					success: false,
-					error: { code: "INVALID_FOLDER_ID", message: "Malformed folder identifier." }
-				});
-			}
-
-			// Business-name search, routed through the one gateway path (/workdrive/list)
-			// that reliably deploys - the dedicated /workdrive/search route never registered
-			// on the live API Gateway despite matching config, so search rides along here
-			// instead of depending on it.
-			const rawQuery = !folderId ? (urlObj.searchParams.get("query") || (req.query && req.query.query)) : null;
-			const cleanQuery = rawQuery ? sanitizeSearchQuery(rawQuery) : "";
-
-			if (cleanQuery) {
-				const match = await workdrive.findBusinessFolder(app, session.email, session, cleanQuery);
-				if (!match) {
-					return sendJson(res, 200, { success: true, matched: false, folder_id: null, items: [] });
-				}
-				const rawChildren = await workdrive.listFiles(app, session.email, match.folder.id, session);
-				const items = Array.isArray(rawChildren) ? rawChildren.map(workdrive.normalizeItem).filter(Boolean) : [];
+			const query = !folderId ? sanitizeSearchQuery(urlObj.searchParams.get("query")) : "";
+			if (query) {
+				const match = await workdrive.findBusinessFolder(app, user, query);
+				if (!match) return sendJson(res, 200, { success: true, matched: false, folder_id: null, items: [] });
+				const children = await workdrive.listFiles(app, user, match.folder.id);
 				return sendJson(res, 200, {
 					success: true,
 					matched: true,
 					folder_id: match.folder.id,
 					folder_name: match.folder.name,
 					breadcrumb: match.breadcrumb.map((b) => ({ id: b.id, name: b.name })),
-					items
+					items: children.map(workdrive.normalizeItem).filter(Boolean)
 				});
 			}
 
-			const rawItems = folderId
-				? await workdrive.listFiles(app, session.email, folderId, session)
-				: await workdrive.listRootItems(app, session.email, session);
-
-			const items = Array.isArray(rawItems) ? rawItems.map(workdrive.normalizeItem).filter(Boolean) : [];
-			sendJson(res, 200, { success: true, folder_id: folderId || null, items });
-			return;
+			const raw = folderId ? await workdrive.listFiles(app, user, folderId) : await workdrive.listRootItems(app, user);
+			return sendJson(res, 200, { success: true, folder_id: folderId, items: raw.map(workdrive.normalizeItem).filter(Boolean) });
 		}
 
 		if (req.method === "GET" && action === "metadata") {
-			const rawFileId = urlObj.searchParams.get("file_id") || (req.query && req.query.file_id);
-			const fileId = rawFileId ? String(rawFileId).trim() : null;
-
-			if (!fileId || !isValidWorkdriveId(fileId)) {
-				return sendJson(res, 400, {
-					success: false,
-					error: { code: "INVALID_FILE_ID", message: "Malformed file identifier." }
-				});
-			}
-
-			const metadata = await workdrive.getFileMetadata(app, session.email, fileId, session);
+			const fileId = String(urlObj.searchParams.get("file_id") || "").trim();
+			if (!isValidWorkdriveId(fileId)) throw new WorkdriveError("INVALID_FILE_ID", "Malformed file identifier.", 400);
+			const metadata = await workdrive.getFileMetadata(app, user, fileId);
 			if (!metadata) throw new WorkdriveError("WORKDRIVE_FILE_NOT_FOUND", "This WorkDrive file could not be found.", 404);
-			sendJson(res, 200, { success: true, file: workdrive.normalizeItem(metadata) || metadata });
-			return;
+			return sendJson(res, 200, { success: true, file: workdrive.normalizeItem(metadata) });
 		}
 
-		if (req.method === "GET" && action === "download") {
-			const rawFileId = urlObj.searchParams.get("file_id") || (req.query && req.query.file_id);
-			const fileId = rawFileId ? String(rawFileId).trim() : null;
-
-			if (!fileId || !isValidWorkdriveId(fileId)) {
-				return sendJson(res, 400, {
-					success: false,
-					error: { code: "INVALID_FILE_ID", message: "Malformed file identifier." }
-				});
-			}
-
-			const { buffer, metadata } = await workdrive.downloadFile(app, session.email, fileId, session);
-			const fileName = metadata?.attributes?.name || "document";
-			res.statusCode = 200;
-			res.setHeader("Content-Type", "application/octet-stream");
-			res.setHeader("Content-Disposition", "attachment; filename=\"" + encodeURIComponent(fileName) + "\"");
-			res.end(buffer);
-			return;
-		}
-
-
-		sendJson(res, 405, { success: false, error: { code: "VALIDATION_FAILED", message: "Unsupported method/action combination." } });
+		throw new WorkdriveError("VALIDATION_FAILED", "Unsupported method/action combination.", 405);
 	} catch (error) {
 		const { statusCode, body } = toErrorResponse(error);
+		if (statusCode >= 500) console.error("[WorkDrive] Request failed:", error && error.message);
 		sendJson(res, statusCode, body);
 	}
 };
 
-// The callback is a browser redirect target from Zoho's own consent page. `state` only
-// proves this round trip started from a browser that actually clicked "authorize"
-// (CSRF protection) - it carries no identity, since none exists yet. Identity comes
-// from Zoho's own user-info endpoint, using the token we just received.
-async function handleCallback(app, urlObj, res, req) {
-	const code = urlObj.searchParams.get("code");
-	const state = urlObj.searchParams.get("state");
-	const oauthError = urlObj.searchParams.get("error");
-	const location = (urlObj.searchParams.get("location") || "").toLowerCase();
-	let accountsServer = urlObj.searchParams.get("accounts-server") || urlObj.searchParams.get("accounts_server") || null;
-
-	if (!accountsServer && (location === "in" || location.includes("in"))) {
-		accountsServer = "https://accounts.zoho.in";
-	} else if (!accountsServer && (location === "eu" || location.includes("eu"))) {
-		accountsServer = "https://accounts.zoho.eu";
-	}
-
-	let clientOrigin = null;
-	if (state) {
-		const statePayload = auth.verifyState(state);
-		if (statePayload && typeof statePayload === "object" && statePayload.origin) {
-			clientOrigin = statePayload.origin;
-		}
-	}
-	if (!clientOrigin) {
-		clientOrigin = urlObj.searchParams.get("origin") || (req && req.headers && (req.headers.origin || req.headers.referer)) || null;
-		if (clientOrigin) {
-			try { clientOrigin = new URL(clientOrigin).origin; } catch {}
-		}
-	}
-
-	if (oauthError) {
-		console.error("[WorkDrive Auth] OAuth provider returned error in callback:", oauthError);
-		return sendCallbackResult(res, false, `Zoho authorization was denied or failed: ${oauthError}`, null, null, clientOrigin);
-	}
-	if (!code) {
-		console.error("[WorkDrive Auth] Missing authorization code in callback.");
-		return sendCallbackResult(res, false, "Missing authorization code from Zoho.", null, null, clientOrigin);
-	}
-	if (state && !auth.verifyState(state)) {
-		console.warn("[WorkDrive Auth] State verification warning (possibly expired nonce):", auth.maskToken(state));
-	}
-
-	try {
-		console.log("[WorkDrive Auth] Exchanging grant code with accounts server:", accountsServer || "default");
-		const tokenResponse = await auth.exchangeCodeForToken(code, accountsServer);
-		const userApiDomain = tokenResponse.api_domain ? `${tokenResponse.api_domain.replace(/\/+$/, "")}/workdrive/api/v1` : null;
-
-		console.log("[WorkDrive Auth] Code exchanged. Fetching user info...");
-		const { email, displayName } = await auth.fetchZohoUserInfo(tokenResponse.access_token, accountsServer, userApiDomain);
-
-		console.log("[WorkDrive Auth] Successfully authenticated user:", email);
-		await workdrive.upsertConnection(app, {
-			email,
-			displayName,
-			accessToken: tokenResponse.access_token,
-			refreshToken: tokenResponse.refresh_token,
-			expiresIn: tokenResponse.expires_in,
-			scope: tokenResponse.scope || auth.WORKDRIVE_SCOPES,
-			apiDomain: userApiDomain
-		});
-
-		const sessionToken = auth.issueSessionToken({
-			email,
-			displayName,
-			accessToken: tokenResponse.access_token,
-			refreshToken: tokenResponse.refresh_token,
-			expiresIn: tokenResponse.expires_in,
-			scope: tokenResponse.scope || auth.WORKDRIVE_SCOPES,
-			apiDomain: userApiDomain
-		});
-		console.log("[WorkDrive Auth] Session issued successfully for:", email, "Token:", auth.maskToken(sessionToken));
-		sendCallbackResult(res, true, `WorkDrive connected successfully as ${email}.`, sessionToken, email, clientOrigin);
-	} catch (err) {
-		console.error("[WorkDrive Auth] Callback handling failed:", err?.message || err);
-		sendCallbackResult(res, false, `Failed to complete WorkDrive authorization: ${err?.message || "Internal error"}`, null, null, clientOrigin);
-	}
-}
-
-// Plain HTML response (this is a browser navigation, not an API call the frontend reads
-// directly). Hands the session token back to the opener window via postMessage - the
-// frontend stores it and sends it as "Authorization: Bearer <token>" from then on.
-function sendCallbackResult(res, success, message, sessionToken, email, clientOrigin) {
-	res.statusCode = 200;
+function failPage(res, message) {
+	res.statusCode = 400;
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
-	res.setHeader("X-Content-Type-Options", "nosniff");
-	res.setHeader("X-Frame-Options", "SAMEORIGIN");
-	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-
-	const defaultTargetOrigin = clientOrigin || "https://spikra-ai-proposal-app.onslate.com";
-	const returnUrl = defaultTargetOrigin.replace(/\/+$/, "") + "/proposals/create";
-	const closeButtonHtml = !success ? '<button onclick="window.close()" style="margin-top:16px;padding:8px 16px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;">Close Window</button>' : '';
-	res.end('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive Connection</title></head>' +
-'<body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc;">' +
-'<div style="text-align:center;padding:32px;max-width:520px;background:#ffffff;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.08);">' +
-'<h2 style="color:' + (success ? "#16a34a" : "#dc2626") + ';margin-top:0;">' + (success ? "Connected Successfully" : "Connection Failed") + '</h2>' +
-'<p style="color:#475569;font-size:15px;line-height:1.5;word-break:break-word;">' + escapeHtml(message) + '</p>' +
-'<div id="returnBox" style="margin-top:20px;display:none;">' +
-  '<a id="returnLink" href="' + returnUrl + '" style="display:inline-block;padding:10px 20px;background:#ea580c;color:#fff;text-decoration:none;font-weight:600;border-radius:8px;">' +
-    'Return to Spikra Application →' +
-  '</a>' +
-'</div>' +
-'<script>' +
-'try {' +
-'  const sessionToken = ' + (sessionToken ? JSON.stringify(sessionToken) : "null") + ';' +
-'  const userEmail = ' + (email ? JSON.stringify(email) : "null") + ';' +
-'  const isSuccess = ' + (success ? "true" : "false") + ';' +
-'  const baseReturnUrl = ' + JSON.stringify(returnUrl) + ';' +
-'  if (window.opener && !window.opener.closed) {' +
-'    window.opener.postMessage({' +
-'      type: "workdrive-auth",' +
-'      success: isSuccess,' +
-'      sessionToken: sessionToken,' +
-'      email: userEmail,' +
-'      error: isSuccess ? null : ' + JSON.stringify(message) + ',' +
-'      message: ' + JSON.stringify(message) +
-'    }, "*");' +
-'    if (isSuccess) {' +
-'      setTimeout(() => window.close(), 600);' +
-'    } else {' +
-'      setTimeout(() => window.close(), 6000);' +
-'    }' +
-'  } else {' +
-'    if (isSuccess && sessionToken) {' +
-'      const returnBox = document.getElementById("returnBox");' +
-'      const returnLink = document.getElementById("returnLink");' +
-'      if (returnBox && returnLink) {' +
-'        const targetUrl = new URL(baseReturnUrl);' +
-'        targetUrl.searchParams.set("session_token", sessionToken);' +
-'        if (userEmail) targetUrl.searchParams.set("email", userEmail);' +
-'        returnLink.href = targetUrl.toString();' +
-'        returnBox.style.display = "block";' +
-'        setTimeout(() => { window.location.href = targetUrl.toString(); }, 1200);' +
-'      }' +
-'    }' +
-'  }' +
-'} catch (e) {' +
-'  console.error("Callback completion error:", e);' +
-'}' +
-'<\/script>' +
-closeButtonHtml +
-'</div></body></html>');
+	res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
+	const safe = String(message).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WorkDrive</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f7f9fa"><div style="max-width:460px;text-align:center;padding:24px"><h2>WorkDrive connection failed</h2><p style="color:#6b7c87">${safe}</p></div></body></html>`);
 }
 
-function escapeHtml(str) {
-	return String(str || "")
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
+// Zoho redirects the browser here. Nothing is stored; the one-time code is only handed to
+// the allow-listed app origin named in the signed state, inside the URL fragment.
+function handleCallback(urlObj, res) {
+	const state = auth.verifyState(urlObj.searchParams.get("state"), "workdrive");
+	if (!state) return failPage(res, "This link is invalid or has expired. Return to the app and try again.");
+
+	let fragment;
+	const code = urlObj.searchParams.get("code");
+	if (urlObj.searchParams.get("error") || !code) {
+		fragment = "wd_error=access_denied";
+	} else {
+		fragment = `wd_code=${encodeURIComponent(code)}&wd_state=${encodeURIComponent(urlObj.searchParams.get("state"))}` +
+			`&wd_server=${encodeURIComponent(urlObj.searchParams.get("accounts-server") || "")}`;
+	}
+	res.statusCode = 302;
+	res.setHeader("Location", `${state.origin}/#${fragment}`);
+	res.end();
+}
+
+async function handleConnect(app, user, req, res) {
+	const body = await readJsonBody(req);
+	const code = String(body.code || "").trim();
+	const binding = String(body.binding || "");
+	const state = auth.verifyState(body.state, "workdrive");
+
+	if (!code || !binding || !state || state.u !== user.email || !auth.safeEqual(state.b, auth.sha256Hex(binding))) {
+		throw new WorkdriveError("VALIDATION_FAILED", "This connection attempt is invalid or has expired. Please try again.", 400);
+	}
+
+	const region = body.accounts_server ? resolveRegion(body.accounts_server) : state.region;
+	const tokens = await auth.exchangeCodeForToken(code, region, "workdrive");
+	if (!tokens.access_token || !tokens.refresh_token) {
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Zoho did not return the expected tokens.", 502);
+	}
+	const account = await auth.fetchZohoUserInfo(tokens.access_token, region);
+
+	await workdrive.saveConnection(app, user, {
+		wdEmail: account.email,
+		displayName: account.displayName,
+		accessToken: tokens.access_token,
+		refreshToken: tokens.refresh_token,
+		expiresIn: tokens.expires_in,
+		scope: tokens.scope || auth.WORKDRIVE_SCOPES,
+		regionKey: region.key
+	});
+	sendJson(res, 200, { success: true, connected: true, provider: "Zoho WorkDrive", account: { email: account.email, displayName: account.displayName } });
 }

@@ -24,8 +24,8 @@
   {
     "name": "spikra-document-process-api",
     "source_endpoint": "/spikra/document/process",
-    "target_endpoint": "/server/spikra_document_process/execute",
-    "target": "basicio",
+    "target_endpoint": "/server/spikra_document_process/",
+    "target": "advancedio",
     "method": "POST",
     "throttling": {
       "overall": {},
@@ -46,8 +46,8 @@
   {
     "name": "spikra-experience-generate-api",
     "source_endpoint": "/spikra/experience/generate",
-    "target_endpoint": "/server/spikra_experience_generate/execute",
-    "target": "basicio",
+    "target_endpoint": "/server/spikra_experience_generate/",
+    "target": "advancedio",
     "method": "POST",
     "throttling": {
       "overall": {},
@@ -79,31 +79,9 @@
   {
     "name": "spikra-process-status-get-api",
     "source_endpoint": "/spikra/process/status",
-    "target_endpoint": "/server/spikra_process_status/execute",
-    "target": "basicio",
+    "target_endpoint": "/server/spikra_process_status/",
+    "target": "advancedio",
     "method": "GET",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "spikra-process-status-post-api",
-    "source_endpoint": "/spikra/process/status",
-    "target_endpoint": "/server/spikra_process_status/execute",
-    "target": "basicio",
-    "method": "POST",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "spikra-experience-list-post-api",
-    "source_endpoint": "/spikra/experience/list",
-    "target_endpoint": "/server/spikra_experience_list/execute",
-    "target": "basicio",
-    "method": "POST",
     "throttling": {
       "overall": {},
       "ip": {}
@@ -112,8 +90,8 @@
   {
     "name": "spikra-experience-list-get-api",
     "source_endpoint": "/spikra/experience/list",
-    "target_endpoint": "/server/spikra_experience_list/execute",
-    "target": "basicio",
+    "target_endpoint": "/server/spikra_experience_list/",
+    "target": "advancedio",
     "method": "GET",
     "throttling": {
       "overall": {},
@@ -145,17 +123,6 @@
   {
     "name": "workdrive-callback-api",
     "source_endpoint": "/workdrive/callback",
-    "target_endpoint": "/server/workdrive-auth/?action=callback",
-    "target": "advancedio",
-    "method": "GET",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "proposal-workdrive-callback-api",
-    "source_endpoint": "/proposal/workdrive/callback",
     "target_endpoint": "/server/workdrive-auth/?action=callback",
     "target": "advancedio",
     "method": "GET",
@@ -245,28 +212,6 @@
     "name": "workdrive-metadata-options-api",
     "source_endpoint": "/workdrive/metadata",
     "target_endpoint": "/server/workdrive-auth/?action=metadata",
-    "target": "advancedio",
-    "method": "OPTIONS",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "workdrive-search-api",
-    "source_endpoint": "/workdrive/search",
-    "target_endpoint": "/server/workdrive-auth/?action=search",
-    "target": "advancedio",
-    "method": "GET",
-    "throttling": {
-      "overall": {},
-      "ip": {}
-    }
-  },
-  {
-    "name": "workdrive-search-options-api",
-    "source_endpoint": "/workdrive/search",
-    "target_endpoint": "/server/workdrive-auth/?action=search",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -396,9 +341,31 @@
     }
   },
   {
-    "name": "workdrive-download-api",
-    "source_endpoint": "/workdrive/download",
-    "target_endpoint": "/server/workdrive-auth/?action=download",
+    "name": "spikra-document-analyze-options-api",
+    "source_endpoint": "/spikra/document/analyze",
+    "target_endpoint": "/server/spikra_ai_analysis_v2/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra-experience-deploy-options-api",
+    "source_endpoint": "/spikra/experience/deploy",
+    "target_endpoint": "/server/spikra_experience_deploy/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "auth-login-get-api",
+    "source_endpoint": "/auth/login",
+    "target_endpoint": "/server/app-auth/?action=login",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -407,9 +374,119 @@
     }
   },
   {
-    "name": "workdrive-download-options-api",
-    "source_endpoint": "/workdrive/download",
-    "target_endpoint": "/server/workdrive-auth/?action=download",
+    "name": "auth-callback-get-api",
+    "source_endpoint": "/auth/callback",
+    "target_endpoint": "/server/app-auth/?action=callback",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "auth-me-get-api",
+    "source_endpoint": "/auth/me",
+    "target_endpoint": "/server/app-auth/?action=me",
+    "target": "advancedio",
+    "method": "GET",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "auth-logout-post-api",
+    "source_endpoint": "/auth/logout",
+    "target_endpoint": "/server/app-auth/?action=logout",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "auth-me-options-api",
+    "source_endpoint": "/auth/me",
+    "target_endpoint": "/server/app-auth/?action=me",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "auth-logout-options-api",
+    "source_endpoint": "/auth/logout",
+    "target_endpoint": "/server/app-auth/?action=logout",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-connect-api",
+    "source_endpoint": "/workdrive/connect",
+    "target_endpoint": "/server/workdrive-auth/?action=connect",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "workdrive-connect-options-api",
+    "source_endpoint": "/workdrive/connect",
+    "target_endpoint": "/server/workdrive-auth/?action=connect",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra_document_process-options-api",
+    "source_endpoint": "/spikra/document/process",
+    "target_endpoint": "/server/spikra_document_process/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra_experience_generate-options-api",
+    "source_endpoint": "/spikra/experience/generate",
+    "target_endpoint": "/server/spikra_experience_generate/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra_process_status-options-api",
+    "source_endpoint": "/spikra/process/status",
+    "target_endpoint": "/server/spikra_process_status/",
+    "target": "advancedio",
+    "method": "OPTIONS",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
+  },
+  {
+    "name": "spikra_experience_list-options-api",
+    "source_endpoint": "/spikra/experience/list",
+    "target_endpoint": "/server/spikra_experience_list/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
