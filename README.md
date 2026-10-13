@@ -121,3 +121,14 @@ Resources that exist in the Development project but are no longer part of this c
 - The four old Basic I/O functions (`spikra_document_process`, `spikra_experience_generate`, `spikra_process_status`, `spikra_experience_list`) before the first deploy, so they can be recreated as Advanced I/O.
 - API Gateway rule `spikra-experience-list-post-api` (GET is used).
 - Review, then remove if unused: the Client web app `internal-sales-app` and its `Login Redirect` route (not part of this repository).
+
+## Cutover runbook (first release of sign-in)
+
+The new backend and the new React app must go live together: the old app has no sign-in and would get 401s from the new backend, and the new app cannot sign in against the old backend.
+
+1. Slate (frontend project) → `sales-web-app-frontend` → turn **Auto Deploy** off.
+2. Delete the four Basic I/O functions (see setup step 6), then `npm run deploy` here.
+3. In the Console, confirm each function's variables (secrets from `.env.example` plus the values from `catalyst-config.json`). On `app-auth` set `ZOHO_OAUTH_CLIENT_ID`, `ZOHO_OAUTH_CLIENT_SECRET` and a new `STATE_SIGNING_SECRET`.
+4. Push the backend, merge and push the frontend branch `feat/zoho-sign-in`, then **Sync Now** in Slate.
+5. Sign in, upload one file, connect WorkDrive once, reload (Zoho must not ask again). Turn Auto Deploy back on.
+6. Retire the old Web Client (`internal-sales-app`) and its *Login Redirect* route.
