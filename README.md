@@ -1,141 +1,110 @@
-# Spikra Internal Sales Hub — Backend
+# Spikra Internal Sales Hub
 
-This repository contains the backend for the **Spikra Internal Sales Hub**, built on **Zoho Catalyst (Node.js 22)**. It hosts two independent pipelines, both serverless, both API-gateway-routed from the same Catalyst project:
+Zoho Catalyst (Node.js 22) backend plus two Catalyst Slate web apps, hosting two independent pipelines:
 
-- **Workspace 1 — Customer Showcases**: upload a technical/BRD document, get back an interactive, Spikra-branded customer showcase link.
-- **Workspace 2 — Solution Proposals**: pull discovery files from a salesperson's own Zoho WorkDrive, get back a structured solution proposal document.
+- **Workspace 1 — Customer Showcases**: upload a technical/BRD document (from your computer or your Zoho WorkDrive), get back an interactive, Spikra-branded customer showcase link.
+- **Workspace 2 — Solution Proposals**: build a private discovery session from local files or WorkDrive, get back a structured solution proposal (technical, commercial and terms documents).
 
-Both pipelines share the same core shape (upload/gather → extract → analyze via a dedicated Zia Agent → render → publish → shareable link) but are otherwise fully separate: separate functions, separate Data Store tables, separate Stratus buckets, separate Zia Agents, separate Slate apps.
+Both pipelines share the same shape (gather → extract → analyse with a dedicated Zia Agent → render → publish → shareable link) but use separate functions, Data Store tables, Stratus buckets, Zia Agents and Slate apps. The Zoho WorkDrive sign-in is shared.
 
----
-
-## 1. Workspace 1 — Business Flow
-
-1. Sales rep uploads a technical document (PDF, ≤25MB) + business name + optional logo through the Slate web app — either a local file, or a file picked from their own connected Zoho WorkDrive.
-2. The document is stored in Stratus and its text extracted.
-3. **Deployed Zia Agent ("Customer Showcase Agent")** analyzes the complete extracted text and returns structured Customer Showcase data (deliverables, benefits, capabilities, timeline) via Function 3.
-4. **Function 4 (Pure Renderer)** hydrates that structured data into the fixed Spikra HTML/CSS/JS master template (`templates/iSteel_Proposal_Site.html` / `template.html`) with zero AI calls.
-5. The generated page is published as a link the rep can copy and send to the client.
-
-## 2. Directory Structure Overview
+## Layout
 
 ```
-spikra-catalyst/
-├── functions/                    # Zoho Catalyst Serverless Functions (Microservices)
-│   ├── spikra_document_upload/     # W1 Function 1: File upload (local or picked from WorkDrive) & initial job creation (Advanced I/O)
-│   ├── spikra_document_process/    # W1 Function 2: PDF text extraction & validation (Basic I/O)
-│   ├── spikra_ai_analysis_v2/      # W1 Function 3: Zia Agent orchestration bridge & structured Showcase extraction (Advanced I/O)
-│   ├── spikra_experience_generate/ # W1 Function 4: Pure HTML/CSS/JSON master template renderer (Basic I/O, zero AI calls)
-│   ├── spikra_experience_deploy/   # W1 Function 5: Publishes the experience & returns the customer link (Advanced I/O)
-│   ├── spikra_process_status/      # W1 Function 6: Real-time stage monitoring & status polling (Basic I/O)
-│   ├── spikra_experience_list/     # W1 Function 7: Paginated experience listing & search (Basic I/O)
-│   ├── proposal-discovery/         # W2: Discovery package/file CRUD, private per salesperson
-│   ├── proposal-processor/         # W2: Extracts discovery files, calls the Zia Agent, builds & renders the proposal
-│   ├── proposal-api/               # W2: Shared proposal list/detail/status-transition + public document view
-│   └── workdrive-auth/             # Shared (W1 + W2): Zoho WorkDrive OAuth + file browsing (authorize/callback/status/disconnect/list/metadata)
-│
-├── shared/                       # Workspace 1 shared source of truth (copied into each W1 function)
-│   ├── agent/                      # Zia Agent client layer
-│   │   └── index.js                  # Zia Agent client, HTTP dispatcher & Showcase schema normalization
-│   ├── datastore/                  # Targeted single-row Data Store access helpers
-│   │   └── targetedQueries.js        # Single-row query helpers (`getRow`, targeted ZCQL with LIMIT 1)
-│   └── utils/                      # Streaming, sanitization, and escaping utilities
-│       └── index.js                  # `streamToBuffer`, `escapeHtml`, error sanitization
-│
-├── workspace2-proposal/          # Workspace 2 shared source of truth (copied into each W2 function)
-│   ├── utils/                      # errors, logging, validation, cors
-│   └── services/                   # document-processing, zia, proposal, document-render
-│
-├── shared-workdrive/              # Shared (W1 + W2) WorkDrive source of truth (copied into every function that needs it)
-│   ├── utils/                      # session (auth, throws on missing/invalid token), errors
-│   └── services/                   # auth (Zoho OAuth 2.0), workdrive (API client + file browsing)
-│
-├── slate/                        # Catalyst Slate Web Applications — each deployed ONCE
-│   ├── spikra-experience/          # W1: self-contained default Spikra showcase template
-│   │   ├── .catalyst/                # Slate configuration (slate-config.toml)
-│   │   └── index.html                # iSteel sample showcase template and inline interactions
-│   └── spikra-w2-proposal/         # W2: proposal viewer shell
-│
-├── templates/                    # Master Customer Showcase HTML Template (Design Source of Truth, W1 only)
-│   └── iSteel_Proposal_Site.html   # Spikra master showcase template
-│
-├── scripts/                      # Build Utilities
-│   └── build_slate_index.js        # Compiles Slate showcase shell from master HTML template
-│
-├── catalyst.json                 # Catalyst project target definitions (Functions, Slate apps, APIG)
-├── catalyst-user-rules.json      # Catalyst API Gateway route mappings & throttling rules
-├── .catalystrc                   # Active project ID & datacenter config
-├── .catalystignore               # Deployment exclusions
-├── package.json                  # Root Node.js dependencies & test scripts
-└── README.md                     # This documentation
+functions/                  Catalyst functions (one folder each, deployed independently)
+  spikra_document_upload/     W1  upload (multipart, or WorkDrive file id) + job creation
+  spikra_document_process/    W1  text extraction
+  spikra_ai_analysis_v2/      W1  Zia Agent bridge (responds immediately, finishes in the background; poll it)
+  spikra_experience_generate/ W1  pure template renderer (no AI)
+  spikra_experience_deploy/   W1  publish + public showcase endpoint
+  spikra_process_status/      W1  status polling
+  spikra_experience_list/     W1  list showcases
+  proposal-discovery/         W2  discovery sessions and files (private per signed-in user)
+  proposal-processor/         W2  extract → Zia Agent → render proposal documents
+  proposal-api/               W2  proposal list/status (signed in) + public document view
+  app-auth/                   Shared  Zoho sign-in (OAuth) and app sessions
+  workdrive-auth/             Shared  Zoho WorkDrive connection + file browsing
+
+shared/                     W1 shared source        ┐
+workspace2-proposal/        W2 shared source        │  the ONLY place to edit shared code;
+shared-auth/                Sign-in, sessions, WorkDrive │  copies inside functions/ and slate/ are
+frontend-shared/            UI core + design system │  generated (git-ignored)
+templates/                  Showcase master template┘
+slate/spikra-experience/    W1 web app (see slate/README.md)
+slate/spikra-w2-proposal/   W2 web app (see slate/README.md)
+scripts/sync-shared.js      Copies shared code into each function / Slate app
+catalyst.json, catalyst-user-rules.json   Project targets and API Gateway routes
 ```
 
----
+Catalyst packages each function directory on its own, so shared code must be copied in. `scripts/sync-shared.js` does that from a manifest; never edit the generated copies.
 
-## 3. Component Descriptions
+## Deploying
 
-### A. Workspace 1 Functions (`functions/spikra_*`)
-Each function runs as an isolated Node.js 22 service with its own `catalyst-config.json` and dependencies:
-- **`spikra_document_upload`** (Function 1, Advanced I/O): Validates file types (PDF, Text ≤25MB), sanitizes business/project names, writes raw files to Stratus bucket `spikra-process-documents-698386704`, and queues the `EXTRACT` job in `PROCESSING_JOBS`.
-- **`spikra_document_process`** (Function 2, Basic I/O): Extracts plain text from the uploaded document, checks word count, saves `extracted-content.txt` to Stratus, and advances state to `ANALYZE`.
-- **`spikra_ai_analysis_v2`** (Function 3, Advanced I/O — recreated under a new name after the original was created as Basic I/O and Catalyst does not support converting an existing function's execution type in place): Orchestrates AI document analysis via the **deployed Zia Agent API**, authenticated through the Catalyst Connection `internalsaleshub`. Responds to the caller immediately (`still_processing: true`) and completes the actual Agent call in the background, so a slow model never causes a client-facing timeout — callers must poll the same endpoint until `success: true`. Validates the response, extracts structured Customer Showcase JSON, writes `analysis.json` to `spikra-generated-experiences-698386704`, and queues `GENERATE`.
-- **`spikra_experience_generate`** (Function 4, Basic I/O): Consumes Function 3's structured JSON (**zero AI calls**), renders the master HTML/CSS/JS bundles adhering strictly to the Spikra fixed design system (`templates/iSteel_Proposal_Site.html` / `template.html`), and stores them in `spikra-generated-experiences-698386704/projects/{id}/experiences/{id}/version-1/`.
-- **`spikra_experience_deploy`** (Function 5, Advanced I/O): Verifies the generated files exist in Stratus and marks `EXPERIENCES.status = PUBLISHED` with a link into the single shared Slate app, scoped by `experience_id`/`project_id` query params.
-- **`spikra_process_status`** (Function 6, Basic I/O): Real-time polling endpoint returning clean salesperson status (`current_stage`, `business_name`, `project_name`, `generated_url` upon publish) without leaking storage internals.
-- **`spikra_experience_list`** (Function 7, Basic I/O): Lists and filters generated experiences across projects with pagination.
-
-### B. Workspace 2 Functions (`functions/proposal-*`)
-- **`proposal-discovery`** (Advanced I/O): Create/list/get/delete a "discovery package" (one or more files, ≤25MB each, ≤120MB total) ahead of proposal generation, either uploaded directly or picked from Zoho WorkDrive (`action=add_from_workdrive`). Private per salesperson email, resolved from the session token — never trusted from the request body.
-- **`proposal-processor`** (Advanced I/O): Extracts text from a discovery package's files, calls the **deployed "Solution Proposal" Zia Agent** (same Connection-based auth pattern as Workspace 1), builds and stores the `W2_PROPOSALS` row, and renders + publishes the proposal document. Idempotent (returns the existing proposal if one was already generated for that package) with a 5-minute concurrency guard against duplicate Agent calls for the same package.
-- **`proposal-api`** (Advanced I/O): Shared, org-wide proposal list/detail and status-transition (Draft → In Review → Approved, restricted to the creator), plus the public `resource=view` document route (no session required — this is the shareable link).
-
-### B2. Shared WorkDrive Function (`functions/workdrive-auth`)
-- **`workdrive-auth`** (Advanced I/O): Real per-user Zoho WorkDrive OAuth 2.0 (not a Catalyst Connection — a Connection returns one shared credential set for every caller, which can't represent per-salesperson access) — `authorize`/`callback`/`status`/`disconnect`, plus real file browsing — `list`/`metadata`. No Catalyst login involved; a successful Zoho OAuth consent **is** the identity check. Issues a signed session token the frontend stores and sends back as `Authorization: Bearer <token>` (or `?session_token=` for the OAuth callback redirect). Shared by both workspaces — a salesperson's WorkDrive connection is the same regardless of which pipeline uses it. See `shared-workdrive/README.md` for the full design (source of truth for the OAuth/session/file-browsing code, copied into `workdrive-auth`, `proposal-api`, `proposal-discovery`, `proposal-processor`, and `spikra_document_upload`).
-
-### C. AI Architecture & Core Design Principle
-- Each workspace has its **own dedicated Zia Agent** — never shared, never cross-called. Both authenticate via a Catalyst Connection (`internalsaleshub`), never via manually stored OAuth tokens or API keys.
-- **Zero Direct External AI API Usage**: no function in either workspace calls Claude, Anthropic, OpenAI, or any other LLM directly. Orchestration is managed entirely within each deployed Zia Agent.
-- **Strict Separation of Concerns** (Workspace 1): Function 3 is the only Catalyst → Zia Agent bridge; Function 4 is Zia Agent output → Master Template renderer, pure hydration with zero AI calls. Spikra controls DESIGN — header, footer, theme, colors, typography, layout, navigation, tabs, cards are fixed in code, never chosen by the model.
-- **No-fabrication guarantee**: Both workspaces validate that the Agent's response actually contains a recognizable structure before accepting it (Workspace 1: `ZiaAgentClient.hasMeaningfulShowcaseContent`; Workspace 2: `validateZiaResponse`) — an empty, malformed, or off-schema response is rejected outright, never silently replaced with generic content. Beyond that gate, normalization is **structural only**: it trims strings, caps array lengths, and drops malformed entries, but a field or array the Agent didn't populate stays `null`/empty rather than being padded with invented business content. Per-model token usage (`W2_AI_USAGE_LOG`) is only ever recorded when the Agent's response actually reports it — never estimated.
-
-### D. Deployment Model — one Slate app per workspace, not one per business
-Each Slate app (`slate/spikra-experience/`, `slate/spikra-w2-proposal/`) is deployed **once** via the Catalyst CLI (`catalyst deploy --only slate`). Every business/proposal gets a unique link via query params/slug on that same shared app, never a dedicated app per customer.
-
-### E. Environment Configuration
-For local scripts, copy `.env.example` to `.env` and fill in only local values. The `.env` file is ignored by Git and must never be committed. Deployed functions declare their own variables in their own `catalyst-config.json` (`deployment.env_variables`), set to real values in the Catalyst Console per environment:
-- `ZIA_AGENT_ENDPOINT` (`functions/spikra_ai_analysis_v2/catalyst-config.json`): Deployed Workspace 1 Zia Agent trigger URL. Defaults to the placeholder `[PASTE ZIA AGENT URL HERE]`, treated as "not configured" by `ZiaAgentClient.isConfigured()`.
-- `ZIA_AGENT_ID`: Optional — only needed if the Agent's invocation contract requires an explicit agent id in the request body in addition to the endpoint URL.
-- `PROPOSAL_ZIA_AGENT_ENDPOINT` / `PROPOSAL_ZIA_CONNECTION_LINK_NAME` (`functions/proposal-processor/catalyst-config.json`): the Workspace 2 equivalent.
-- `SLATE_APP_URL` / `PROPOSAL_SLATE_APP_URL`: each workspace's Slate app base domain.
-- Authentication for both Zia Agents is via the Catalyst Connection `internalsaleshub` — there is no auth token or API key env var for either; do not add one.
-- The shared WorkDrive integration needs its own real values: `WORKDRIVE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI`, `WORKDRIVE_TOKEN_ENCRYPTION_KEY`, `WORKDRIVE_SESSION_SECRET` — see `shared-workdrive/README.md` for the full setup. `workdrive-auth` needs the full set; `proposal-discovery`, `proposal-processor`, and `spikra_document_upload` need it too (they call WorkDrive's file-download service directly); `proposal-api` only needs `WORKDRIVE_SESSION_SECRET` (it only verifies sessions, never calls WorkDrive itself).
-
-**Claude / LLM configuration is out of scope for this repository.** Claude is configured directly inside each deployed Zia Agent (Zoho Zia Agent Studio → Agent → Model settings) — it must never be wired into any Catalyst function, `.env` value read by function code, or `catalyst-config.json`.
-
-Never put passwords, API keys, access tokens, private keys, or other credentials in source files, JSON configuration, test fixtures, logs, or documentation. If a credential was ever committed, revoke and rotate it immediately; adding it to `.env` afterward does not remove it from Git history.
-
----
-
-## 4. Development & Build Commands
-
-### Build Slate App Shell
 ```bash
-npm run build:slate
-# or
-node scripts/build_slate_index.js
-```
-Compiles and syncs the Slate proposal shell (`slate/spikra-experience/index.html` and `404.html`) from the master HTML template.
-
-### Test Locally via Catalyst CLI
-```bash
-catalyst serve
+npm run deploy          # syncs shared code, then `catalyst deploy`
+npm run check:shared    # fails if any generated copy is stale
 ```
 
-### Deploy Backend Functions to Catalyst Console
-```bash
-catalyst deploy --only functions
-```
-Or deploy a specific function:
-```bash
-catalyst deploy --only functions:spikra_ai_analysis_v2
-```
+A bare `catalyst deploy` skips the sync step — use `npm run deploy` (or run `npm run sync:shared` first). On a fresh clone the generated copies do not exist until you sync.
+
+### One-time setup
+
+1. **Data Store tables** (already created in the Development environment; create the same three in Production): `APP_USERS` (`email` unique, `display_name`, `zuid`, `status`, `last_login_at`, `wd_row_id`), `APP_SESSIONS` (`user_row_id`, `email`, `display_name`, `wd_row_id`, `token_hash`, `expires_at`, `status`) and `WORKDRIVE_CONNECTIONS` (`user_email`, `wd_email`, `display_name`, `access_token`, `refresh_token`, `expires_at`, `scope`, `region`, `status`). Existing app tables are unchanged.
+2. **Zoho API Console client** (Server-based Application). Redirect URIs, exactly: `<api-domain>/auth/callback` and `<api-domain>/workdrive/callback`. Scopes used: `AaaServer.profile.READ` (sign-in) and `WorkDrive.files.READ, WorkDrive.users.READ, WorkDrive.teamfolders.READ, ZohoFiles.files.READ, AaaServer.profile.READ` (WorkDrive).
+3. **Authorised Domains** (CORS): exactly the two Slate app origins (`spikra-ai-proposal.onslate.com`, `spikra-w2-proposal-jmdbymcs.onslate.com`); the same origins are in `ALLOWED_ORIGINS` in each function's `catalyst-config.json`. Remove any other domain from the Console list.
+4. **Secrets, set in the Console only** (never in `catalyst-config.json` or git); `.env.example` lists which function needs which: `ZOHO_OAUTH_CLIENT_ID`, `ZOHO_OAUTH_CLIENT_SECRET`, `STATE_SIGNING_SECRET`, `TOKEN_ENCRYPTION_KEY` (the last two random and different: `openssl rand -hex 32`). Functions refuse to run without them; there are no defaults.
+5. **Who may sign in**: `ALLOWED_EMAIL_DOMAINS` (default `spikra.com`) in `functions/app-auth/catalyst-config.json`.
+6. **Basic I/O → Advanced I/O**: `spikra_document_process`, `spikra_experience_generate`, `spikra_process_status` and `spikra_experience_list` were Basic I/O and now sit behind sign-in as Advanced I/O. Catalyst cannot change a function's type in place, so delete those four functions in the Console once, then run `npm run deploy` to recreate them.
+7. Edit `slate/*/config.js` if the API base URL changes (it is the public gateway URL, not a secret).
+
+## How sign-in works
+
+Two separate things, so users approve each only once.
+
+**1. App sign-in (Zoho Accounts).** The app sends the browser to `/auth/login`, which redirects to Zoho. Zoho's own login page is the identity check. On return, `/auth/callback` exchanges the code, reads the account's email, rejects any email whose domain is not in `ALLOWED_EMAIL_DOMAINS`, creates or updates the user in `APP_USERS`, opens a session in `APP_SESSIONS`, and redirects back to the app with an opaque session token in the URL *fragment* (never sent to a server or logged). The browser keeps it in `sessionStorage` and sends `Authorization: Bearer <token>`. Sessions are server-side: only a SHA-256 hash of the token is stored, they last 7 days, and sign-out or disabling a user (`APP_USERS.status` ≠ `ACTIVE`) invalidates them immediately. Opening the app in a new tab needs one click; Zoho signs the user in silently.
+
+**2. WorkDrive connection (only when picking files from WorkDrive).** "Connect Zoho WorkDrive" sends the signed-in user to Zoho's consent page once. The refresh token is encrypted (AES-256-GCM) and stored in the user's `WORKDRIVE_CONNECTIONS` row, so it survives sign-out, new tabs and new browsers and Zoho is **not asked again** until the user presses Disconnect (which wipes the stored tokens and revokes the grant at Zoho). Local file uploads never need WorkDrive.
+
+The connect step is bound to the signed-in browser: the authorize call returns a one-time secret the browser keeps privately, the state embeds its hash plus the user, and the final `POST /workdrive/connect` must present all three. A forged link therefore cannot attach someone else's WorkDrive to an account. Zoho hosts are taken only from a fixed region table, so the client secret can never be sent to a request-supplied host.
+
+Every API except the public share links requires a signed-in user.
+
+## Workspace 1 pipeline (driven by the web app)
+
+`upload` → `process` → `analyze` (poll until `still_processing` is false) → `generate` → `deploy` → public link `…/?slug=<slug>`. The app shows a step-by-step progress view and lets a failed step be retried. `process`, `generate` and `status`/`list` calls use query-string arguments so browsers send them as simple (non-preflighted) requests; `analyze` and `deploy` send JSON and have OPTIONS routes.
+
+## AI architecture
+
+- Each workspace has its **own Zia Agent**; both authenticate through the Catalyst Connection named in config. No API key or token for either is stored in this repository.
+- **No function calls Claude, Anthropic, OpenAI or any LLM directly, and no LLM key exists in the code, config, frontend or `.env.example`.** Model choice lives inside the Zia Agent (Zia Agent Studio).
+- Function 3 is the only Catalyst → Zia bridge; Function 4 is a pure renderer. Spikra controls the design; the model never chooses layout.
+- **No fabrication**: agent output is structurally validated and rejected if empty or off-schema; normalisation only trims and caps, never invents content. Token usage is recorded only when the agent reports it.
+
+## Security notes
+
+- **Secrets**: none in the repo. If a credential was ever committed, rotating it is required; deleting the line does not remove it from git history. (The earlier WorkDrive client secret and keys were committed and must be rotated, see below.)
+- **Sessions**: opaque random tokens, hash-only storage, constant-time comparison, 7-day expiry, instant revocation; read only from headers.
+- **WorkDrive tokens**: AES-256-GCM at rest; wiped on disconnect.
+- **CORS**: strict allow-list from `ALLOWED_ORIGINS`; unknown origins receive no CORS headers. Redirects only ever go to an allow-listed origin named in the signed state.
+- **Public endpoints (intentional)**: the showcase and proposal *view* links are readable by anyone who has the link or id; they are the shareable artefacts. Everything else needs sign-in. Add API Gateway throttling on `/auth/login` if exposed beyond staff.
+- **Frontend**: all server text is rendered with `textContent` (no `innerHTML`); generated documents render in a sandboxed `iframe` that cannot navigate the parent; the session token lives in `sessionStorage` only.
+
+### Credential rotation checklist
+
+1. Zoho API Console → regenerate the client secret.
+2. Generate two new random values for `STATE_SIGNING_SECRET` and `TOKEN_ENCRYPTION_KEY`. Changing `TOKEN_ENCRYPTION_KEY` makes stored WorkDrive tokens unreadable, so users reconnect WorkDrive once (intended after a leak).
+3. Set all four in the Console on every function that needs them.
+4. Optionally purge the old values from git history (`git filter-repo`) and force-push; until then treat them as public.
+
+## Environment
+
+See `.env.example` for every variable, which are secret, and where each is set. Non-secret values live in each function's `catalyst-config.json`.
+
+## Clean-up checklist for the Catalyst Console
+
+Resources that exist in the Development project but are no longer part of this codebase (the CLI cannot remove them and no tool here can). Delete them once the new version is deployed and verified:
+
+- Functions: `proposal-workdrive-auth-v2`, `proposal-agent` (replaced by `workdrive-auth` / `proposal-processor`).
+- Data Store table: `W2_USER_WORKDRIVE` (replaced by `WORKDRIVE_CONNECTIONS`).
+- The four old Basic I/O functions (`spikra_document_process`, `spikra_experience_generate`, `spikra_process_status`, `spikra_experience_list`) before the first deploy, so they can be recreated as Advanced I/O.
+- API Gateway rules `spikra-process-status-post-api` and `spikra-experience-list-post-api` (GET is used), and the CORS domain `spikra-ai-proposal-app.onslate.com`.
+- Review, then remove if unused: the Client web app `internal-sales-app` and its `Login Redirect` route. They are not part of this repository and the old UI they serve has no sign-in, so it can no longer call the API.

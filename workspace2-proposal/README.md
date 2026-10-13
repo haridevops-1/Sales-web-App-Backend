@@ -1,35 +1,23 @@
 # workspace2-proposal
 
-Shared services and utilities for Workspace 2 (Solution Proposals). This is source code
-only — it is never deployed as-is. Each Catalyst function under
-`functions/proposal-*` copies what it needs from here into its own `shared/` subfolder
-at build time and requires it with a local-first fallback:
-
-```js
-let workdrive;
-try {
-  workdrive = require("./shared/workdrive");
-} catch {
-  workdrive = require("../../workspace2-proposal/services/workdrive");
-}
-```
-
-This mirrors exactly how Workspace 1's `shared/` folder is consumed by
-`functions/spikra_*` — required because Catalyst deploys each function's directory in
-isolation, with nothing outside it included.
+Shared services and utilities for Workspace 2 (Solution Proposals). This is source
+code only - it is never deployed as-is. `scripts/sync-shared.js` copies what each
+`functions/proposal-*` function needs into its own generated, git-ignored `shared/`
+folder (see the manifest in that script). Edit files here, then run
+`npm run sync:shared`; functions require them as `./shared/...` with no fallback path.
 
 ## Layout
 
 - `prompts/proposal-agent-instructions.md` — reference copy of the Workspace 2 Zia
   Agent's system prompt. The live prompt is configured in Zia Agent Studio; this file
   documents what it should say so the code's request/response handling stays in sync.
-- **WorkDrive OAuth + file browsing has moved** to the repo-root `shared-workdrive/`
+- **WorkDrive OAuth + file browsing has moved** to the repo-root `shared-auth/`
   folder (see its own README) — it's shared by both Workspace 1 and Workspace 2, so it
   no longer lives here. `proposal-api`, `proposal-discovery`, and `proposal-processor`
-  each copy it into their own `shared-workdrive/` subfolder the same way they copy this
+  each copy it into their own `shared-auth/` subfolder the same way they copy this
   folder into `shared/`. The old `services/auth/`, `services/workdrive/`, and
   `utils/user-context/` that used to live here are gone; `utils/user-context`'s
-  replacement (`shared-workdrive/utils/session`) fixes a real bug the old version had —
+  replacement (`shared-auth/utils/session`) fixes a real bug the old version had —
   a missing/invalid session token used to silently fall back to a hardcoded default
   identity instead of rejecting the request.
 - `services/zia/` — Workspace 2 Zia Agent client (same Connection-based auth pattern —
@@ -92,7 +80,7 @@ the hard way again.
 
 ## What's not yet verified live
 
-- WorkDrive's OAuth/API shapes — see `shared-workdrive/README.md`.
+- WorkDrive's OAuth/API shapes — see `shared-auth/README.md`.
 - `services/zia/index.js`'s `extractUsage()` — needs one real call to the Workspace 2
   Zia Agent to confirm whether token usage is actually present in its response, and
   under what field names.
