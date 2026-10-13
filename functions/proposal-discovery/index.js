@@ -1,6 +1,7 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
 const path = require("path");
 const crypto = require("crypto");
 
@@ -12,8 +13,8 @@ const { setAllowOriginHeader } = require("./shared/utils/cors");
 
 const DISCOVERY_PACKAGES_TABLE = "W2_DISCOVERY_PACKAGES";
 const DISCOVERY_FILES_TABLE = "W2_DISCOVERY_FILES";
-const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
-const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
+const PROPOSAL_DOCUMENTS_BUCKET_NAME = requireEnv("PROPOSAL_DOCUMENTS_BUCKET_NAME");
+const PROCESS_DOCUMENTS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
 
 const SUPPORTED_FILE_EXTENSIONS = [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".csv", ".md"];
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB per file

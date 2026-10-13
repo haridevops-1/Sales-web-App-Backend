@@ -4,7 +4,9 @@
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {
-			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com,https://spikra-ai-proposal-app.onslate.com"
+			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com,https://spikra-ai-proposal-app.onslate.com",
+			"PROPOSAL_DOCUMENTS_BUCKET_NAME": "spikra-w2-proposal-documents-698386704",
+			"PROCESS_BUCKET_NAME": "spikra-process-documents-698386704"
 		}
 	},
 	"execution": {

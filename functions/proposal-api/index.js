@@ -1,6 +1,7 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
 
 const { requireSession } = require("./shared-auth/utils/session");
 const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
@@ -10,8 +11,8 @@ const { isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = re
 const { renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("./shared/services/document-render");
 
 const PROPOSALS_TABLE = "W2_PROPOSALS";
-const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
-const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
+const PROPOSAL_DOCUMENTS_BUCKET_NAME = requireEnv("PROPOSAL_DOCUMENTS_BUCKET_NAME");
+const PROCESS_DOCUMENTS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
 
 module.exports = async (req, res) => {
 	const requestId = newRequestId();

@@ -6,7 +6,7 @@ const https = require("https");
 const http = require("http");
 const { URL } = require("url");
 
-const GENERATED_BUCKET_NAME = "spikra-generated-experiences-698386704";
+const GENERATED_BUCKET_NAME = requireEnv("GENERATED_BUCKET_NAME");
 
 const PROJECTS_TABLE = "PROJECTS";
 const DOCUMENTS_TABLE = "DOCUMENTS";

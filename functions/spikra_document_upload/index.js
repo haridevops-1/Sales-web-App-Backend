@@ -1,6 +1,7 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
 const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 const crypto = require("crypto");
 const path = require("path");
@@ -8,8 +9,8 @@ const { Readable } = require("stream");
 
 const workdrive = require("./shared-auth/services/workdrive");
 
-const SOURCE_BUCKET_NAME = "spikra-process-documents-698386704";
-const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
+const PROCESS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
+const SOURCE_BUCKET_NAME = PROCESS_BUCKET_NAME;
 
 const MAX_FILE_SIZE = 99 * 1024 * 1024; // 99 MB
 // .doc (legacy binary Word format) is intentionally excluded - the text

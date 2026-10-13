@@ -3,12 +3,13 @@
 const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
 const path = require("path");
 const pdfParse = require("pdf-parse");
 const PDFParser = require("pdf2json");
 const mammoth = require("mammoth");
 
-const DEFAULT_BUCKET_NAME = "spikra-process-documents-698386704";
+const DEFAULT_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
 
 const DOCUMENTS_TABLE = "DOCUMENTS";
 const PROCESSING_JOBS_TABLE = "PROCESSING_JOBS";

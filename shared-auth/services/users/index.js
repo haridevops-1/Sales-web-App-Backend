@@ -66,10 +66,23 @@ async function loginUser(app, { email, displayName, zuid }) {
 			expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
 			status: "ACTIVE"
 		});
+		await purgeStaleSessions(app, user.ROWID, now);
 		return { token: `${session.ROWID}.${secret}`, displayName: displayName || user.display_name || null };
 	} catch (err) {
 		if (err instanceof WorkdriveError) throw err;
 		throw storeError(err, "login");
+	}
+}
+
+// Housekeeping only: drops this user's expired and revoked sessions so the table stays small.
+// A failure here never blocks sign-in and has no effect on which sessions are valid.
+async function purgeStaleSessions(app, userRowId, nowIso) {
+	try {
+		await app.zcql().executeZCQLQuery(
+			`DELETE FROM ${SESSIONS_TABLE} WHERE user_row_id = '${escapeQueryValue(userRowId)}' AND (expires_at < '${escapeQueryValue(nowIso)}' OR status = 'REVOKED')`
+		);
+	} catch (err) {
+		console.warn("[auth] Session clean-up skipped:", err && err.message);
 	}
 }
 

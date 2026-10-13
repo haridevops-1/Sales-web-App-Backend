@@ -3,14 +3,15 @@
 const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
 const fs = require("fs");
 const path = require("path");
 
 const { getDocument, getProject, findProcessingJob, findExperience, getRowId } = require("./shared/datastore/targetedQueries");
 const { streamToBuffer, escapeHtml, sanitizeErrorMessage } = require("./shared/utils");
 
-const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
-const GENERATED_BUCKET_NAME = "spikra-generated-experiences-698386704";
+const PROCESS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
+const GENERATED_BUCKET_NAME = requireEnv("GENERATED_BUCKET_NAME");
 
 const PROJECTS_TABLE = "PROJECTS";
 const DOCUMENTS_TABLE = "DOCUMENTS";

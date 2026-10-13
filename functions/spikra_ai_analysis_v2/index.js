@@ -1,14 +1,15 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
 const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 
 const { getZiaAgentClient } = require("./shared/agent");
 const { getDocument, getProject, findProcessingJob, getRowId } = require("./shared/datastore/targetedQueries");
 const { streamToBuffer, sanitizeErrorMessage } = require("./shared/utils");
 
-const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
-const GENERATED_BUCKET_NAME = "spikra-generated-experiences-698386704";
+const PROCESS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
+const GENERATED_BUCKET_NAME = requireEnv("GENERATED_BUCKET_NAME");
 
 const DOCUMENTS_TABLE = "DOCUMENTS";
 const PROCESSING_JOBS_TABLE = "PROCESSING_JOBS";
@@ -16,7 +17,7 @@ const PROJECTS_TABLE = "PROJECTS";
 const EXPERIENCES_TABLE = "EXPERIENCES";
 
 // Catalyst Connection (Internal-Sales-Hub) used to authenticate to the Zia Agent Trigger API.
-const ZIA_AGENT_CONNECTION_LINK_NAME = "internalsaleshub";
+const ZIA_AGENT_CONNECTION_LINK_NAME = requireEnv("ZIA_AGENT_CONNECTION_LINK_NAME");
 
 const MAX_DOCUMENT_TEXT_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024; // 1 MB
