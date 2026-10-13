@@ -1,13 +1,14 @@
 {
   "name": "spikra-catalyst-backend",
   "version": "1.0.0",
-  "description": "Spikra Customer Experience Engine — Node.js 22 Zoho Catalyst Backend Services",
+  "description": "Spikra Customer Experience Engine \u2014 Node.js 22 Zoho Catalyst Backend Services",
   "private": true,
   "scripts": {
-    "build:slate": "node scripts/build_slate_index.js"
+    "sync:shared": "node scripts/sync-shared.js",
+    "check:shared": "node scripts/sync-shared.js --check",
+    "deploy": "npm run sync:shared && catalyst deploy"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
     "zcatalyst-cli": "^1.27.2"
   },
   "engines": {
