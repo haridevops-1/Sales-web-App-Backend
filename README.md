@@ -52,7 +52,7 @@ Catalyst packages each function directory on its own, so shared code must be cop
 ## Deploying
 
 ```bash
-npm run deploy          # secret check, sync shared code, then `catalyst deploy`
+npm run deploy          # secret check, sync shared code, then `catalyst deploy --only functions,apig,slate`
 npm run check:shared    # fails if any generated copy is stale
 npm run check:secrets   # fails if a credential-looking value or a secret in a function config is found
 ```
@@ -133,3 +133,7 @@ The new backend and the new React app must go live together: the old app has no 
 4. Push the backend, merge and push the frontend branch `feat/zoho-sign-in`, then **Sync Now** in Slate.
 5. Sign in, upload one file, connect WorkDrive once, reload (Zoho must not ask again). Turn Auto Deploy back on.
 6. Delete the four old Basic I/O functions, then retire the old Web Client (`internal-sales-app`) and its *Login Redirect* route.
+
+## Deploys reset function variables
+
+`catalyst deploy` replaces each function's environment with exactly what is in its `catalyst-config.json`, so **every deploy removes the secrets** set in the Console (`ZOHO_OAUTH_CLIENT_ID`, `ZOHO_OAUTH_CLIENT_SECRET`, `STATE_SIGNING_SECRET`, `TOKEN_ENCRYPTION_KEY`). After each deploy, set them again on the functions that need them (see `.env.example` for which), or deploy only what changed: `catalyst deploy --only functions:<name>` resets just that function. Until they are set, the functions fail closed with a configuration error and sign-in is unavailable.
