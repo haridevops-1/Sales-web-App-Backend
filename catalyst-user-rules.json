@@ -493,5 +493,16 @@
       "overall": {},
       "ip": {}
     }
+  },
+  {
+    "name": "spikra-process-status-post-api",
+    "source_endpoint": "/spikra/process/status",
+    "target_endpoint": "/server/spikra_process_status/",
+    "target": "advancedio",
+    "method": "POST",
+    "throttling": {
+      "overall": {},
+      "ip": {}
+    }
   }
 ]
