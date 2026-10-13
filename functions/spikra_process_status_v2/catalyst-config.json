@@ -1,6 +1,6 @@
 {
 	"deployment": {
-		"name": "spikra_process_status",
+		"name": "spikra_process_status_v2",
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {

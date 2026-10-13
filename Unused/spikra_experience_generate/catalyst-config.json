@@ -1,0 +1,12 @@
+{
+	"deployment": {
+		"name": "spikra_experience_generate",
+		"stack": "node22",
+		"type": "basicio",
+		"memory": 512,
+		"env_variables": {}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}

@@ -2,12 +2,12 @@
   "functions": {
     "targets": [
       "spikra_document_upload",
-      "spikra_document_process",
+      "spikra_document_process_v2",
       "spikra_ai_analysis_v2",
-      "spikra_experience_generate",
+      "spikra_experience_generate_v2",
       "spikra_experience_deploy",
-      "spikra_process_status",
-      "spikra_experience_list",
+      "spikra_process_status_v2",
+      "spikra_experience_list_v2",
       "proposal-api",
       "proposal-discovery",
       "proposal-processor",

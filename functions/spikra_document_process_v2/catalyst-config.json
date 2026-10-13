@@ -1,13 +1,12 @@
 {
 	"deployment": {
-		"name": "spikra_experience_generate",
+		"name": "spikra_document_process_v2",
 		"stack": "node22",
 		"type": "advancedio",
 		"memory": 512,
 		"env_variables": {
 			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com,https://spikra-ai-proposal-app.onslate.com",
-			"PROCESS_BUCKET_NAME": "spikra-process-documents-698386704",
-			"GENERATED_BUCKET_NAME": "spikra-generated-experiences-698386704"
+			"PROCESS_BUCKET_NAME": "spikra-process-documents-698386704"
 		}
 	},
 	"execution": {

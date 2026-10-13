@@ -23,12 +23,12 @@ Both pipelines share the same shape (gather → extract → analyse with a dedic
 ```
 functions/                  Catalyst functions (one folder each, deployed independently)
   spikra_document_upload/     W1  upload (multipart, or WorkDrive file id) + job creation
-  spikra_document_process/    W1  text extraction
+  spikra_document_process_v2/    W1  text extraction
   spikra_ai_analysis_v2/      W1  Zia Agent bridge (responds immediately, finishes in the background; poll it)
-  spikra_experience_generate/ W1  pure template renderer (no AI)
+  spikra_experience_generate_v2/ W1  pure template renderer (no AI)
   spikra_experience_deploy/   W1  publish + public showcase endpoint
-  spikra_process_status/      W1  status polling
-  spikra_experience_list/     W1  list showcases
+  spikra_process_status_v2/      W1  status polling
+  spikra_experience_list_v2/     W1  list showcases
   proposal-discovery/         W2  discovery sessions and files (private per signed-in user)
   proposal-processor/         W2  extract → Zia Agent → render proposal documents
   proposal-api/               W2  proposal list/status (signed in) + public document view
@@ -43,6 +43,7 @@ templates/                  Showcase master template┘
 slate/spikra-experience/    public showcase link page (see slate/README.md)
 slate/spikra-w2-proposal/   public proposal link page (see slate/README.md)
 scripts/sync-shared.js      Copies shared code into each function / Slate app
+Unused/                     Retired functions kept for reference (not deployed)
 catalyst.json, catalyst-user-rules.json   Project targets and API Gateway routes
 ```
 
@@ -65,7 +66,7 @@ A bare `catalyst deploy` skips the sync step — use `npm run deploy` (or run `n
 3. **Authorised Domains** (CORS): the three app origins: `spikra-ai-proposal-app.onslate.com` (the main React app, repo `Sales-Web-App-Frontend`, in the separate *Internal-Sales-App* Catalyst project), `spikra-ai-proposal.onslate.com` and `spikra-w2-proposal-jmdbymcs.onslate.com` (the Slate apps in this repo). The same origins are in `ALLOWED_ORIGINS` in each function's `catalyst-config.json`. Remove any other domain from the Console list.
 4. **Per-environment values** (bucket names, Zia connection name, URLs) are in each function's `catalyst-config.json` and read from the environment; nothing environment-specific is hardcoded in code. **Secrets, set in the Console only** (never in `catalyst-config.json` or git); `.env.example` lists which function needs which: `ZOHO_OAUTH_CLIENT_ID`, `ZOHO_OAUTH_CLIENT_SECRET`, `STATE_SIGNING_SECRET`, `TOKEN_ENCRYPTION_KEY` (the last two random and different: `openssl rand -hex 32`). Functions refuse to run without them; there are no defaults.
 5. **Who may sign in**: `ALLOWED_EMAIL_DOMAINS` (default `spikra.com`) in `functions/app-auth/catalyst-config.json`.
-6. **Basic I/O → Advanced I/O**: `spikra_document_process`, `spikra_experience_generate`, `spikra_process_status` and `spikra_experience_list` were Basic I/O and now sit behind sign-in as Advanced I/O. Catalyst cannot change a function's type in place, so delete those four functions in the Console once, then run `npm run deploy` to recreate them.
+6. **Basic I/O → Advanced I/O**: the four Workspace 1 functions that were Basic I/O (`spikra_document_process`, `spikra_experience_generate`, `spikra_process_status`, `spikra_experience_list`) are replaced by Advanced I/O versions with a `_v2` suffix, because Catalyst cannot change a function's type in place and Basic I/O code cannot check the sign-in token. The gateway rules point at the `_v2` functions, so the frontend is unchanged. The old versions are kept in `Unused/` (not deployed); delete the old live functions in the Console once the new ones are verified.
 7. Edit `slate/*/config.js` if the API base URL changes (it is the public gateway URL, not a secret).
 
 ## How sign-in works
@@ -118,7 +119,7 @@ Resources that exist in the Development project but are no longer part of this c
 
 - Functions: `proposal-workdrive-auth-v2`, `proposal-agent` (replaced by `workdrive-auth` / `proposal-processor`).
 - Data Store table: `W2_USER_WORKDRIVE` (replaced by `WORKDRIVE_CONNECTIONS`).
-- The four old Basic I/O functions (`spikra_document_process`, `spikra_experience_generate`, `spikra_process_status`, `spikra_experience_list`) before the first deploy, so they can be recreated as Advanced I/O.
+- The four old Basic I/O functions (`spikra_document_process`, `spikra_experience_generate`, `spikra_process_status`, `spikra_experience_list`) once their `_v2` replacements are verified. Their source is kept in `Unused/`.
 - API Gateway rule `spikra-experience-list-post-api` (GET is used).
 - Review, then remove if unused: the Client web app `internal-sales-app` and its `Login Redirect` route (not part of this repository).
 
@@ -127,8 +128,8 @@ Resources that exist in the Development project but are no longer part of this c
 The new backend and the new React app must go live together: the old app has no sign-in and would get 401s from the new backend, and the new app cannot sign in against the old backend.
 
 1. Slate (frontend project) → `sales-web-app-frontend` → turn **Auto Deploy** off.
-2. Delete the four Basic I/O functions (see setup step 6), then `npm run deploy` here.
+2. `npm run deploy` here. It creates `app-auth` and the four `_v2` functions and re-points the gateway rules; the old Basic I/O functions stay in place, unused.
 3. In the Console, confirm each function's variables (secrets from `.env.example` plus the values from `catalyst-config.json`). On `app-auth` set `ZOHO_OAUTH_CLIENT_ID`, `ZOHO_OAUTH_CLIENT_SECRET` and a new `STATE_SIGNING_SECRET`.
 4. Push the backend, merge and push the frontend branch `feat/zoho-sign-in`, then **Sync Now** in Slate.
 5. Sign in, upload one file, connect WorkDrive once, reload (Zoho must not ask again). Turn Auto Deploy back on.
-6. Retire the old Web Client (`internal-sales-app`) and its *Login Redirect* route.
+6. Delete the four old Basic I/O functions, then retire the old Web Client (`internal-sales-app`) and its *Login Redirect* route.

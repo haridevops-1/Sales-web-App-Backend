@@ -1,6 +1,6 @@
 {
 	"deployment": {
-		"name": "spikra_experience_list",
+		"name": "spikra_experience_list_v2",
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {

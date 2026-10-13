@@ -24,7 +24,7 @@
   {
     "name": "spikra-document-process-api",
     "source_endpoint": "/spikra/document/process",
-    "target_endpoint": "/server/spikra_document_process/",
+    "target_endpoint": "/server/spikra_document_process_v2/",
     "target": "advancedio",
     "method": "POST",
     "throttling": {
@@ -46,7 +46,7 @@
   {
     "name": "spikra-experience-generate-api",
     "source_endpoint": "/spikra/experience/generate",
-    "target_endpoint": "/server/spikra_experience_generate/",
+    "target_endpoint": "/server/spikra_experience_generate_v2/",
     "target": "advancedio",
     "method": "POST",
     "throttling": {
@@ -79,7 +79,7 @@
   {
     "name": "spikra-process-status-get-api",
     "source_endpoint": "/spikra/process/status",
-    "target_endpoint": "/server/spikra_process_status/",
+    "target_endpoint": "/server/spikra_process_status_v2/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -90,7 +90,7 @@
   {
     "name": "spikra-experience-list-get-api",
     "source_endpoint": "/spikra/experience/list",
-    "target_endpoint": "/server/spikra_experience_list/",
+    "target_endpoint": "/server/spikra_experience_list_v2/",
     "target": "advancedio",
     "method": "GET",
     "throttling": {
@@ -453,7 +453,7 @@
   {
     "name": "spikra_document_process-options-api",
     "source_endpoint": "/spikra/document/process",
-    "target_endpoint": "/server/spikra_document_process/",
+    "target_endpoint": "/server/spikra_document_process_v2/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -464,7 +464,7 @@
   {
     "name": "spikra_experience_generate-options-api",
     "source_endpoint": "/spikra/experience/generate",
-    "target_endpoint": "/server/spikra_experience_generate/",
+    "target_endpoint": "/server/spikra_experience_generate_v2/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -475,7 +475,7 @@
   {
     "name": "spikra_process_status-options-api",
     "source_endpoint": "/spikra/process/status",
-    "target_endpoint": "/server/spikra_process_status/",
+    "target_endpoint": "/server/spikra_process_status_v2/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -486,7 +486,7 @@
   {
     "name": "spikra_experience_list-options-api",
     "source_endpoint": "/spikra/experience/list",
-    "target_endpoint": "/server/spikra_experience_list/",
+    "target_endpoint": "/server/spikra_experience_list_v2/",
     "target": "advancedio",
     "method": "OPTIONS",
     "throttling": {
@@ -497,7 +497,7 @@
   {
     "name": "spikra-process-status-post-api",
     "source_endpoint": "/spikra/process/status",
-    "target_endpoint": "/server/spikra_process_status/",
+    "target_endpoint": "/server/spikra_process_status_v2/",
     "target": "advancedio",
     "method": "POST",
     "throttling": {

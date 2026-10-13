@@ -24,10 +24,10 @@ const MANIFEST = {
 	"app-auth": [...AUTH],
 	"workdrive-auth": [...AUTH],
 	"spikra_document_upload": [...AUTH],
-	"spikra_document_process": [...AUTH],
+	"spikra_document_process_v2": [...AUTH],
 	"spikra_experience_deploy": [...AUTH],
-	"spikra_process_status": [...AUTH],
-	"spikra_experience_list": [...AUTH],
+	"spikra_process_status_v2": [...AUTH],
+	"spikra_experience_list_v2": [...AUTH],
 	"proposal-discovery": [...AUTH, ...w2(W2_BASE)],
 	"proposal-api": [
 		...AUTH,
@@ -45,7 +45,7 @@ const MANIFEST = {
 		])
 	],
 	"spikra_ai_analysis_v2": [...AUTH, ["shared/agent", "shared/agent"], ["shared/datastore", "shared/datastore"], ["shared/utils", "shared/utils"]],
-	"spikra_experience_generate": [
+	"spikra_experience_generate_v2": [
 		...AUTH,
 		["shared/datastore", "shared/datastore"],
 		["shared/utils", "shared/utils"],

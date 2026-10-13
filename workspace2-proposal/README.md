@@ -25,13 +25,13 @@ folder (see the manifest in that script). Edit files here, then run
   Agent itself isn't per-user — request/response contract, and anti-hallucination
   validation gate as Workspace 1's `shared/agent/index.js`).
 - `services/document-processing/` — PDF/DOCX/XLSX extraction. PDF and DOCX reuse the
-  exact proven engine chain from `functions/spikra_document_process`; XLSX is new
+  exact proven engine chain from `functions/spikra_document_process_v2`; XLSX is new
   (`xlsx` package). Raw audio/video is explicitly unsupported this milestone.
 - `services/document-render/` — renders a validated Zia response into one
   self-contained static HTML "solution document" (inline CSS, no external JS - the
   content here is plain text sections, not an interactive showcase, so it doesn't need
   Workspace 1's multi-asset-file complexity). This is Workspace 2's equivalent of
-  Workspace 1's Function 4 (`spikra_experience_generate`), scoped to a completely
+  Workspace 1's Function 4 (`spikra_experience_generate_v2`), scoped to a completely
   different content shape. `proposal-processor` uploads its output to a Workspace-2-only
   Stratus bucket (`spikra-w2-proposal-documents-698386704` - never Workspace 1's own
   bucket) and `proposal-api`'s `resource=view` route serves it back publicly, mirroring
@@ -62,7 +62,7 @@ folder (see the manifest in that script). Edit files here, then run
 ## Dependencies functions need to declare
 
 - `proposal-processor`: `mammoth`, `pdf-parse`, `pdf2json`, `pdfjs-dist`, `xlsx`
-  (the first four already exist as a proven set in `functions/spikra_document_process`;
+  (the first four already exist as a proven set in `functions/spikra_document_process_v2`;
   only `xlsx` is new).
 - All Workspace 2 functions: `zcatalyst-sdk-node` (auth/workdrive services otherwise
   use only Node built-ins — `https`, `crypto`, `url`).

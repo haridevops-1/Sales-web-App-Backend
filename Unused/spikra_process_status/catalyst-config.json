@@ -1,0 +1,11 @@
+{
+	"deployment": {
+		"name": "spikra_process_status",
+		"stack": "node22",
+		"type": "basicio",
+		"env_variables": {}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}
