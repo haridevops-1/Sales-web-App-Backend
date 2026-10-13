@@ -1,7 +1,7 @@
-/* Public showcase viewer: /?slug=<slug>&experience_id=<id>&project_id=<id> (or /<slug> via 404.html). */
+/* Public showcase viewer (no sign-in): /?slug=<slug>&experience_id=<id>&project_id=<id>, or /<slug> via 404.html. */
 (function () {
   "use strict";
-  var S = window.Spikra;
+  var V = window.SpikraViewer;
 
   function parseRoute() {
     var params = new URLSearchParams(window.location.search);
@@ -26,29 +26,27 @@
     }).join(" ");
   }
 
-  window.ShowcaseViewer = {
-    wants: function () { var r = parseRoute(); return !!(r.slug || r.experienceId); },
-    start: function () {
-      var route = parseRoute();
-      document.title = titleFromSlug(route.slug) || "Proposal Experience";
-      if (route.slug && window.location.search.indexOf("slug=") < 0 && window.history && history.replaceState) {
-        try { history.replaceState(null, "", "/?slug=" + encodeURIComponent(route.slug) + (route.experienceId ? "&experience_id=" + encodeURIComponent(route.experienceId) : "")); } catch (e) { /* cosmetic only */ }
-      }
-      S.mount(document.body, S.el("div", { class: "sp-fullpage" },
-        S.el("span", { class: "sp-spin dark", style: "width:40px;height:40px;border-width:3px" }),
-        S.el("p", { class: "sp-muted" }, "Loading proposal…")));
+  var route = parseRoute();
+  document.title = titleFromSlug(route.slug) || "Customer Showcase";
 
-      S.fetchDocument("/spikra/experience/deploy", { slug: route.slug, experience_id: route.experienceId, project_id: route.projectId })
-        .then(function (html) {
-          var trimmed = html.trim();
-          if (trimmed.charAt(0) === "{") {
-            var msg = "This proposal could not be retrieved.";
-            try { var parsed = JSON.parse(trimmed); if (parsed && parsed.message) msg = parsed.message; } catch (e) { /* keep default */ }
-            throw new S.ApiError(0, "REQUEST_FAILED", msg);
-          }
-          S.renderDocumentFrame(html, "Spikra Customer Proposal");
-        })
-        .catch(function (e) { S.fullpageMessage("Proposal not available", e.message, "Try again", function () { window.location.reload(); }); });
-    }
-  };
+  if (!route.slug && !route.experienceId) {
+    V.showMessage("No showcase selected", "This link is incomplete. Use the link provided by your Spikra representative.");
+    return;
+  }
+  if (route.slug && window.location.search.indexOf("slug=") < 0 && window.history && history.replaceState) {
+    try { history.replaceState(null, "", "/?slug=" + encodeURIComponent(route.slug) + (route.experienceId ? "&experience_id=" + encodeURIComponent(route.experienceId) : "")); } catch (e) { /* cosmetic only */ }
+  }
+
+  V.showLoading();
+  V.fetchDocument("/spikra/experience/deploy", { slug: route.slug, experience_id: route.experienceId, project_id: route.projectId })
+    .then(function (html) {
+      var trimmed = html.trim();
+      if (trimmed.charAt(0) === "{") {
+        var msg = "This showcase could not be retrieved.";
+        try { var parsed = JSON.parse(trimmed); if (parsed && parsed.message) msg = parsed.message; } catch (e) { /* keep default */ }
+        throw new V.Error(msg);
+      }
+      V.renderDocumentFrame(html, "Spikra Customer Showcase");
+    })
+    .catch(function (e) { V.showMessage("Showcase not available", e.message, "Try again", function () { window.location.reload(); }); });
 })();

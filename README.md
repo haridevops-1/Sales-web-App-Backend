@@ -7,6 +7,17 @@ Zoho Catalyst (Node.js 22) backend plus two Catalyst Slate web apps, hosting two
 
 Both pipelines share the same shape (gather → extract → analyse with a dedicated Zia Agent → render → publish → shareable link) but use separate functions, Data Store tables, Stratus buckets, Zia Agents and Slate apps. The Zoho WorkDrive sign-in is shared.
 
+## Architecture: two Catalyst projects
+
+| Project | Repository | Contains |
+|---|---|---|
+| **Spikra-AI-Proposal** (backend) | this repo | the APIs (Catalyst functions), the Data Store, and two small Slate apps that serve the **public share links** for each workspace |
+| **Internal-Sales-App** (frontend) | `Sales-Web-App-Frontend` (React + Vite, Slate `sales-web-app-frontend`) | the signed-in workspace UI at `spikra-ai-proposal-app.onslate.com` |
+
+- Users work in the React app. It signs them in through this backend (`/auth/*`) and calls the APIs with the session token.
+- When a showcase or proposal is published, the backend builds its shareable URL on its own Slate apps: `spikra-ai-proposal.onslate.com/?slug=...` (Customer Showcases) and `spikra-w2-proposal-jmdbymcs.onslate.com/?proposal_id=...` (Solution Proposals). Those pages need no sign-in; they only render the published document.
+- All three origins are in `ALLOWED_ORIGINS` and the project's Authorised Domains. Only the React app starts sign-in.
+
 ## Layout
 
 ```
@@ -27,10 +38,10 @@ functions/                  Catalyst functions (one folder each, deployed indepe
 shared/                     W1 shared source        ┐
 workspace2-proposal/        W2 shared source        │  the ONLY place to edit shared code;
 shared-auth/                Sign-in, sessions, WorkDrive │  copies inside functions/ and slate/ are
-frontend-shared/            UI core + design system │  generated (git-ignored)
+frontend-shared/            viewer helpers + styles │  generated (git-ignored)
 templates/                  Showcase master template┘
-slate/spikra-experience/    W1 web app (see slate/README.md)
-slate/spikra-w2-proposal/   W2 web app (see slate/README.md)
+slate/spikra-experience/    public showcase link page (see slate/README.md)
+slate/spikra-w2-proposal/   public proposal link page (see slate/README.md)
 scripts/sync-shared.js      Copies shared code into each function / Slate app
 catalyst.json, catalyst-user-rules.json   Project targets and API Gateway routes
 ```
@@ -67,9 +78,9 @@ Two separate things, so users approve each only once.
 
 The connect step is bound to the signed-in browser: the authorize call returns a one-time secret the browser keeps privately, the state embeds its hash plus the user, and the final `POST /workdrive/connect` must present all three. A forged link therefore cannot attach someone else's WorkDrive to an account. Zoho hosts are taken only from a fixed region table, so the client secret can never be sent to a request-supplied host.
 
-Every API except the public share links requires a signed-in user.
+Every API except the public share links requires a signed-in user. The signed-in UI lives in the separate React app (see Architecture); it sends users to `/auth/login` and sends the token as `Authorization: Bearer`.
 
-## Workspace 1 pipeline (driven by the web app)
+## Workspace 1 pipeline (driven by the React app)
 
 `upload` → `process` → `analyze` (poll until `still_processing` is false) → `generate` → `deploy` → public link `…/?slug=<slug>`. The app shows a step-by-step progress view and lets a failed step be retried. `process`, `generate` and `status`/`list` calls use query-string arguments so browsers send them as simple (non-preflighted) requests; `analyze` and `deploy` send JSON and have OPTIONS routes.
 
@@ -87,7 +98,7 @@ Every API except the public share links requires a signed-in user.
 - **WorkDrive tokens**: AES-256-GCM at rest; wiped on disconnect.
 - **CORS**: strict allow-list from `ALLOWED_ORIGINS`; unknown origins receive no CORS headers. Redirects only ever go to an allow-listed origin named in the signed state.
 - **Public endpoints (intentional)**: the showcase and proposal *view* links are readable by anyone who has the link or id; they are the shareable artefacts. Everything else needs sign-in. Add API Gateway throttling on `/auth/login` if exposed beyond staff.
-- **Frontend**: all server text is rendered with `textContent` (no `innerHTML`); generated documents render in a sandboxed `iframe` that cannot navigate the parent; the session token lives in `sessionStorage` only.
+- **Frontend**: the React app keeps the session token in `sessionStorage` only and attaches it centrally; the public link pages render generated documents in a sandboxed `iframe` that cannot navigate the parent and write server text with `textContent` only.
 
 ### Credential rotation checklist
 
@@ -107,5 +118,5 @@ Resources that exist in the Development project but are no longer part of this c
 - Functions: `proposal-workdrive-auth-v2`, `proposal-agent` (replaced by `workdrive-auth` / `proposal-processor`).
 - Data Store table: `W2_USER_WORKDRIVE` (replaced by `WORKDRIVE_CONNECTIONS`).
 - The four old Basic I/O functions (`spikra_document_process`, `spikra_experience_generate`, `spikra_process_status`, `spikra_experience_list`) before the first deploy, so they can be recreated as Advanced I/O.
-- API Gateway rules `spikra-process-status-post-api` and `spikra-experience-list-post-api` (GET is used).
+- API Gateway rule `spikra-experience-list-post-api` (GET is used).
 - Review, then remove if unused: the Client web app `internal-sales-app` and its `Login Redirect` route (not part of this repository).

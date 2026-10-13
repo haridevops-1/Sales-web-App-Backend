@@ -1,7 +1,7 @@
-/* Public proposal viewer: /?proposal_id=<id>&type=<technical|commercial|tos> (or the path forms). */
+/* Public proposal viewer (no sign-in): /?proposal_id=<id>&type=<technical|commercial|tos>, or the path forms. */
 (function () {
   "use strict";
-  var S = window.Spikra;
+  var V = window.SpikraViewer;
   var DOC_TYPES = ["technical", "commercial", "tos"];
 
   function parseRoute() {
@@ -20,20 +20,18 @@
     return { id: id, type: DOC_TYPES.indexOf(type) >= 0 ? type : "commercial" };
   }
 
-  window.W2Viewer = {
-    wants: function () { return !!parseRoute().id; },
-    start: function () {
-      var route = parseRoute();
-      document.title = "Solution Proposal | Spikra";
-      S.mount(document.body, S.el("div", { class: "sp-fullpage" },
-        S.el("span", { class: "sp-spin dark", style: "width:40px;height:40px;border-width:3px" }),
-        S.el("p", { class: "sp-muted" }, "Loading proposal…")));
+  var route = parseRoute();
+  document.title = "Solution Proposal | Spikra";
 
-      S.fetchDocument("/proposal/api", { resource: "view", proposal_id: route.id, type: route.type })
-        .then(function (html) { S.renderDocumentFrame(html, "Spikra Solution Proposal"); })
-        .catch(function (e) {
-          S.fullpageMessage("Unable to load proposal", e.message, "Try again", function () { window.location.reload(); });
-        });
-    }
-  };
+  if (!route.id) {
+    V.showMessage("No proposal selected", "This link is missing its proposal id. Use the link provided by your Spikra representative.");
+    return;
+  }
+
+  V.showLoading();
+  V.fetchDocument("/proposal/api", { resource: "view", proposal_id: route.id, type: route.type })
+    .then(function (html) { V.renderDocumentFrame(html, "Spikra Solution Proposal"); })
+    .catch(function (e) {
+      V.showMessage("Unable to load proposal", e.message, "Try again", function () { window.location.reload(); });
+    });
 })();
