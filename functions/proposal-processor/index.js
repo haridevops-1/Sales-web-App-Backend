@@ -1,5 +1,7 @@
 "use strict";
 
+const { requireEnv } = require("./shared-auth/utils/config");
+
 const catalyst = require("zcatalyst-sdk-node");
 const { requireSession } = require("./shared-auth/utils/session");
 const workdrive = require("./shared-auth/services/workdrive");

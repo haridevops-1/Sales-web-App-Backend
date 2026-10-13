@@ -1,5 +1,7 @@
 "use strict";
 
+const { requireEnv } = require("./shared-auth/utils/config");
+
 const { URL } = require("url");
 const https = require("https");
 const http = require("http");

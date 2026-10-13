@@ -1,5 +1,7 @@
 "use strict";
 
+const { requireEnv } = require("./shared-auth/utils/config");
+
 const catalyst = require("zcatalyst-sdk-node");
 const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 const https = require("https");
