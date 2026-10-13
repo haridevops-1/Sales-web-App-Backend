@@ -24,7 +24,10 @@ const ERROR_CODES = {
 	SESSION_EXPIRED: "Your session has expired. Please log in again.",
 	WORKDRIVE_PERMISSION_DENIED: "WorkDrive denied access to this folder or file.",
 	FOLDER_NOT_FOUND: "The requested WorkDrive folder could not be found.",
-	FILE_DOWNLOAD_FAILED: "Failed to download this file from WorkDrive."
+	FILE_DOWNLOAD_FAILED: "Failed to download this file from WorkDrive.",
+	CONFIG_ERROR: "Server configuration error.",
+	WORKDRIVE_NOT_CONNECTED: "Zoho WorkDrive is not connected for this account.",
+	FORBIDDEN: "Your account is not allowed to use this application."
 };
 
 class ProposalError extends Error {
@@ -41,7 +44,7 @@ class ProposalError extends Error {
 // request_id (when passed) is echoed back so a salesperson can report a failure and it's
 // traceable in logs - never anything more sensitive than the id itself.
 // Duck-typed on {code, statusCode} rather than strict `instanceof ProposalError` so a
-// WorkdriveError thrown by shared-workdrive's requireSession() (e.g. UNAUTHENTICATED,
+// WorkdriveError thrown by shared-auth's requireSession() (e.g. UNAUTHENTICATED,
 // SESSION_EXPIRED) also produces a proper response here instead of collapsing to a
 // generic 500.
 function toErrorResponse(error, requestId) {

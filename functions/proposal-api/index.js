@@ -2,32 +2,16 @@
 
 const catalyst = require("zcatalyst-sdk-node");
 
-let decodeSession, ProposalError, toErrorResponse, logEvent, newRequestId, isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey, renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument, setAllowOriginHeader;
-
-try {
-	({ decodeSession } = require("./shared-workdrive/utils/session"));
-	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
-	({ logEvent, newRequestId } = require("./shared/utils/logging"));
-	({ setAllowOriginHeader } = require("./shared/utils/cors"));
-	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("./shared/services/proposal"));
-	({ renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("./shared/services/document-render"));
-} catch {
-	({ decodeSession } = require("../../shared-workdrive/utils/session"));
-	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
-	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
-	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
-	({ isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("../../workspace2-proposal/services/proposal"));
-	({ renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("../../workspace2-proposal/services/document-render"));
-}
-
-// See proposal-discovery/index.js - this function never touches WorkDrive itself, so a
-// session is only needed to attribute who changed a proposal's status, not to gate it.
-const LOCAL_USER = { userId: "local-upload", email: null };
+const { requireSession } = require("./shared-auth/utils/session");
+const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
+const { logEvent, newRequestId } = require("./shared/utils/logging");
+const { setAllowOriginHeader } = require("./shared/utils/cors");
+const { isValidStatusTransition, VALID_STATUSES, buildProposalDocumentKey } = require("./shared/services/proposal");
+const { renderProposalDocument, renderTechnicalDocument, renderCommercialDocument, renderTosDocument } = require("./shared/services/document-render");
 
 const PROPOSALS_TABLE = "W2_PROPOSALS";
 const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
 const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
-const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
 
 module.exports = async (req, res) => {
 	const requestId = newRequestId();
@@ -68,22 +52,7 @@ module.exports = async (req, res) => {
 			return;
 		}
 
-		if (resource === "workdrive_auth" || resource === "workdrive_url" || resource === "auth_url") {
-			const dc = urlObj.searchParams.get("dc") || "";
-			const queryDc = dc ? `&dc=${encodeURIComponent(dc)}` : "";
-			const authorizeUrl = `${API_BASE_URL}/workdrive/authorize?action=authorize${queryDc}`;
-			sendJson(res, 200, {
-				success: true,
-				authorize_url: authorizeUrl,
-				status_url: `${API_BASE_URL}/workdrive/status?action=status`,
-				list_url: `${API_BASE_URL}/workdrive/list?action=list`
-			});
-			logEvent("proposal-api", { requestId, operation: "get_workdrive_auth_url", status: "success" });
-			return;
-		}
-
-		const sessionUser = await decodeSession(req);
-		const user = sessionUser || LOCAL_USER;
+		const user = await requireSession(app, req);
 
 		// resource === "proposals" or "proposal" (default)
 		const proposalId = urlObj.searchParams.get("proposal_id");
@@ -92,19 +61,19 @@ module.exports = async (req, res) => {
 		if (req.method === "GET") {
 			if (proposalId) {
 				operation = "get_proposal";
-				const proposal = await getProposalRow(app, proposalId);
+				const proposal = assertOwner(await getProposalRow(app, proposalId), user.userId);
 				sendJson(res, 200, { success: true, proposal: formatProposal(proposal) });
 			} else if (sessionId) {
 				operation = "get_proposal_by_session";
 				const proposal = await findProposalByPackage(app, sessionId);
 				if (proposal) {
-					sendJson(res, 200, { success: true, proposal: formatProposal(proposal) });
+					sendJson(res, 200, { success: true, proposal: formatProposal(assertOwner(proposal, user.userId)) });
 				} else {
 					sendJson(res, 200, { success: false, message: "No proposal generated yet for this session.", session_id: sessionId });
 				}
 			} else {
 				operation = "list_proposals";
-				const proposals = await listProposals(app, sessionId);
+				const proposals = await listProposals(app, user.userId, sessionId);
 				sendJson(res, 200, { success: true, proposals });
 			}
 			logEvent("proposal-api", { requestId, operation, status: "success" });
@@ -338,26 +307,27 @@ async function getProposalRow(app, proposalId) {
 	throw new ProposalError("NOT_FOUND", "Proposal not found.", 404);
 }
 
-async function listProposals(app, packageId) {
-	const query = packageId
-		? `SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC`
-		: `SELECT * FROM ${PROPOSALS_TABLE} ORDER BY CREATEDTIME DESC`;
-	let rows = [];
-	try {
-		const result = await app.zcql().executeZCQLQuery(query);
-		rows = (result || []).map((item) => item[PROPOSALS_TABLE] || item);
-	} catch {}
-	return rows.map(formatProposal);
+async function listProposals(app, userId, packageId) {
+	const filters = [`user_id = '${escapeQueryValue(userId)}'`];
+	if (packageId) filters.push(`package_id = '${escapeQueryValue(packageId)}'`);
+	const result = await app.zcql().executeZCQLQuery(
+		`SELECT * FROM ${PROPOSALS_TABLE} WHERE ${filters.join(" AND ")} ORDER BY CREATEDTIME DESC`
+	);
+	return (result || []).map((item) => formatProposal(item[PROPOSALS_TABLE] || item));
+}
+
+function assertOwner(row, userId) {
+	if (!row.user_id || String(row.user_id) !== String(userId)) {
+		throw new ProposalError("UNAUTHORIZED", "You do not have access to this proposal.", 403);
+	}
+	return row;
 }
 
 async function updateProposalStatus(app, proposalId, userId, newStatus) {
 	if (!VALID_STATUSES.includes(newStatus)) {
 		throw new ProposalError("VALIDATION_FAILED", `status must be one of: ${VALID_STATUSES.join(", ")}.`);
 	}
-	const row = await getProposalRow(app, proposalId);
-	if (row.user_id && row.user_id !== LOCAL_USER.userId && String(row.user_id) !== String(userId)) {
-		throw new ProposalError("UNAUTHORIZED", "Only the proposal creator can change its status.", 403);
-	}
+	const row = assertOwner(await getProposalRow(app, proposalId), userId);
 	if (!isValidStatusTransition(row.status, newStatus)) {
 		throw new ProposalError("VALIDATION_FAILED", `Cannot move a proposal from '${row.status}' to '${newStatus}'.`);
 	}
@@ -367,22 +337,17 @@ async function updateProposalStatus(app, proposalId, userId, newStatus) {
 
 async function findProposalByPackage(app, packageId) {
 	const query = `SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
-	try {
-		const result = await app.zcql().executeZCQLQuery(query);
-		if (result && result.length > 0) {
-			return result[0][PROPOSALS_TABLE] || result[0];
-		}
-	} catch {}
-	return null;
+	const result = await app.zcql().executeZCQLQuery(query);
+	return result && result.length > 0 ? (result[0][PROPOSALS_TABLE] || result[0]) : null;
 }
 
 function buildDocumentUrl(proposalId, docType) {
-	const slateUrl = process.env.PROPOSAL_SLATE_APP_URL || process.env.SLATE_PROPOSAL_URL || "";
-	if (slateUrl) {
-		const base = slateUrl.replace(/\/$/, "");
-		return `${base}?proposal_id=${encodeURIComponent(proposalId)}&type=${encodeURIComponent(docType)}`;
+	const slateUrl = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim().replace(/\/+$/, "");
+	if (!slateUrl) {
+		console.error("[config] PROPOSAL_SLATE_APP_URL is not set.");
+		throw new ProposalError("CONFIG_ERROR", "Server configuration error.", 500);
 	}
-	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}&type=${encodeURIComponent(docType)}`;
+	return `${slateUrl}?proposal_id=${encodeURIComponent(proposalId)}&type=${encodeURIComponent(docType)}`;
 }
 
 function buildDocumentsObject(proposalId, existingProposal) {
@@ -474,14 +439,8 @@ function formatProposal(row) {
 	};
 }
 
-// Falls back to the real API view route (never a hardcoded onslate.com domain) when a
-// proposal has no stored generated_url yet - the Slate app's own domain is read from
-// PROPOSAL_SLATE_APP_URL wherever a URL first gets built (proposal-processor), so this
-// function never needs to know or hardcode it.
 function sanitizeProposalUrl(url, proposalId) {
-	const trimmed = String(url || "").trim();
-	if (trimmed) return trimmed;
-	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId || "")}&type=commercial`;
+	return String(url || "").trim() || buildDocumentUrl(proposalId || "", "commercial");
 }
 
 function escapeQueryValue(value) {

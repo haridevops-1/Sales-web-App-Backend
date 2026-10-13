@@ -1,38 +1,11 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 
-let getZiaAgentClient;
-let getDocument;
-let getProject;
-let findProcessingJob;
-let getRowId;
-let streamToBuffer;
-let sanitizeErrorMessage;
-
-try {
-	const agentModule = require("./shared/agent");
-	getZiaAgentClient = agentModule.getZiaAgentClient;
-	const datastoreModule = require("./shared/datastore/targetedQueries");
-	getDocument = datastoreModule.getDocument;
-	getProject = datastoreModule.getProject;
-	findProcessingJob = datastoreModule.findProcessingJob;
-	getRowId = datastoreModule.getRowId;
-	const utilsModule = require("./shared/utils");
-	streamToBuffer = utilsModule.streamToBuffer;
-	sanitizeErrorMessage = utilsModule.sanitizeErrorMessage;
-} catch {
-	const agentModule = require("../../shared/agent");
-	getZiaAgentClient = agentModule.getZiaAgentClient;
-	const datastoreModule = require("../../shared/datastore/targetedQueries");
-	getDocument = datastoreModule.getDocument;
-	getProject = datastoreModule.getProject;
-	findProcessingJob = datastoreModule.findProcessingJob;
-	getRowId = datastoreModule.getRowId;
-	const utilsModule = require("../../shared/utils");
-	streamToBuffer = utilsModule.streamToBuffer;
-	sanitizeErrorMessage = utilsModule.sanitizeErrorMessage;
-}
+const { getZiaAgentClient } = require("./shared/agent");
+const { getDocument, getProject, findProcessingJob, getRowId } = require("./shared/datastore/targetedQueries");
+const { streamToBuffer, sanitizeErrorMessage } = require("./shared/utils");
 
 const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
 const GENERATED_BUCKET_NAME = "spikra-generated-experiences-698386704";
@@ -52,7 +25,7 @@ const MAX_REQUEST_BODY_SIZE = 1024 * 1024; // 1 MB
 // well beyond Basic I/O's execution-time ceiling, which was killing this function mid-call
 // ("basicio Execution Time Exceeded") regardless of document size. Advanced I/O gives this the
 // same longer execution budget Functions 1 and 5 already rely on for their own slow I/O.
-module.exports = async (req, res) => {
+const handler = async (req, res) => {
 	let app = null;
 	let documentId = null;
 	let aiAnalysisJob = null;
@@ -466,17 +439,12 @@ module.exports = async (req, res) => {
 	}
 };
 
-// Strict allowlist: ONLY these origins, confirmed live via the Catalyst MCP API as the
-// project's actual Authorised Domains (CORS enabled), are permitted. Any other origin gets
-// no Access-Control-Allow-Origin header at all, so the browser blocks the request - this is
-// intentional, not a bug. Catalyst's own platform/gateway already injects this header for
-// these exact origins, so this function deliberately stays silent for them to avoid a
-// duplicate header. To allow a new domain: add it in Catalyst Authorised Domains AND here.
-const PLATFORM_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com",
-	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
-];
+// Only origins in ALLOWED_ORIGINS (also Authorised Domains in the Catalyst Console) get
+// CORS headers; the gateway sets Access-Control-Allow-Origin itself.
+const PLATFORM_COVERED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
+	.split(",")
+	.map((o) => o.trim().replace(/\/+$/, ""))
+	.filter(Boolean);
 
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
@@ -667,3 +635,5 @@ class ProcessingError extends Error {
 		this.name = "ProcessingError";
 	}
 }
+
+module.exports = requireAuth(handler);

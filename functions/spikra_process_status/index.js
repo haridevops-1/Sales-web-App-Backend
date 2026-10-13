@@ -1,5 +1,7 @@
 'use strict';
 
+const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
+
 const catalyst = require('zcatalyst-sdk-node');
 
 const PROJECTS_TABLE = 'PROJECTS';
@@ -7,7 +9,7 @@ const DOCUMENTS_TABLE = 'DOCUMENTS';
 const EXPERIENCES_TABLE = 'EXPERIENCES';
 const PROCESSING_JOBS_TABLE = 'PROCESSING_JOBS';
 
-module.exports = async (context, basicIO) => {
+const handler = async (context, basicIO) => {
 	let projectId = '';
 	let documentId = '';
 	let experienceId = '';
@@ -338,3 +340,5 @@ function getRowId(row) {
 function escapeValue(value) {
 	return String(value || '').replace(/'/g, "''");
 }
+
+module.exports = asAdvancedIO(handler);

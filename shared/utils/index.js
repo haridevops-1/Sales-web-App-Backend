@@ -25,26 +25,6 @@ function escapeHtml(value) {
 		.replace(/'/g, "&#039;");
 }
 
-function validateAnalysisSchema(obj) {
-	if (!obj || typeof obj !== "object") return false;
-	const requiredFields = [
-		"proposal_title",
-		"project_summary",
-		"business_challenge",
-		"recommended_solution",
-		"target_users",
-		"business_benefits",
-		"modules",
-		"workflow_steps"
-	];
-	for (const field of requiredFields) {
-		if (obj[field] === undefined || obj[field] === null) {
-			return false;
-		}
-	}
-	return true;
-}
-
 function sanitizeErrorMessage(error) {
 	const raw = error && error.message ? String(error.message) : "An unexpected processing error occurred.";
 	return raw
@@ -93,7 +73,6 @@ function formatProposalUrl(rawUrl, experienceId = "", projectId = "") {
 module.exports = {
 	streamToBuffer,
 	escapeHtml,
-	validateAnalysisSchema,
 	sanitizeErrorMessage,
 	formatProposalUrl
 };

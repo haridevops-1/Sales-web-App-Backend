@@ -4,28 +4,11 @@ const catalyst = require("zcatalyst-sdk-node");
 const path = require("path");
 const crypto = require("crypto");
 
-let decodeSession, workdrive, ProposalError, toErrorResponse, logEvent, newRequestId, setAllowOriginHeader;
-
-try {
-	({ decodeSession } = require("./shared-workdrive/utils/session"));
-	workdrive = require("./shared-workdrive/services/workdrive");
-	({ ProposalError, toErrorResponse } = require("./shared/utils/errors"));
-	({ logEvent, newRequestId } = require("./shared/utils/logging"));
-	({ setAllowOriginHeader } = require("./shared/utils/cors"));
-} catch {
-	({ decodeSession } = require("../../shared-workdrive/utils/session"));
-	workdrive = require("../../shared-workdrive/services/workdrive");
-	({ ProposalError, toErrorResponse } = require("../../workspace2-proposal/utils/errors"));
-	({ logEvent, newRequestId } = require("../../workspace2-proposal/utils/logging"));
-	({ setAllowOriginHeader } = require("../../workspace2-proposal/utils/cors"));
-}
-
-// Local file uploads need no identity at all - only an action that actually reaches
-// into a salesperson's Zoho WorkDrive (add_from_workdrive) requires a real session,
-// checked at that call site. LOCAL_USER is a fixed, unscoped bucket for everything
-// else; it is not a per-salesperson identity, matching how this endpoint is actually
-// used (there is no other login system in this app to scope by).
-const LOCAL_USER = { userId: "local-upload", email: null };
+const { requireSession } = require("./shared-auth/utils/session");
+const workdrive = require("./shared-auth/services/workdrive");
+const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
+const { logEvent, newRequestId } = require("./shared/utils/logging");
+const { setAllowOriginHeader } = require("./shared/utils/cors");
 
 const DISCOVERY_PACKAGES_TABLE = "W2_DISCOVERY_PACKAGES";
 const DISCOVERY_FILES_TABLE = "W2_DISCOVERY_FILES";
@@ -51,8 +34,7 @@ module.exports = async (req, res) => {
 		}
 
 		const app = catalyst.initialize(req);
-		const sessionUser = await decodeSession(req);
-		const user = sessionUser || LOCAL_USER;
+		const user = await requireSession(app, req);
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
 		packageId = urlObj.searchParams.get("package_id") || urlObj.searchParams.get("session_id");
 		const action = String(urlObj.searchParams.get("action") || "").toLowerCase();
@@ -111,11 +93,8 @@ module.exports = async (req, res) => {
 				const effectiveAction = (action || String(body.action || "").toLowerCase());
 				const effectivePackageId = packageId || body.package_id || body.session_id || null;
 				if (effectiveAction === "add_from_workdrive") {
-					if (!sessionUser) {
-						throw new ProposalError("WORKDRIVE_AUTH_FAILED", "Connect Zoho WorkDrive to add files from WorkDrive.", 401);
-					}
 					const fileIds = Array.isArray(body.file_ids) ? body.file_ids : body.file_id ? [body.file_id] : [];
-					const files = await downloadWorkdriveFiles(app, user.email, fileIds, user);
+					const files = await downloadWorkdriveFiles(app, user, fileIds);
 					if (effectivePackageId) {
 						operation = "add_from_workdrive_existing";
 						const result = await addUploadedFilesToPackage(app, effectivePackageId, user.userId, files);
@@ -188,13 +167,13 @@ function validateFileEntry(file) {
 // local multipart upload produces, so it can flow into createPackageFromUpload /
 // addUploadedFilesToPackage unchanged - a WorkDrive-picked file is stored and processed
 // exactly like a locally-uploaded one from this point on.
-async function downloadWorkdriveFiles(app, email, fileIds, session) {
+async function downloadWorkdriveFiles(app, session, fileIds) {
 	if (!Array.isArray(fileIds) || fileIds.length === 0) {
 		throw new ProposalError("VALIDATION_FAILED", "file_id or file_ids is required.");
 	}
 	const files = [];
 	for (const fileId of fileIds) {
-		const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, email, fileId, session);
+		const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, session, fileId);
 		files.push({ fileName, contentType: mimeType, data: buffer });
 	}
 	return files;
@@ -430,10 +409,7 @@ async function getOwnedPackageRow(app, packageId, userId) {
 	if (!row) {
 		throw new ProposalError("NOT_FOUND", "Discovery package not found.", 404);
 	}
-	// Packages created without a WorkDrive session live in the shared, unscoped
-	// LOCAL_USER bucket (see the top of this file) - not owned by any one salesperson,
-	// so anyone can add to one regardless of whether they're currently connected.
-	if (row.user_id && row.user_id !== LOCAL_USER.userId && String(row.user_id) !== String(userId)) {
+	if (!row.user_id || String(row.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery package.", 403);
 	}
 	return row;
@@ -497,11 +473,8 @@ async function getPackageWithFiles(app, packageId, userId, preloadedRow) {
 
 async function listPackages(app, userId) {
 	const query = `SELECT * FROM ${DISCOVERY_PACKAGES_TABLE} WHERE user_id = '${escapeQueryValue(userId)}' ORDER BY CREATEDTIME DESC`;
-	let rows = [];
-	try {
-		const result = await app.zcql().executeZCQLQuery(query);
-		rows = (result || []).map((item) => item[DISCOVERY_PACKAGES_TABLE] || item);
-	} catch {}
+	const result = await app.zcql().executeZCQLQuery(query);
+	const rows = (result || []).map((item) => item[DISCOVERY_PACKAGES_TABLE] || item);
 
 	return rows.map((row) => ({
 		session_id: String(row.ROWID),

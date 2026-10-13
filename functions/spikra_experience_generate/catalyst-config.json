@@ -2,9 +2,11 @@
 	"deployment": {
 		"name": "spikra_experience_generate",
 		"stack": "node22",
-		"type": "basicio",
+		"type": "advancedio",
 		"memory": 512,
-		"env_variables": {}
+		"env_variables": {
+			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com"
+		}
 	},
 	"execution": {
 		"main": "index.js"

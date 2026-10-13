@@ -1,5 +1,7 @@
 'use strict';
 
+const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
+
 const catalyst = require('zcatalyst-sdk-node');
 
 const EXPERIENCES_TABLE = 'EXPERIENCES';
@@ -7,7 +9,7 @@ const PROJECTS_TABLE = 'PROJECTS';
 
 // Experiences whose parent PROJECTS row no longer exists are purged here rather than just filtered,
 // so orphans left behind by manual project deletion in Catalyst don't accumulate silently.
-module.exports = async (context, basicIO) => {
+const handler = async (context, basicIO) => {
 	try {
 		const app = catalyst.initialize(context);
 
@@ -253,3 +255,4 @@ function formatProposalUrl(rawUrl, expId = '', projId = '') {
 	}
 }
 
+module.exports = asAdvancedIO(handler);

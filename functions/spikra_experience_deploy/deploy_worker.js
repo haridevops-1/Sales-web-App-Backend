@@ -15,7 +15,8 @@ const REQUIRED_EXPERIENCE_FILES = [
 
 // Spikra publishes a single shared Slate app (deployed once via `catalyst deploy --only slate`);
 // every business gets a unique link via query params/slug, never a dedicated app per customer.
-const SLATE_APP_URL = process.env.SLATE_APP_URL || "https://spikra-ai-proposal.onslate.com";
+const SLATE_APP_URL = String(process.env.SLATE_APP_URL || "").trim();
+if (!SLATE_APP_URL) throw new Error("SLATE_APP_URL is not configured.");
 
 function generateBusinessSlug(businessName) {
 	if (!businessName || typeof businessName !== "string") {

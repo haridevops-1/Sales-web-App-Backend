@@ -1,20 +1,8 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
-let decodeSession, workdrive;
-try {
-	({ decodeSession } = require("./shared-workdrive/utils/session"));
-	workdrive = require("./shared-workdrive/services/workdrive");
-} catch {
-	({ decodeSession } = require("../../shared-workdrive/utils/session"));
-	workdrive = require("../../shared-workdrive/services/workdrive");
-}
-
-// See proposal-discovery/index.js for why: this function never touches WorkDrive
-// itself (it only reads files already stored by proposal-discovery), so a session is
-// only needed to scope packages to a salesperson when one connected. Packages created
-// without a session live in this fixed, unscoped bucket instead.
-const LOCAL_USER = { userId: "local-upload", email: null };
+const { requireSession } = require("./shared-auth/utils/session");
+const workdrive = require("./shared-auth/services/workdrive");
 const { ProposalError, toErrorResponse } = require("./shared/utils/errors");
 const { logEvent, newRequestId } = require("./shared/utils/logging");
 const { setAllowOriginHeader } = require("./shared/utils/cors");
@@ -29,9 +17,8 @@ const PROPOSALS_TABLE = "W2_PROPOSALS";
 const AI_USAGE_LOG_TABLE = "W2_AI_USAGE_LOG";
 const PROPOSAL_DOCUMENTS_BUCKET_NAME = "spikra-w2-proposal-documents-698386704";
 const PROCESS_DOCUMENTS_BUCKET_NAME = "spikra-process-documents-698386704";
-const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "internalsaleshub").trim();
-const API_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com";
-const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "https://spikra-w2-proposal-jmdbymcs.onslate.com").trim();
+const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "").trim();
+const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim();
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS || 8000);
 
@@ -50,8 +37,7 @@ module.exports = async (req, res) => {
 		}
 
 		const app = catalyst.initialize(req);
-		const sessionUser = await decodeSession(req);
-		const user = sessionUser || LOCAL_USER;
+		const user = await requireSession(app, req);
 		const urlObj = new URL(req.url, `http://${(req.headers && req.headers.host) || "localhost"}`);
 		packageId = urlObj.searchParams.get("session_id") || urlObj.searchParams.get("package_id");
 
@@ -407,13 +393,12 @@ async function getProcessingStatus(app, packageId, userId) {
 	const proposalsTable = app.datastore().table(PROPOSALS_TABLE);
 
 	let proposalRow = null;
-	try {
-		const q = `SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC LIMIT 1`;
-		const res = await app.zcql().executeZCQLQuery(q);
-		if (res && res.length > 0) {
-			proposalRow = res[0][PROPOSALS_TABLE] || res[0];
-		}
-	} catch {}
+	const res = await app.zcql().executeZCQLQuery(
+		`SELECT * FROM ${PROPOSALS_TABLE} WHERE package_id = '${escapeQueryValue(packageId)}' ORDER BY CREATEDTIME DESC LIMIT 1`
+	);
+	if (res && res.length > 0) {
+		proposalRow = res[0][PROPOSALS_TABLE] || res[0];
+	}
 
 	let effectiveStatus = String(packageRow.status || "PROCESSING").toUpperCase();
 	if (proposalRow && proposalRow.generated_url) {
@@ -446,10 +431,11 @@ async function getProcessingStatus(app, packageId, userId) {
 
 function buildDocumentUrl(proposalId, docType = "commercial") {
 	const queryParam = docType ? `&type=${encodeURIComponent(docType)}` : "";
-	if (PROPOSAL_SLATE_APP_URL) {
-		return `${PROPOSAL_SLATE_APP_URL.replace(/\/+$/, "")}/?proposal_id=${encodeURIComponent(proposalId)}${queryParam}`;
+	if (!PROPOSAL_SLATE_APP_URL) {
+		console.error("[config] PROPOSAL_SLATE_APP_URL is not set.");
+		throw new ProposalError("CONFIG_ERROR", "Server configuration error.", 500);
 	}
-	return `${API_BASE_URL}/proposal/api?resource=view&proposal_id=${encodeURIComponent(proposalId)}${queryParam}`;
+	return `${PROPOSAL_SLATE_APP_URL.replace(/\/+$/, "")}/?proposal_id=${encodeURIComponent(proposalId)}${queryParam}`;
 }
 
 function buildDocumentsObject(proposalId, existingProposal) {
@@ -695,7 +681,7 @@ async function retrieveFileBuffer(app, user, fileRow) {
 		throw new ProposalError("NOT_FOUND", `Could not retrieve file from storage (${cleanKey}): ${(lastErr && lastErr.message) || "Not found"}`);
 	}
 
-	const { buffer } = await workdrive.downloadFile(app, user.userId, idOrKey, user);
+	const { buffer } = await workdrive.downloadFile(app, user, idOrKey);
 	return buffer;
 }
 
@@ -737,7 +723,7 @@ async function getOwnedPackageWithFiles(app, packageId, userId) {
 	if (!packageRow) {
 		throw new ProposalError("NOT_FOUND", "Discovery session not found.", 404);
 	}
-	if (packageRow.user_id && packageRow.user_id !== LOCAL_USER.userId && String(packageRow.user_id) !== String(userId)) {
+	if (!packageRow.user_id || String(packageRow.user_id) !== String(userId)) {
 		throw new ProposalError("UNAUTHORIZED", "You do not have access to this discovery session.", 403);
 	}
 

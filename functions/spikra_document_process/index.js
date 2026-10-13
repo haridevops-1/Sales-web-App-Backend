@@ -1,5 +1,7 @@
 "use strict";
 
+const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
+
 const catalyst = require("zcatalyst-sdk-node");
 const path = require("path");
 const pdfParse = require("pdf-parse");
@@ -15,7 +17,7 @@ const PROJECTS_TABLE = "PROJECTS";
 const MAX_SOURCE_FILE_SIZE = 99 * 1024 * 1024; // 99 MB
 const MAX_EXTRACTED_TEXT_SIZE = 10 * 1024 * 1024; // 10 MB
 
-module.exports = async (context, basicIO) => {
+const handler = async (context, basicIO) => {
 	let app;
 	let documentId = null;
 	let processingJob = null;
@@ -544,3 +546,5 @@ class ProcessingError extends Error {
 		this.name = "ProcessingError";
 	}
 }
+
+module.exports = asAdvancedIO(handler);

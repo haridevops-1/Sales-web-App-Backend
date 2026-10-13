@@ -15,10 +15,10 @@ const DEFAULT_TIMEOUT_MS = 280000;
 
 class ProposalZiaAgentClient {
 	constructor(config = {}) {
-		const rawEndpoint = config.endpoint || process.env.PROPOSAL_ZIA_AGENT_ENDPOINT || "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000166001/trigger";
+		const rawEndpoint = config.endpoint || process.env.PROPOSAL_ZIA_AGENT_ENDPOINT || "";
 		this.endpoint = String(rawEndpoint).trim();
 		this.connectionLinkName = String(
-			config.connectionLinkName || process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "internalsaleshub"
+			config.connectionLinkName || process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || ""
 		).trim();
 		this.timeoutMs = Number(config.timeoutMs || process.env.PROPOSAL_ZIA_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 		this.lastSessionId = null;
@@ -29,10 +29,10 @@ class ProposalZiaAgentClient {
 	}
 
 	isConfigured() {
-		return Boolean(this.endpoint);
+		return /^https:\/\//i.test(this.endpoint);
 	}
 
-	async generateProposal(discoveryInput, { businessName, industry } = {}, connectionCredentials) {
+	async generateProposal(discoveryInput, { businessName, industry } = {}, connectionCredentials, rawSourceText) {
 		const discoveryText = typeof discoveryInput === "object"
 			? JSON.stringify(discoveryInput, null, 2)
 			: String(discoveryInput || "").trim();
@@ -47,7 +47,7 @@ class ProposalZiaAgentClient {
 			);
 		}
 
-		const query = buildQuery(discoveryText, { businessName, industry });
+		const query = buildQuery(discoveryText, { businessName, industry }, rawSourceText);
 		const payload = { query, systemArgs: {}, reasoning: false, attachments: [] };
 
 		const responseData = await this._callAgentEndpoint(payload, connectionCredentials);
@@ -69,10 +69,6 @@ class ProposalZiaAgentClient {
 			Accept: "application/json, text/plain, */*",
 			...(connectionCredentials && connectionCredentials.headers ? connectionCredentials.headers : {})
 		};
-		const authToken = process.env.PROPOSAL_ZIA_AUTH_TOKEN || process.env.ZIA_AGENT_AUTH_TOKEN || "";
-		if (!headers["Authorization"] && authToken) {
-			headers["Authorization"] = `Zoho-oauthtoken ${authToken.trim()}`;
-		}
 		headers["Content-Length"] = Buffer.byteLength(payloadString);
 
 		const options = {
@@ -123,33 +119,28 @@ class ProposalZiaAgentClient {
 	}
 }
 
-function buildQuery(consolidatedJsonString, { businessName, industry }) {
+// The Agent's own Studio-configured system instructions already define the full task in
+// detail (3-document rules, the Commercial.pdf master template, anti-hallucination rules,
+// "To be confirmed" fallback, the exact output JSON schema, consistency checks). Restating
+// all of that here risked actively contradicting it - an earlier version of this function
+// gave its own example schema using "heading" for section titles where the Studio prompt's
+// schema uses "title", and claimed the raw source text was "the source of truth" where the
+// Studio prompt assigns that role to the consolidated JSON. This now only supplies the data
+// the Studio instructions already say to expect, deferring entirely to them for the rules.
+function buildQuery(consolidatedJsonString, { businessName, industry }, rawSourceText) {
 	const customerName = businessName ? `Customer: ${businessName}` : "";
 	const ind = industry ? `Industry: ${industry}` : "";
 	const context = [customerName, ind].filter(Boolean).join("\n");
+	const hasRawSource = typeof rawSourceText === "string" && rawSourceText.trim().length > 0;
 
 	return [
 		context,
-		"You are the Customer Proposal Generation Agent for Spikra. Analyze the following Consolidated Customer JSON (extracted and combined from all discovery documents) and generate THREE distinct structured proposal documents:",
-		"1. technical_document: Technical Architecture, Systems, Functional & Technical Requirements, Integrations, and Technical Deliverables.",
-		"2. commercial_document: Commercial Scope, Executive Summary, Deliverables Catalog, Implementation Milestones, and Commercial/Licensing Structure.",
-		"3. tos_document: Terms of Service, Scope Governance, Assumptions, Dependencies, Risks, SLA & Support Hypercare.",
-		"",
-		"RULES & CONSTRAINTS:",
-		"- Ground every single field strictly in the provided Consolidated Customer JSON.",
-		"- Do NOT invent customer information.",
-		"- Do NOT invent pricing.",
-		"- Do NOT invent payment terms.",
-		"- Do NOT invent timelines.",
-		"- Do NOT invent legal/TOS commitments.",
-		"- If commercial, timeline, or TOS details were not explicitly stated in the source documents, clearly state that they are subject to mutual commercial alignment or keep them empty.",
-		"- The document generator applies the visual presentation templates. Do NOT generate HTML, CSS, JavaScript or visual UI.",
-		"",
-		"Return ONLY a valid JSON object matching this exact structure, with no markdown code blocks, no backticks, and no wrapper key:",
-		'{\n  "technical_document": {\n    "title": "Technical Document",\n    "sections": [\n      {\n        "heading": "Architecture & System Blueprint",\n        "content": "...",\n        "subsections": [\n          { "title": "Key Technical Requirements", "content": "..." }\n        ]\n      }\n    ]\n  },\n  "commercial_document": {\n    "title": "Commercial Proposal",\n    "sections": [\n      {\n        "heading": "Executive Summary & Commercial Scope",\n        "content": "...",\n        "subsections": [\n          { "title": "Deliverables & Modules", "content": "..." }\n        ]\n      }\n    ]\n  },\n  "tos_document": {\n    "title": "TOS Document",\n    "sections": [\n      {\n        "heading": "Scope Governance & Terms of Service",\n        "content": "...",\n        "subsections": [\n          { "title": "Key Assumptions & Responsibilities", "content": "..." }\n        ]\n      }\n    ]\n  }\n}',
-		"",
 		"Consolidated Customer JSON:",
-		consolidatedJsonString.trim()
+		consolidatedJsonString.trim(),
+		hasRawSource
+			? "Supplementary verbatim excerpts from the uploaded source documents, in case the JSON summary above didn't fully capture a detail (e.g. a pricing table, SLA wording, or a specific technical requirement). The consolidated JSON remains the authoritative source for customer facts; use this only to fill gaps, not to override it:"
+			: "",
+		hasRawSource ? rawSourceText.trim() : ""
 	].filter(Boolean).join("\n\n");
 }
 

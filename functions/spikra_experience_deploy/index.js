@@ -1,6 +1,7 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 const https = require("https");
 const http = require("http");
 const { URL } = require("url");
@@ -29,7 +30,7 @@ const REQUIRED_EXPERIENCE_FILES = [
 
 const MAX_REQUEST_BODY_SIZE = 1024 * 1024; // 1 MB
 
-module.exports = async (req, res) => {
+const handler = async (req, res) => {
 	let app = null;
 	let experienceId = "";
 	let projectId = "";
@@ -334,7 +335,7 @@ module.exports = async (req, res) => {
 
 		const friendlySlugMatch = existingGeneratedUrl ? existingGeneratedUrl.match(/[?&]slug=([^&]+)/) : null;
 		const isFriendlyUrl = existingGeneratedUrl &&
-			existingGeneratedUrl.includes("spikra-ai-proposal.onslate.com") &&
+			existingGeneratedUrl.startsWith(String(SLATE_APP_URL).replace(/\/+$/, "")) &&
 			Boolean(friendlySlugMatch) &&
 			decodeURIComponent(friendlySlugMatch[1]).endsWith("_proposal");
 
@@ -785,17 +786,12 @@ function escapeQueryValue(value) {
 		.replace(/\\/g, "\\\\");
 }
 
-// Strict allowlist: ONLY these origins, confirmed live via the Catalyst MCP API as the
-// project's actual Authorised Domains (CORS enabled), are permitted. Any other origin gets
-// no Access-Control-Allow-Origin header at all, so the browser blocks the request - this is
-// intentional, not a bug. Catalyst's own platform/gateway already injects this header for
-// these exact origins, so this function deliberately stays silent for them to avoid a
-// duplicate header. To allow a new domain: add it in Catalyst Authorised Domains AND here.
-const PLATFORM_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com",
-	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
-];
+// Only origins in ALLOWED_ORIGINS (also Authorised Domains in the Catalyst Console) get
+// CORS headers; the gateway sets Access-Control-Allow-Origin itself.
+const PLATFORM_COVERED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
+	.split(",")
+	.map((o) => o.trim().replace(/\/+$/, ""))
+	.filter(Boolean);
 
 function setCorsHeaders(req, res) {
 	const origin = (req.headers && (req.headers.origin || req.headers.Origin)) || "";
@@ -850,13 +846,18 @@ function escapeHtmlText(str) {
 		.replace(/"/g, "&quot;");
 }
 
-const DEPLOY_BASE_URL = "https://spikra-ai-proposal-698386704.development.catalystserverless.com/spikra/experience/deploy";
+function getDeployBaseUrl() {
+	const base = String(process.env.API_BASE_URL || "").trim().replace(/\/+$/, "");
+	if (!base) throw new Error("API_BASE_URL is not configured.");
+	return `${base}/spikra/experience/deploy`;
+}
 
 function rewriteGeneratedAssetLinks(html, expId, projId, slug) {
 	let baseQs = `experience_id=${encodeURIComponent(expId)}&project_id=${encodeURIComponent(projId)}`;
 	if (slug) {
 		baseQs = `slug=${encodeURIComponent(slug)}&` + baseQs;
 	}
+	const DEPLOY_BASE_URL = getDeployBaseUrl();
 	const logoUrl = `${DEPLOY_BASE_URL}?${baseQs}&asset=logo`;
 	const cssUrl = `${DEPLOY_BASE_URL}?${baseQs}&asset=styles.css`;
 	const jsUrl = `${DEPLOY_BASE_URL}?${baseQs}&asset=script.js`;
@@ -965,13 +966,11 @@ async function findExperienceBySlug(app, slug) {
 	const cleanSlug = String(slug).replace(/^\/+|\/+$/g, "").toLowerCase().trim();
 	if (!cleanSlug || cleanSlug === "index.html") return null;
 
+	const slateBase = String(SLATE_APP_URL).replace(/\/+$/, "");
 	const targetUrls = [
-		`https://spikra-ai-proposal.onslate.com/?slug=${cleanSlug}`,
-		`https://spikra-ai-proposal.onslate.com/${cleanSlug}`,
-		`https://spikra-ai-proposal.onslate.com/${cleanSlug}/`,
-		`https://spikra-experience-kspwbmax.onslate.com/?slug=${cleanSlug}`,
-		`https://spikra-experience-kspwbmax.onslate.com/${cleanSlug}`,
-		`https://spikra-experience-kspwbmax.onslate.com/${cleanSlug}/`
+		`${slateBase}/?slug=${cleanSlug}`,
+		`${slateBase}/${cleanSlug}`,
+		`${slateBase}/${cleanSlug}/`
 	];
 
 	for (const targetUrl of targetUrls) {
@@ -1094,3 +1093,5 @@ class ProcessingError extends Error {
 		this.name = "ProcessingError";
 	}
 }
+
+module.exports = requireAuth(handler, { publicMethods: ["GET"] });

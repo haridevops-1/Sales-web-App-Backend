@@ -3,16 +3,25 @@
 /**
  * Spikra Customer Solution Document Renderer
  *
- * Implements the approved Spikra Design System (fixed theme from approved Spikra
- * Commercial Proposal reference: Poppins & Inter typography, Spikra color tokens,
- * sticky top brand bar with 3-document switcher, client badge, sticky anchor navigation,
- * deliverable cards, phased roadmap, and governance/commercials).
+ * Visual theme matches the approved Spikra Commercial Proposal reference template
+ * (Commercial-template.html, stored verbatim at docs/reference-templates/ in this repo):
+ * same colors (blue #1F4E79 / orange #F26522), same typography (Carlito/Calibri body,
+ * Georgia/Caladea headings), same diagonal orange-to-blue topbar with the real Spikra
+ * logo artwork, same cover-page layout, same Contents page, same table styling, same
+ * footer wording.
  *
- * Provides three separate logical templates:
- * 1. Technical Template (Architecture, Systems, Tech Requirements, Integrations, Deliverables)
- * 2. Commercial Template (Commercial Scope, Deliverables Catalog, Milestones, Licensing & Pricing)
- * 3. TOS Template (Terms of Service, Scope Governance, SLAs, Hypercare, Assumptions, Sign-off)
+ * Unlike the reference file (which binds content to fixed, Commercial-specific section
+ * IDs - pricing, payment schedule, licensing, "Why Spikra"), this renderer displays
+ * whatever sections the Zia Agent actually returns, under their own real titles, for all
+ * three document types. That's deliberate: Technical and TOS documents have completely
+ * different sections than Commercial, and forcing their content into Commercial-only
+ * slots would either fabricate "To be confirmed" placeholders over real content or
+ * silently drop content that doesn't match a hardcoded section name - exactly what must
+ * not happen per the "ground everything in the uploaded documents, never invent" rule
+ * that governs all three documents.
  */
+
+const { HEADER_LOGO_DATA_URI, COVER_LOGO_DATA_URI } = require("./logos");
 
 function escapeHtml(str) {
 	return String(str == null ? "" : str)
@@ -23,90 +32,38 @@ function escapeHtml(str) {
 		.replace(/'/g, "&#39;");
 }
 
-function renderBadgeList(items, emptyText) {
-	const list = (Array.isArray(items) ? items : []).map((s) => String(s || "").trim()).filter(Boolean);
-	if (list.length === 0) {
-		return `<p class="empty-note">${escapeHtml(emptyText)}</p>`;
-	}
-	return `<div class="badge-wrap">${list.map((item) => `<span class="app-badge"><svg class="badge-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>${escapeHtml(item)}</span>`).join("")}</div>`;
-}
-
-function renderListItems(items, emptyText, itemClass = "") {
-	const list = (Array.isArray(items) ? items : []).map((s) => String(s || "").trim()).filter(Boolean);
-	if (list.length === 0) {
-		return `<p class="empty-note">${escapeHtml(emptyText)}</p>`;
-	}
-	return `<ul class="styled-list ${itemClass}">${list.map((item) => `<li><span class="list-dot"></span><span>${escapeHtml(item)}</span></li>`).join("")}</ul>`;
-}
-
+// Two-column info table - matches the reference template's dominant layout pattern
+// ("Your requirement / How this proposal responds", "Work area / Key deliverables", etc.)
+// Generic "Topic / Details" header since subsections aren't tied to one fixed meaning
+// across Technical, Commercial and TOS documents the way the reference's named columns are.
 function renderSubsections(subsections) {
 	if (!Array.isArray(subsections) || subsections.length === 0) return "";
 
-	return `<div class="card-grid">${subsections.map((sub, i) => {
+	const rows = subsections.map((sub, i) => {
 		const title = typeof sub === "object" ? (sub.title || sub.heading || `Item ${i + 1}`) : `Item ${i + 1}`;
 		const content = typeof sub === "object" ? (sub.content || sub.description || "") : String(sub);
-		const numStr = (i + 1 < 10 ? "0" : "") + (i + 1);
+		return `<tr><td class="info-key">${escapeHtml(title)}</td><td class="info-val">${escapeHtml(content)}</td></tr>`;
+	}).join("");
 
-		return `
-		<div class="deliverable-card">
-			<div class="card-header">
-				<div class="card-number">${numStr}</div>
-				<h3 class="card-title">${escapeHtml(title)}</h3>
-			</div>
-			<div class="card-desc">${escapeHtml(content)}</div>
-		</div>`;
-	}).join("")}</div>`;
-}
-
-function buildDocumentSwitcherHtml(activeDocType, proposalId, options = {}) {
-	const baseUrl = options.baseUrl || "";
-	const buildUrl = (type) => {
-		if (options.buildDocUrl && typeof options.buildDocUrl === "function") {
-			return options.buildDocUrl(type);
-		}
-		if (proposalId) {
-			return `${baseUrl}?proposal_id=${encodeURIComponent(proposalId)}&type=${type}`;
-		}
-		return `?type=${type}`;
-	};
-
-	const docs = [
-		{ id: "technical", label: "Technical Document", icon: "M10 2a8 8 0 100 16 8 8 0 000-16zm1 11H9v-2h2v2zm0-4H9V5h2v4z" },
-		{ id: "commercial", label: "Commercial Proposal", icon: "M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" },
-		{ id: "tos", label: "TOS Document", icon: "M9 2a1 1 0 000 2h2a1 1 0 100-2H9z M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" }
-	];
-
-	return `
-	<div class="doc-switcher" role="tablist" aria-label="Document Type Switcher">
-		${docs.map((d) => {
-			const isActive = d.id === activeDocType;
-			return `
-			<a href="${buildUrl(d.id)}" class="doc-tab ${isActive ? "active" : ""}" role="tab" aria-selected="${isActive}">
-				<span class="tab-dot"></span>
-				<span class="tab-label">${escapeHtml(d.label)}</span>
-			</a>`;
-		}).join("")}
-	</div>`;
+	return `<table class="data"><thead><tr><th>Topic</th><th>Details</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderSharedDocumentTemplate({
-	docType,
 	docTitle,
-	eyebrow,
+	kicker,
 	badgeLabel,
-	accentColor,
 	companyName,
 	industry,
 	generatedAt,
 	proposalId,
-	sections,
-	options = {}
+	sections
 }) {
 	const customerName = String(companyName || "Customer Organization").trim();
 	const industryText = String(industry || "").trim();
 	const safeDocTitle = escapeHtml(docTitle || `${customerName} — Solution Document`);
-	const safeEyebrow = escapeHtml(eyebrow || "SPIKRA CUSTOMER PROPOSAL");
+	const safeKicker = escapeHtml(kicker || "SPIKRA PROPOSAL");
 	const safeBadge = escapeHtml(badgeLabel || "Spikra Document");
+	const safeProposalId = escapeHtml(String(proposalId || "Pending"));
 
 	const generatedDate = generatedAt ? new Date(generatedAt) : new Date();
 	const dateStr = isNaN(generatedDate.getTime())
@@ -115,32 +72,22 @@ function renderSharedDocumentTemplate({
 
 	const validSections = Array.isArray(sections) && sections.length > 0
 		? sections
-		: [{ heading: "Executive Summary", content: "Details to be finalized during alignment.", subsections: [] }];
+		: [{ heading: "Summary", content: "No content was found in the uploaded documents for this section.", subsections: [] }];
 
-	// Dynamic sub-navigation links
-	const navLinksHtml = validSections.map((sec, idx) => {
-		const secId = `section-${idx + 1}`;
+	// Plain contents list (matches the reference template's own Contents page) - static
+	// text, not a functional nav bar and not a document switcher.
+	const contentsHtml = validSections.map((sec, idx) => {
 		const headingText = sec.heading || `Section ${idx + 1}`;
-		return `<a href="#${secId}">${escapeHtml(headingText)}</a>`;
+		return `<div class="toc-row"><span>${idx + 1}. ${escapeHtml(headingText)}</span><span class="toc-dots"></span></div>`;
 	}).join("");
 
-	// Sections content HTML
 	const sectionsHtml = validSections.map((sec, idx) => {
-		const secId = `section-${idx + 1}`;
 		const headingText = sec.heading || `Section ${idx + 1}`;
 		const contentText = sec.content || "";
-		const numStr = (idx + 1 < 10 ? "0" : "") + (idx + 1);
-
 		return `
-		<section class="proposal-section" id="${secId}">
-			<div class="section-header">
-				<div>
-					<span class="section-number">${numStr}</span>
-					<h2 class="section-title">${escapeHtml(headingText)}</h2>
-				</div>
-				<span class="section-badge">${safeBadge}</span>
-			</div>
-			${contentText ? `<div class="section-narrative">${escapeHtml(contentText)}</div>` : ""}
+		<section class="doc-section">
+			<h2 class="section-title">${idx + 1}. ${escapeHtml(headingText)}</h2>
+			${contentText ? `<p>${escapeHtml(contentText)}</p>` : ""}
 			${renderSubsections(sec.subsections)}
 		</section>`;
 	}).join("");
@@ -151,628 +98,230 @@ function renderSharedDocumentTemplate({
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${safeDocTitle} | Spikra</title>
-<meta name="description" content="${escapeHtml(customerName)} — ${safeDocTitle} prepared by Spikra Solutions">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="description" content="${escapeHtml(customerName)} — ${safeDocTitle} prepared by Spikra">
 <style>
+  /* =========================================================
+     Theme copied from the approved Spikra Commercial Proposal
+     reference template (docs/reference-templates/commercial-template.html)
+  ========================================================= */
   :root {
-    --ink: #14415A;
-    --deep: #0C2C3E;
-    --flame: #F4611F;
-    --flame-2: #E8402E;
-    --flame-soft: #FFF3EC;
-    --sky: #2C7CB8;
-    --paper: #F7F9FA;
-    --card: #FFFFFF;
-    --line: #E3E9ED;
-    --muted: #6B7C87;
-    --radius: 14px;
-    --shadow: 0 1px 2px rgba(12, 44, 62, .05), 0 8px 24px rgba(12, 44, 62, .06);
-    --success: #10b981;
-    --success-soft: #ecfdf5;
-    --doc-accent: ${accentColor || "var(--flame)"};
+    --spikra-blue: #1F4E79;
+    --spikra-orange: #F26522;
+    --spikra-light: #EEF3F8;
+    --spikra-border: #D7E0E8;
+    --text: #202020;
+    --muted: #666666;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
+
+  html, body { background: #f3f3f3; }
+
   body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background: var(--paper);
-    color: var(--ink);
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
+    font-family: "Carlito", "Calibri", Arial, sans-serif;
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.55;
   }
 
-  /* Top Bar */
-  .top-brand-bar {
-    background: #ffffff;
-    border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    box-shadow: 0 1px 3px rgba(12, 44, 62, 0.04);
-  }
-  .brand-bar-inner {
-    max-width: 1140px;
-    margin: 0 auto;
-    padding: 12px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .brand-logo-wrap {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .spikra-brand-badge {
-    font-family: 'Poppins', sans-serif;
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--deep);
-  }
-  .spikra-brand-badge span { color: var(--flame); }
-  .partner-tag {
-    font-size: 11.5px;
-    font-weight: 600;
-    background: var(--flame-soft);
-    color: var(--flame);
-    padding: 3px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(244, 97, 31, 0.2);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
+  h1, h2, h3 { font-family: "Caladea", Georgia, "Times New Roman", serif; }
 
-  /* Document Switcher */
-  .doc-switcher {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--paper);
-    padding: 4px;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-  }
-  .doc-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--muted);
-    text-decoration: none;
-    border-radius: 7px;
-    transition: all 0.15s ease;
-  }
-  .doc-tab:hover {
-    color: var(--deep);
-    background: rgba(255, 255, 255, 0.7);
-  }
-  .doc-tab.active {
-    background: #ffffff;
-    color: var(--deep);
-    box-shadow: 0 1px 3px rgba(12, 44, 62, 0.08);
-  }
-  .doc-tab .tab-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--line);
-  }
-  .doc-tab.active .tab-dot {
-    background: var(--doc-accent);
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .print-btn {
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--deep);
-    background: #ffffff;
-    border: 1px solid var(--line);
-    padding: 6px 14px;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .print-btn:hover {
-    background: var(--paper);
-    border-color: var(--muted);
-  }
-
-  /* Sticky Sub-Navigation */
-  .sub-nav {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 57px;
-    z-index: 90;
-  }
-  .sub-nav-inner {
-    max-width: 1140px;
-    margin: 0 auto;
-    padding: 8px 24px;
-    display: flex;
-    gap: 20px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .sub-nav-inner::-webkit-scrollbar { display: none; }
-  .sub-nav-inner a {
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--muted);
-    text-decoration: none;
-    white-space: nowrap;
-    padding: 4px 0;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s ease;
-  }
-  .sub-nav-inner a:hover {
-    color: var(--deep);
-    border-color: var(--doc-accent);
-  }
-
-  /* Container */
-  .container {
-    max-width: 1140px;
-    margin: 0 auto;
-    padding: 32px 24px 64px;
-  }
-
-  /* Hero Card */
-  .hero-card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 40px 36px;
-    box-shadow: var(--shadow);
-    margin-bottom: 28px;
+  /* ---------- Diagonal topbar (orange / blue split) - identical construction to the
+     reference template: a 40%-width orange block with a skewed trailing edge, flush
+     against a flex-fill blue block. ---------- */
+  .topbar { height: 54px; width: 100%; position: relative; display: flex; overflow: hidden; }
+  .topbar .orange {
+    width: 40%;
+    background: var(--spikra-orange);
     position: relative;
-    overflow: hidden;
+    display: flex;
+    align-items: center;
+    padding-left: 28px;
   }
-  .hero-card::before {
+  .topbar .orange::after {
     content: "";
     position: absolute;
     top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: var(--doc-accent);
+    right: -32px;
+    width: 64px;
+    height: 100%;
+    background: var(--spikra-orange);
+    transform: skewX(-29deg);
+    transform-origin: top;
   }
-  .hero-top {
+  .topbar .blue {
+    flex: 1;
+    background: var(--spikra-blue);
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 24px;
-    margin-bottom: 24px;
-  }
-  .hero-eyebrow {
-    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11.5px;
+    justify-content: flex-end;
+    padding-right: 28px;
+  }
+  .topbar-logo { position: relative; z-index: 2; height: 26px; width: auto; object-fit: contain; }
+  .topbar-title {
+    position: relative;
+    z-index: 3;
+    color: #fff;
+    font-family: Arial, sans-serif;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    font-size: 11px;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    color: var(--doc-accent);
+  }
+
+  .page-shell { max-width: 820px; margin: 0 auto; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .content-pad { padding: 44px 48px 56px; }
+
+  /* ---------- Cover ---------- */
+  .cover-body { text-align: center; padding-bottom: 8px; }
+  .cover-logo { width: 70px; height: 55px; object-fit: contain; margin: 0 auto 12px; display: block; }
+  .cover-kicker {
+    color: var(--spikra-orange);
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
     margin-bottom: 8px;
   }
-  .hero-eyebrow::before {
-    content: "";
-    width: 18px;
-    height: 2px;
-    background: var(--doc-accent);
-  }
-  .hero-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: clamp(24px, 3.2vw, 36px);
-    font-weight: 700;
-    color: var(--deep);
-    letter-spacing: -0.02em;
-    line-height: 1.15;
-    margin-bottom: 12px;
-  }
-  .hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 16px;
-    color: var(--muted);
-    font-size: 13px;
-  }
-  .client-badge-box {
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 14px 20px;
-    text-align: center;
-    min-width: 180px;
-    flex-shrink: 0;
-  }
-  .client-badge-label {
-    font-size: 10.5px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 4px;
-  }
-  .client-badge-name {
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--deep);
+  .cover-title { color: var(--spikra-blue); font-size: 28px; line-height: 1.15; font-weight: 700; margin-bottom: 18px; }
+  .orange-rule { height: 2px; width: 70px; background: var(--spikra-orange); margin: 0 auto 26px; }
+  .prepared-label { color: #777; font-size: 11px; margin-bottom: 3px; }
+  .prepared-name { color: var(--spikra-blue); font-family: Georgia, serif; font-size: 15px; font-weight: 700; margin-bottom: 15px; }
+
+  .cover-context {
+    text-align: left;
+    margin: 20px 0 16px;
+    padding: 13px 16px;
+    border-left: 4px solid var(--spikra-orange);
+    background: var(--spikra-light);
+    color: #3d4b57;
+    font-size: 13.5px;
+    line-height: 1.55;
   }
 
-  /* Method KPI Grid */
-  .method-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1px;
-    background: var(--line);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    overflow: hidden;
-    margin-top: 24px;
-  }
-  .method-cell {
-    background: var(--card);
-    padding: 16px 20px;
-  }
-  .method-cell-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 4px;
-  }
-  .method-cell-val {
-    font-family: 'Poppins', sans-serif;
-    font-size: 14.5px;
-    font-weight: 600;
-    color: var(--deep);
-  }
+  .cover-meta { width: 100%; max-width: 560px; margin: 24px auto 0; border-collapse: collapse; text-align: left; font-size: 13px; }
+  .cover-meta td { border: 1px solid var(--spikra-border); padding: 8px 12px; vertical-align: top; }
+  .cover-meta td:first-child { width: 36%; background: var(--spikra-light); color: #46627a; font-weight: 700; }
 
-  /* Proposal Section */
-  .proposal-section {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 36px 36px;
-    box-shadow: var(--shadow);
-    margin-bottom: 28px;
-  }
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    border-bottom: 1px solid var(--line);
-    padding-bottom: 16px;
-    margin-bottom: 24px;
-  }
-  .section-header > div {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .section-number {
-    font-family: 'Poppins', sans-serif;
-    font-size: 14px;
-    font-weight: 700;
-    color: #ffffff;
-    background: var(--deep);
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
+  /* ---------- Contents ---------- */
+  .toc-block { margin: 36px 0; padding-top: 28px; border-top: 1px solid var(--spikra-border); }
+  .toc-block h2 { color: var(--spikra-blue); font-size: 18px; margin-bottom: 16px; }
+  .toc-row { display: flex; align-items: baseline; gap: 8px; color: var(--spikra-blue); font-weight: 700; font-size: 14px; margin: 9px 0; }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #999; height: 1px; }
+
+  /* ---------- Sections ---------- */
+  .doc-section { margin: 30px 0; }
   .section-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--deep);
-    letter-spacing: -0.01em;
-  }
-  .section-badge {
-    font-size: 11.5px;
-    font-weight: 600;
-    background: var(--paper);
-    color: var(--muted);
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-  }
-  .section-narrative {
-    font-size: 14.5px;
-    color: var(--ink);
-    margin-bottom: 24px;
-    line-height: 1.65;
-    white-space: pre-line;
-  }
-
-  /* Deliverable Card Grid */
-  .card-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 18px;
-    margin-top: 16px;
-  }
-  .deliverable-card {
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 20px 22px;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  .deliverable-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(12, 44, 62, 0.06);
-    border-color: #cbd5e1;
-  }
-  .card-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-  .card-number {
-    font-size: 11px;
+    color: var(--spikra-blue);
+    font-size: 18px;
     font-weight: 700;
-    color: var(--doc-accent);
-    background: var(--flame-soft);
-    padding: 2px 7px;
-    border-radius: 5px;
-    flex-shrink: 0;
+    border-bottom: 2px solid var(--spikra-orange);
+    padding-bottom: 8px;
+    margin-bottom: 14px;
   }
-  .card-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--deep);
-    line-height: 1.3;
-  }
-  .card-desc {
-    font-size: 13.5px;
-    color: var(--muted);
-    line-height: 1.55;
-    white-space: pre-line;
-  }
+  .doc-section p { margin-bottom: 12px; line-height: 1.65; white-space: pre-line; }
 
-  /* Styled List */
-  .styled-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 12px;
-  }
-  .styled-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--ink);
-    line-height: 1.55;
-  }
-  .list-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--doc-accent);
-    margin-top: 8px;
-    flex-shrink: 0;
-  }
+  /* ---------- Tables ---------- */
+  table.data { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 13.5px; }
+  .data th { background: var(--spikra-blue); color: #fff; text-align: left; font-weight: 700; padding: 9px 12px; border: 1px solid var(--spikra-blue); }
+  .data td { border: 1px solid var(--spikra-border); padding: 9px 12px; vertical-align: top; }
+  .data tbody tr:nth-child(even) td { background: #F2F5F8; }
+  .info-key { font-weight: 700; color: var(--spikra-blue); width: 30%; }
+  .info-val { white-space: pre-line; }
 
-  /* Badge Wrap */
-  .badge-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .app-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    font-weight: 500;
-    background: #ffffff;
-    border: 1px solid var(--line);
-    padding: 6px 12px;
-    border-radius: 8px;
-    color: var(--deep);
-  }
-  .badge-icon {
-    width: 14px;
-    height: 14px;
-    color: var(--success);
-  }
+  .empty-note { color: var(--muted); font-style: italic; font-size: 13.5px; }
 
-  /* Terms Callout */
-  .terms-box {
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--doc-accent);
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin-bottom: 16px;
-  }
-  .terms-title {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 6px;
-  }
-  .terms-value {
-    font-size: 14px;
-    color: var(--deep);
-    font-weight: 500;
-    white-space: pre-line;
-  }
+  /* ---------- Sign-off ---------- */
+  .signoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; margin-top: 40px; }
+  .signoff-name { color: var(--spikra-blue); font-weight: 700; margin-bottom: 22px; }
+  .signoff-line { border-top: 1px solid #888; margin-bottom: 6px; }
+  .signoff-caption { font-size: 11px; color: #666; margin-bottom: 16px; }
 
-  /* Sign-off Block */
-  .signoff-box {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 28px;
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 28px 32px;
-    margin-top: 32px;
-  }
-  .sign-col h5 {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--deep);
-    margin-bottom: 28px;
-  }
-  .sign-line {
-    border-top: 1px dashed var(--muted);
-    padding-top: 8px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  /* Footer */
-  .proposal-footer {
+  /* ---------- Footer ---------- */
+  .doc-footer {
     text-align: center;
-    padding-top: 40px;
-    color: var(--muted);
+    padding-top: 22px;
+    margin-top: 40px;
+    border-top: 1px solid var(--spikra-border);
+    color: #666;
     font-size: 12px;
-    border-top: 1px solid var(--line);
-    margin-top: 48px;
   }
-
-  .empty-note {
-    color: var(--muted);
-    font-style: italic;
-    font-size: 13.5px;
-  }
-
-  @media (max-width: 768px) {
-    .container { padding: 20px 16px 48px; }
-    .hero-card, .proposal-section { padding: 24px 20px; }
-    .hero-top { flex-direction: column; }
-    .client-badge-box { width: 100%; }
-    .signoff-box { grid-template-columns: 1fr; gap: 20px; }
-  }
+  .doc-footer .brand { color: var(--spikra-blue); font-weight: 700; }
 
   @media print {
-    .top-brand-bar, .sub-nav, .print-btn { display: none !important; }
-    body { background: #ffffff !important; }
-    .container { max-width: 100% !important; padding: 0 !important; }
-    .hero-card, .proposal-section { border: 1px solid #ddd !important; box-shadow: none !important; page-break-inside: avoid; }
+    html, body { background: #fff; }
+    .page-shell { max-width: 100%; box-shadow: none; }
+  }
+
+  @media (max-width: 640px) {
+    .content-pad { padding: 28px 18px 36px; }
+    .signoff-grid { grid-template-columns: 1fr; gap: 24px; }
   }
 </style>
 </head>
 <body>
 
-<!-- Top Brand Bar with 3-Document Switcher -->
-<header class="top-brand-bar">
-  <div class="brand-bar-inner">
-    <div class="brand-logo-wrap">
-      <div class="spikra-brand-badge">SPIKRA<span>.</span></div>
-      <span class="partner-tag">Zoho Advanced Partner</span>
-    </div>
+<div class="page-shell">
 
-    ${buildDocumentSwitcherHtml(docType, proposalId, options)}
+  <header class="topbar">
+    <div class="orange"><img class="topbar-logo" src="${HEADER_LOGO_DATA_URI}" alt="Spikra"></div>
+    <div class="blue"><div class="topbar-title">${safeBadge}</div></div>
+  </header>
 
-    <div class="header-actions">
-      <button class="print-btn" onclick="window.print()">Export / Print</button>
-    </div>
-  </div>
-</header>
+  <div class="content-pad">
 
-<!-- Sticky Sub-Navigation -->
-<nav class="sub-nav">
-  <div class="sub-nav-inner">
-    ${navLinksHtml}
-  </div>
-</nav>
+    <!-- Cover -->
+    <section class="cover-body">
+      <img class="cover-logo" src="${COVER_LOGO_DATA_URI}" alt="Spikra">
+      <div class="cover-kicker">${safeKicker}</div>
+      <h1 class="cover-title">${safeDocTitle}</h1>
+      <div class="orange-rule"></div>
+      <div class="prepared-label">Prepared for</div>
+      <div class="prepared-name">${escapeHtml(customerName)}${industryText ? ` <span style="color:#777;font-weight:400;font-size:12px;">(${escapeHtml(industryText)})</span>` : ""}</div>
+      <div class="prepared-label">Prepared by</div>
+      <div class="prepared-name">Spikra — Zoho Premium Partner &amp; IT Consulting</div>
 
-<div class="container">
+      <table class="cover-meta">
+        <tbody>
+          <tr><td>Document Reference</td><td>${safeProposalId}</td></tr>
+          <tr><td>Date</td><td>${dateStr}</td></tr>
+          <tr><td>Version</td><td>Draft v1.0 — For Client Review</td></tr>
+          <tr><td>Basis Document</td><td>Discovery documentation provided by ${escapeHtml(customerName)}</td></tr>
+        </tbody>
+      </table>
+    </section>
 
-  <!-- Hero Card -->
-  <section class="hero-card" id="hero">
-    <div class="hero-top">
+    <!-- Contents (static text, matches the reference template's own Contents page) -->
+    <section class="toc-block">
+      <h2>Contents</h2>
+      ${contentsHtml}
+    </section>
+
+    <!-- Content Sections -->
+    ${sectionsHtml}
+
+    <!-- Sign-off -->
+    <div class="signoff-grid">
       <div>
-        <div class="hero-eyebrow">${safeEyebrow}</div>
-        <h1 class="hero-title">${safeDocTitle}</h1>
-        <div class="hero-meta">
-          <span>Prepared for <strong>${escapeHtml(customerName)}</strong></span>
-          ${industryText ? `<span>· Industry: <strong>${escapeHtml(industryText)}</strong></span>` : ""}
-          <span>· Date: <strong>${dateStr}</strong></span>
-        </div>
+        <div class="signoff-name">For ${escapeHtml(customerName)}</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Name / Designation</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Signature &amp; Date</div>
       </div>
-      <div class="client-badge-box">
-        <div class="client-badge-label">Client Organization</div>
-        <div class="client-badge-name">${escapeHtml(customerName)}</div>
+      <div>
+        <div class="signoff-name">For Spikra</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Name / Designation</div>
+        <div class="signoff-line"></div><div class="signoff-caption">Signature &amp; Date</div>
       </div>
     </div>
 
-    <!-- Method KPI Cell -->
-    <div class="method-grid">
-      <div class="method-cell">
-        <div class="method-cell-label">Document Purpose</div>
-        <div class="method-cell-val">${safeBadge}</div>
-      </div>
-      <div class="method-cell">
-        <div class="method-cell-label">Architecture</div>
-        <div class="method-cell-val">Zoho Enterprise Ecosystem</div>
-      </div>
-      <div class="method-cell">
-        <div class="method-cell-label">Delivery Partner</div>
-        <div class="method-cell-val">Spikra Solutions</div>
-      </div>
-      <div class="method-cell">
-        <div class="method-cell-label">Engagement Status</div>
-        <div class="method-cell-val" style="color: var(--doc-accent);">Executive Baseline</div>
-      </div>
-    </div>
-  </section>
+    <!-- Footer -->
+    <footer class="doc-footer">
+      <p>Confidential — ${safeBadge} for ${escapeHtml(customerName)}</p>
+      <p style="margin-top: 4px;"><span class="brand">Spikra</span> — Zoho Premium Partner · sales@spikra.com</p>
+    </footer>
 
-  <!-- Content Sections -->
-  ${sectionsHtml}
-
-  <!-- Sign-off Block -->
-  <div class="signoff-box">
-    <div class="sign-col">
-      <h5>Prepared by Spikra Solutions</h5>
-      <div class="sign-line">Authorized Signatory · Spikra Solutions</div>
-    </div>
-    <div class="sign-col">
-      <h5>Accepted by Customer</h5>
-      <div class="sign-line">Authorized Signatory · ${escapeHtml(customerName)}</div>
-    </div>
   </div>
-
-  <!-- Footer -->
-  <footer class="proposal-footer">
-    <p>Spikra Solutions · Zoho Advanced Partner · Confidential &amp; Proprietary</p>
-    <p style="margin-top: 4px; font-size: 11px;">Prepared exclusively for ${escapeHtml(customerName)}.</p>
-  </footer>
-
 </div>
 
 </body>
@@ -780,8 +329,9 @@ function renderSharedDocumentTemplate({
 }
 
 /**
- * 1. Technical Document Template
- * Focuses on Technical Architecture, Requirements, Systems, Integrations, and Technical Deliverables.
+ * Unwraps whatever shape a single-document payload arrives in (direct {title,sections},
+ * or the wider proposal/content envelope) into a flat {title, sections, proposalId,
+ * customerName, industry} record.
  */
 function unwrapDocumentData(inputData) {
 	if (!inputData || typeof inputData !== "object") return { data: {}, proposalId: null, customerName: null, industry: null };
@@ -793,8 +343,10 @@ function unwrapDocumentData(inputData) {
 }
 
 /**
- * 1. Technical Document Template
- * Focuses on Technical Specifications, Architecture, Integrations, and Security.
+ * 1. Technical Document
+ * Only technical content from the uploaded documents: architecture, systems, functional &
+ * technical requirements, integrations, technical deliverables - whatever sections the
+ * Agent actually produced, under their own titles.
  */
 function renderTechnicalDocument(technicalData, options = {}) {
 	const unwrapped = unwrapDocumentData(technicalData);
@@ -806,24 +358,21 @@ function renderTechnicalDocument(technicalData, options = {}) {
 	const sections = data.sections || (technicalData && technicalData.sections) || [];
 
 	return renderSharedDocumentTemplate({
-		docType: "technical",
 		docTitle: title,
-		eyebrow: "SPIKRA SOLUTIONS · TECHNICAL SPECIFICATION & ARCHITECTURE",
+		kicker: "Technical Document",
 		badgeLabel: "Technical Document",
-		accentColor: "var(--sky)",
 		companyName: customerName,
 		industry,
 		generatedAt: options.generatedAt,
 		proposalId,
-		sections,
-		options
+		sections
 	});
 }
 
 /**
- * 2. Commercial Document Template
- * Reference: Approved Spikra Commercial Proposal (iSteel_Proposal_Site.html)
- * Focuses on Commercial Scope, Deliverables Catalog, Milestones, Licensing & Pricing.
+ * 2. Commercial Document
+ * Only commercial content from the uploaded documents: scope, deliverables, timeline,
+ * pricing/licensing/payment terms - whatever sections the Agent actually produced.
  */
 function renderCommercialDocument(commercialData, options = {}) {
 	const unwrapped = unwrapDocumentData(commercialData);
@@ -835,23 +384,21 @@ function renderCommercialDocument(commercialData, options = {}) {
 	const sections = data.sections || (commercialData && commercialData.sections) || [];
 
 	return renderSharedDocumentTemplate({
-		docType: "commercial",
 		docTitle: title,
-		eyebrow: "SPIKRA SOLUTIONS · COMMERCIAL PROPOSAL",
+		kicker: "Commercial Proposal",
 		badgeLabel: "Commercial Proposal",
-		accentColor: "var(--flame)",
 		companyName: customerName,
 		industry,
 		generatedAt: options.generatedAt,
 		proposalId,
-		sections,
-		options
+		sections
 	});
 }
 
 /**
- * 3. TOS Document Template
- * Focuses on Terms of Service, Scope Governance, Assumptions, Dependencies, Risks, SLA & Hypercare.
+ * 3. TOS Document
+ * Only terms-of-service content from the uploaded documents: scope governance,
+ * assumptions, dependencies, SLA & support - whatever sections the Agent actually produced.
  */
 function renderTosDocument(tosData, options = {}) {
 	const unwrapped = unwrapDocumentData(tosData);
@@ -859,27 +406,23 @@ function renderTosDocument(tosData, options = {}) {
 	const customerName = options.customerName || unwrapped.customerName || "Customer Organization";
 	const industry = options.industry || unwrapped.industry || "";
 	const proposalId = options.proposalId || unwrapped.proposalId;
-	const title = data.title || (tosData && tosData.title) || `${customerName} — Terms of Service & SLA`;
+	const title = data.title || (tosData && tosData.title) || `${customerName} — Terms of Service`;
 	const sections = data.sections || (tosData && tosData.sections) || [];
 
 	return renderSharedDocumentTemplate({
-		docType: "tos",
 		docTitle: title,
-		eyebrow: "SPIKRA SOLUTIONS · TERMS OF SERVICE & SLA",
+		kicker: "Terms of Service",
 		badgeLabel: "TOS Document",
-		accentColor: "var(--ink)",
 		companyName: customerName,
 		industry,
 		generatedAt: options.generatedAt,
 		proposalId,
-		sections,
-		options
+		sections
 	});
 }
 
 /**
- * Renders all three documents and returns an object:
- * { technical: html, commercial: html, tos: html }
+ * Renders all three documents and returns { technical: html, commercial: html, tos: html }.
  */
 function renderAllDocuments(threeDocOutputs, options = {}) {
 	const customerName = options.customerName || (threeDocOutputs && threeDocOutputs.customer && threeDocOutputs.customer.company_name) || "Customer Organization";

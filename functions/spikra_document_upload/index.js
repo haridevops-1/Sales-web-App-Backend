@@ -1,18 +1,12 @@
 "use strict";
 
 const catalyst = require("zcatalyst-sdk-node");
+const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 const crypto = require("crypto");
 const path = require("path");
 const { Readable } = require("stream");
 
-let requireSession, workdrive;
-try {
-	({ requireSession } = require("./shared-workdrive/utils/session"));
-	workdrive = require("./shared-workdrive/services/workdrive");
-} catch {
-	({ requireSession } = require("../../shared-workdrive/utils/session"));
-	workdrive = require("../../shared-workdrive/services/workdrive");
-}
+const workdrive = require("./shared-auth/services/workdrive");
 
 const SOURCE_BUCKET_NAME = "spikra-process-documents-698386704";
 const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
@@ -39,7 +33,7 @@ const MAX_BUSINESS_NAME_LENGTH = 150;
 const MAX_PROJECT_NAME_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 5000;
 
-module.exports = async (req, res) => {
+const handler = async (req, res) => {
 	let app;
 	let projectRow;
 	let documentRow;
@@ -85,8 +79,8 @@ module.exports = async (req, res) => {
 				throw new ValidationError("workdrive_file_id is required.");
 			}
 
-			const user = requireSession(req);
-			const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId, user);
+			const user = req.spikraUser;
+			const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user, workdriveFileId);
 			uploadedDocument = { fileName, contentType: mimeType, data: buffer };
 			documentSourceType = "WORKDRIVE";
 		} else if (contentType && contentType.toLowerCase().startsWith("multipart/form-data")) {
@@ -116,8 +110,8 @@ module.exports = async (req, res) => {
 			// salesperson's own access is used to fetch the file).
 			const workdriveFileId = getTextField(formData, "workdrive_file_id");
 			if (workdriveFileId) {
-				const user = requireSession(req);
-				const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user.email, workdriveFileId, user);
+				const user = req.spikraUser;
+				const { buffer, fileName, mimeType } = await workdrive.downloadFile(app, user, workdriveFileId);
 				uploadedDocument = { fileName, contentType: mimeType, data: buffer };
 				documentSourceType = "WORKDRIVE";
 			} else {
@@ -308,43 +302,34 @@ module.exports = async (req, res) => {
 			);
 		}
 
-		const statusCode =
-			error instanceof ValidationError ? 400 : 500;
+		// Errors raised by the shared WorkDrive/auth code carry their own safe message and status.
+		const shared = !(error instanceof ValidationError) && typeof error.code === "string" && error.statusCode >= 400 && error.statusCode < 600;
+		const statusCode = error instanceof ValidationError ? 400 : (shared ? error.statusCode : 500);
 
 		return sendJson(res, statusCode, {
 			success: false,
 			message:
-				error instanceof ValidationError
+				error instanceof ValidationError || shared
 					? error.message
-					: (error.message || "Document upload failed."),
+					: "Document upload failed.",
 			error_code:
 				error instanceof ValidationError
 					? "VALIDATION_ERROR"
-					: "DOCUMENT_UPLOAD_ERROR"
+					: (shared ? error.code : "DOCUMENT_UPLOAD_ERROR")
 		});
 	}
 };
 
-// Strict allowlist: ONLY these origins, confirmed live via the Catalyst MCP API as the
-// project's actual Authorised Domains (CORS enabled), are permitted. Any other origin gets
-// no Access-Control-Allow-Origin header at all, so the browser blocks the request - this is
-// intentional, not a bug. Catalyst's own platform/gateway already injects this header for
-// these exact origins, so this function deliberately stays silent for them to avoid a
-// duplicate header. To allow a new domain: add it in Catalyst Authorised Domains AND here.
-const PLATFORM_COVERED_ORIGINS = [
-	"https://spikra-ai-proposal-app.onslate.com",
-	"https://spikra-ai-proposal.onslate.com",
-	"https://spikra-w2-proposal-jmdbymcs.onslate.com"
-];
-
+// Only origins in ALLOWED_ORIGINS (also Authorised Domains in the Catalyst Console) get
+// CORS headers. The gateway sets Access-Control-Allow-Origin itself; adding it here would
+// duplicate the header and browsers reject that.
 function setCorsHeaders(res, req) {
-	const origin = (req && req.headers && (req.headers.origin || req.headers.Origin)) || "";
-	if (!PLATFORM_COVERED_ORIGINS.includes(origin)) {
-		// Not an authorised origin - no header set, so the browser's CORS check fails closed.
-		return;
-	}
+	const origin = String((req && req.headers && req.headers.origin) || "").replace(/\/+$/, "");
+	const allowed = String(process.env.ALLOWED_ORIGINS || "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
+	if (!origin || !allowed.includes(origin)) return;
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Workdrive-Token, X-Session-Token");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Workdrive-Token, X-Session-Token");
+	res.setHeader("Vary", "Origin");
 }
 
 function getHeader(req, headerName) {
@@ -714,3 +699,5 @@ class ValidationError extends Error {
 		this.name = "ValidationError";
 	}
 }
+
+module.exports = requireAuth(handler);

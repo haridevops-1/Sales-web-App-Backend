@@ -1,41 +1,13 @@
 "use strict";
 
+const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
+
 const catalyst = require("zcatalyst-sdk-node");
 const fs = require("fs");
 const path = require("path");
 
-let getDocument;
-let getProject;
-let findProcessingJob;
-let findExperience;
-let getRowId;
-let streamToBuffer;
-let escapeHtml;
-let sanitizeErrorMessage;
-
-try {
-	const datastoreModule = require("./shared/datastore/targetedQueries");
-	getDocument = datastoreModule.getDocument;
-	getProject = datastoreModule.getProject;
-	findProcessingJob = datastoreModule.findProcessingJob;
-	findExperience = datastoreModule.findExperience;
-	getRowId = datastoreModule.getRowId;
-	const utilsModule = require("./shared/utils");
-	streamToBuffer = utilsModule.streamToBuffer;
-	escapeHtml = utilsModule.escapeHtml;
-	sanitizeErrorMessage = utilsModule.sanitizeErrorMessage;
-} catch {
-	const datastoreModule = require("../../shared/datastore/targetedQueries");
-	getDocument = datastoreModule.getDocument;
-	getProject = datastoreModule.getProject;
-	findProcessingJob = datastoreModule.findProcessingJob;
-	findExperience = datastoreModule.findExperience;
-	getRowId = datastoreModule.getRowId;
-	const utilsModule = require("../../shared/utils");
-	streamToBuffer = utilsModule.streamToBuffer;
-	escapeHtml = utilsModule.escapeHtml;
-	sanitizeErrorMessage = utilsModule.sanitizeErrorMessage;
-}
+const { getDocument, getProject, findProcessingJob, findExperience, getRowId } = require("./shared/datastore/targetedQueries");
+const { streamToBuffer, escapeHtml, sanitizeErrorMessage } = require("./shared/utils");
 
 const PROCESS_BUCKET_NAME = "spikra-process-documents-698386704";
 const GENERATED_BUCKET_NAME = "spikra-generated-experiences-698386704";
@@ -182,7 +154,7 @@ const EXPERIENCE_CONTENT_SCHEMA = {
 
 // Pure renderer: consumes Function 3's structured Zia Agent JSON and hydrates the FIXED master
 // template below. Zero AI calls happen anywhere in this file.
-module.exports = async (context, basicIO) => {
+const handler = async (context, basicIO) => {
 	let app = null;
 	let projectId = "";
 	let documentId = "";
@@ -757,22 +729,11 @@ function prepareCustomerContent({ analysisJson = {}, businessName, projectName }
 }
 
 function loadMasterTemplate() {
-	const localPath = path.join(__dirname, "template.html");
-	if (fs.existsSync(localPath)) {
-		return fs.readFileSync(localPath, "utf8");
+	const templatePath = path.join(__dirname, "template.html");
+	if (!fs.existsSync(templatePath)) {
+		throw new ProcessingError("template.html is missing from this function. Run `npm run sync:shared` before deploying.");
 	}
-
-	const repoPath = path.join(__dirname, "../../templates/iSteel_Proposal_Site.html");
-	if (fs.existsSync(repoPath)) {
-		return fs.readFileSync(repoPath, "utf8");
-	}
-
-	const altPath = path.join(__dirname, "../templates/iSteel_Proposal_Site.html");
-	if (fs.existsSync(altPath)) {
-		return fs.readFileSync(altPath, "utf8");
-	}
-
-	throw new ProcessingError("Master template file (iSteel_Proposal_Site.html / template.html) was not found.");
+	return fs.readFileSync(templatePath, "utf8");
 }
 
 function renderMasterTemplate(templateString, content, { businessName, projectName, logoRelativePath }) {
@@ -931,7 +892,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 
 	html = html.replace(
 		/<span>Confidential[\s\S]*?<\/span>/i,
-		() => `<span>Confidential — prepared exclusively for ${safeBusinessName} · abinash@spikra.com · +91 92407 03257</span>`
+		() => `<span>Confidential — prepared exclusively for ${safeBusinessName}${[process.env.PROPOSAL_CONTACT_EMAIL, process.env.PROPOSAL_CONTACT_PHONE].filter(Boolean).map((v) => " · " + escapeHtml(v)).join("")}</span>`
 	);
 
 	const scriptPhases = phases.map(p => ({
@@ -1052,8 +1013,4 @@ class ProcessingError extends Error {
 	}
 }
 
-module.exports.prepareCustomerContent = prepareCustomerContent;
-module.exports.loadMasterTemplate = loadMasterTemplate;
-module.exports.renderMasterTemplate = renderMasterTemplate;
-module.exports.extractTemplateCss = extractTemplateCss;
-module.exports.extractTemplateJs = extractTemplateJs;
+module.exports = asAdvancedIO(handler);
