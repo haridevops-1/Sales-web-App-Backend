@@ -6,7 +6,7 @@
 		"env_variables": {
 			"SLATE_APP_URL": "https://spikra-ai-proposal.onslate.com",
 			"API_BASE_URL": "https://spikra-ai-proposal-698386704.development.catalystserverless.com",
-			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com"
+			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com,https://spikra-ai-proposal-app.onslate.com"
 		}
 	},
 	"execution": {

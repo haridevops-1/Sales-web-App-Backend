@@ -4,7 +4,7 @@
 		"stack": "node22",
 		"type": "advancedio",
 		"env_variables": {
-			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com",
+			"ALLOWED_ORIGINS": "https://spikra-ai-proposal.onslate.com,https://spikra-w2-proposal-jmdbymcs.onslate.com,https://spikra-ai-proposal-app.onslate.com",
 			"PROPOSAL_SLATE_APP_URL": "https://spikra-w2-proposal-jmdbymcs.onslate.com",
 			"PROPOSAL_ZIA_AGENT_ENDPOINT": "https://agents.zoho.com/ziaagents/api/v1/agents/3266000000166001/trigger",
 			"PROPOSAL_ZIA_CONNECTION_LINK_NAME": "internalsaleshub"
