@@ -3,14 +3,12 @@
 const { authenticate } = require("../../services/users");
 const { WorkdriveError } = require("../errors");
 
-// Tokens are accepted only from request headers - never from the URL, where they would
-// leak into logs, browser history and Referer headers.
+// The token travels in X-Session-Token only. The Catalyst gateway intercepts the standard
+// Authorization header and rejects unknown tokens before the function runs, and a token in
+// the URL would leak into logs, browser history and Referer headers.
 function extractSessionToken(req) {
-	const headers = (req && req.headers) || {};
-	const match = /^Bearer\s+(.+)$/i.exec(String(headers.authorization || "").trim());
-	if (match) return match[1].trim();
-	const custom = headers["x-session-token"];
-	return custom ? String(custom).trim() : null;
+	const value = req && req.headers && req.headers["x-session-token"];
+	return value ? String(value).trim() : null;
 }
 
 // Resolves the signed-in user or throws a 401. There is no default identity.

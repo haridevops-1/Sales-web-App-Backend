@@ -454,7 +454,7 @@ function setCorsHeaders(req, res) {
 		return;
 	}
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, X-Session-Token");
 }
 
 function readRequestBody(req, maxSizeBytes) {

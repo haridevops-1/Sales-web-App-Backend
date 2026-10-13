@@ -18,7 +18,7 @@ function setAllowOriginHeader(req, res) {
 	if (!origin || !allowedOrigins().includes(origin)) return;
 
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Workdrive-Token, X-Session-Token");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, X-Session-Token");
 	res.setHeader("Access-Control-Max-Age", "86400");
 	res.setHeader("Vary", "Origin");
 }

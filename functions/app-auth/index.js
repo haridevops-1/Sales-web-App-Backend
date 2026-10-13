@@ -19,7 +19,7 @@ function setHeaders(req, res) {
 	// The gateway already sets Access-Control-Allow-Origin for Authorised Domains.
 	if (allowedOriginOrNull(req.headers && req.headers.origin)) {
 		res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-		res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+		res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Session-Token, Accept");
 		res.setHeader("Access-Control-Max-Age", "86400");
 		res.setHeader("Vary", "Origin");
 	}

@@ -329,7 +329,7 @@ function setCorsHeaders(res, req) {
 	const allowed = String(process.env.ALLOWED_ORIGINS || "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
 	if (!origin || !allowed.includes(origin)) return;
 	res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Workdrive-Token, X-Session-Token");
+	res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, X-Session-Token");
 	res.setHeader("Vary", "Origin");
 }
 
