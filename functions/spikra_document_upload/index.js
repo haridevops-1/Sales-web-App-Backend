@@ -417,7 +417,7 @@ function readRequestBody(req, maximumSize) {
 			fail(new Error("The upload request was aborted."));
 		});
 
-		if (req.readableEnded || req.complete) {
+		if (req.readableEnded) {
 			if (!settled) {
 				settled = true;
 				resolve(Buffer.concat(chunks));

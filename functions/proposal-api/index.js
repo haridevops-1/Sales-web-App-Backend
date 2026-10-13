@@ -473,7 +473,7 @@ function readRequestBody(req, maxSizeBytes) {
 		});
 		req.on("end", () => { if (!settled) { settled = true; resolve(Buffer.concat(chunks).toString("utf8")); } });
 		req.on("error", fail);
-		if (req.readableEnded || req.complete) {
+		if (req.readableEnded) {
 			if (!settled) { settled = true; resolve(Buffer.concat(chunks)); }
 		}
 		if (typeof req.resume === "function" && req.isPaused && req.isPaused()) req.resume();

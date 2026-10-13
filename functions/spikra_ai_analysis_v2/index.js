@@ -506,7 +506,7 @@ function readRequestBody(req, maxSizeBytes) {
 
 		req.on("error", fail);
 
-		if (req.readableEnded || req.complete) {
+		if (req.readableEnded) {
 			if (!settled) {
 				settled = true;
 				resolve(Buffer.concat(chunks).toString("utf8"));
