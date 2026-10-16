@@ -8,7 +8,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { getDocument, getProject, findProcessingJob, findExperience, getRowId } = require("./shared/datastore/targetedQueries");
-const { streamToBuffer, escapeHtml, sanitizeErrorMessage } = require("./shared/utils");
+const { streamToBuffer, escapeHtml, richText, sanitizeErrorMessage } = require("./shared/utils");
 
 const PROCESS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
 const GENERATED_BUCKET_NAME = requireEnv("GENERATED_BUCKET_NAME");
@@ -701,30 +701,32 @@ function prepareCustomerContent({ analysisJson = {}, businessName, projectName }
 	}
 
 	const str = (val) => (typeof val === "string" ? val.trim() : "");
+	// Titles, labels and values are plain text; the **highlight** marker is only for sentences.
+	const plain = (val) => str(val).replace(/\*\*/g, "");
 
 	return {
-		proposal_title: str(analysisJson.proposal_title) || projectName || businessName,
+		proposal_title: plain(analysisJson.proposal_title) || projectName || businessName,
 		project_summary: str(analysisJson.project_summary),
 		what_we_deliver: str(analysisJson.what_we_deliver),
 		spikra_way: str(analysisJson.spikra_way),
 		how_we_support: str(analysisJson.how_we_support),
 		deliverable_cards: (Array.isArray(analysisJson.deliverable_cards) ? analysisJson.deliverable_cards : []).map((c) => ({
-			label: str(c && c.label), value: str(c && c.value), note: str(c && c.note)
+			label: plain(c && c.label), value: plain(c && c.value), note: str(c && c.note)
 		})),
 		customer_benefits: (Array.isArray(analysisJson.customer_benefits) ? analysisJson.customer_benefits : []).map(str).filter(Boolean),
 		capabilities: (Array.isArray(analysisJson.capabilities) ? analysisJson.capabilities : []).map((cap) => ({
-			title: str(cap && cap.title), subtitle: str(cap && cap.subtitle), teaser: str(cap && cap.teaser), description: str(cap && cap.description)
+			title: plain(cap && cap.title), subtitle: plain(cap && cap.subtitle), teaser: plain(cap && cap.teaser), description: str(cap && cap.description)
 		})),
 		timeline_phases: (Array.isArray(analysisJson.timeline_phases) ? analysisJson.timeline_phases : []).map((p) => ({
-			name: str(p && p.name), duration: str(p && p.duration),
+			name: plain(p && p.name), duration: plain(p && p.duration),
 			items: Array.isArray(p && p.items) ? p.items.map(str).filter(Boolean) : [],
 			note: str(p && p.note) || null
 		})),
 		rollout_overview: (Array.isArray(analysisJson.rollout_overview) ? analysisJson.rollout_overview : []).map((r) => ({
-			label: str(r && r.label), value: str(r && r.value), note: str(r && r.note)
+			label: plain(r && r.label), value: plain(r && r.value), note: str(r && r.note)
 		})),
 		de_risk_summary: (Array.isArray(analysisJson.de_risk_summary) ? analysisJson.de_risk_summary : []).map((d) => ({
-			label: str(d && d.label), value: str(d && d.value), note: str(d && d.note)
+			label: plain(d && d.label), value: plain(d && d.value), note: str(d && d.note)
 		}))
 	};
 }
@@ -762,7 +764,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		.replace(/>\s*\$1\s*</g, "><");
 
 	html = html.replace(/<h1>[\s\S]*?<\/h1>/i, () => `<h1>${safeTitle} for ${safeBusinessName}</h1>`);
-	html = html.replace(/<p class="hero-sub">[\s\S]*?<\/p>/i, () => `<p class="hero-sub">Prepared for <strong>${safeBusinessName}</strong>. ${escapeHtml(content.project_summary)}</p>`);
+	html = html.replace(/<p class="hero-sub">[\s\S]*?<\/p>/i, () => `<p class="hero-sub">Prepared for <strong>${safeBusinessName}</strong>. ${richText(content.project_summary)}</p>`);
 
 	const initials = businessName.split(/\s+/).filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "SP";
 	let clientLogoHtml = "";
@@ -780,24 +782,24 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	const methodHtml = `<div class="method">
     <div class="mcell">
       <h3><span class="mi">◆</span>What we deliver</h3>
-      <p>${escapeHtml(content.what_we_deliver)}</p>
+      <p>${richText(content.what_we_deliver)}</p>
     </div>
     <div class="mcell">
       <h3><span class="mi">◆</span>The Spikra way</h3>
-      <p>${escapeHtml(content.spikra_way)}</p>
+      <p>${richText(content.spikra_way)}</p>
     </div>
     <div class="mcell">
       <h3><span class="mi">◆</span>How we support you</h3>
-      <p>${escapeHtml(content.how_we_support)}</p>
+      <p>${richText(content.how_we_support)}</p>
     </div>
   </div>`;
 	html = html.replace(/<div class="method">[\s\S]*?<\/div>\s*<\/section>/i, () => `${methodHtml}\n</section>`);
 
 	const deliverableCardsHtml = (content.deliverable_cards || []).map((card) => {
-		return `<div class="kpi"><div class="k-label">${escapeHtml(card.label)}</div><div class="k-value">${escapeHtml(card.value)}</div><div class="k-note">${escapeHtml(card.note)}</div></div>`;
+		return `<div class="kpi"><div class="k-label">${escapeHtml(card.label)}</div><div class="k-value">${escapeHtml(card.value)}</div><div class="k-note">${richText(card.note)}</div></div>`;
 	}).join("\n      ");
 
-	const benefitsHtml = (content.customer_benefits || []).map(b => `<li>${escapeHtml(b)}</li>`).join("\n      ");
+	const benefitsHtml = (content.customer_benefits || []).map(b => `<li>${richText(b)}</li>`).join("\n      ");
 
 	const deliverablesPanelHtml = `<section class="panel active" id="deliverables" role="tabpanel">
     <div class="plabel">What Spikra will build for ${safeBusinessName}</div>
@@ -827,7 +829,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
           <span class="acc-tease">${escapeHtml(cap.teaser)}</span>
           <span class="acc-chev" aria-hidden="true">›</span>
         </div>
-        <div class="acc-body"><p>${escapeHtml(descText)}</p></div>
+        <div class="acc-body"><p>${richText(descText)}</p></div>
       </button>`;
 	}).join("\n\n      ");
 
@@ -849,8 +851,8 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	const phase0 = phases[0] || null;
 	const phase0DetailHtml = phase0
 		? `<h3>${escapeHtml(phase0.name)}</h3><div class="wk">${escapeHtml(phase0.duration)}</div>
-    <ul>${(phase0.items || []).map(it => `<li>${escapeHtml(it)}</li>`).join("")}</ul>
-    ${phase0.note ? `<div class="tl-note">${escapeHtml(phase0.note)}</div>` : ""}`
+    <ul>${(phase0.items || []).map(it => `<li>${richText(it)}</li>`).join("")}</ul>
+    ${phase0.note ? `<div class="tl-note">${richText(phase0.note)}</div>` : ""}`
 		: "";
 
 	const rolloutCardsHtml = (content.rollout_overview || []).map((card, idx) => {
@@ -858,7 +860,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		return `<div class="kpi${accentClass}">
         <div class="k-label">${escapeHtml(card.label)}</div>
         <div class="k-value">${escapeHtml(card.value)}</div>
-        <div class="k-note">${escapeHtml(card.note)}</div>
+        <div class="k-note">${richText(card.note)}</div>
       </div>`;
 	}).join("\n      ");
 
@@ -866,7 +868,7 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 		return `<div class="kpi">
         <div class="k-label">${escapeHtml(card.label)}</div>
         <div class="k-value">${escapeHtml(card.value)}</div>
-        <div class="k-note">${escapeHtml(card.note)}</div>
+        <div class="k-note">${richText(card.note)}</div>
       </div>`;
 	}).join("\n      ");
 
@@ -877,15 +879,15 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
     </div>
     <div class="tl-detail" id="tlDetail">${phase0DetailHtml}</div>
 
-    <div class="plabel">Rollout focus</div>
+    ${rolloutCardsHtml ? `<div class="plabel">Rollout focus</div>
     <div class="grid g2">
       ${rolloutCardsHtml}
-    </div>
+    </div>` : ""}
 
-    <div class="plabel">How we de-risk delivery</div>
+    ${deRiskCardsHtml ? `<div class="plabel">How we de-risk delivery</div>
     <div class="grid g2">
       ${deRiskCardsHtml}
-    </div>
+    </div>` : ""}
   </section>`;
 
 	html = html.replace(/<section class="panel" id="timeline" role="tabpanel">[\s\S]*?<\/section>/i, () => timelinePanelHtml);
@@ -896,10 +898,10 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
 	);
 
 	const scriptPhases = phases.map(p => ({
-		name: p.name,
-		wk: p.duration,
-		items: p.items,
-		note: p.note || null
+		name: escapeHtml(p.name),
+		wk: escapeHtml(p.duration),
+		items: p.items.map(richText),
+		note: p.note ? richText(p.note) : null
 	}));
 
 	const phasesJs = `const PHASES = ${JSON.stringify(scriptPhases, null, 2)};`;

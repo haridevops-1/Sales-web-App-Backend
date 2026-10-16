@@ -9,6 +9,17 @@ const DEFAULT_ENDPOINT_PLACEHOLDER = "[PASTE ZIA AGENT URL HERE]";
 // large documents need more real Agent processing time than Basic I/O ever allowed. Override via
 // ZIA_AGENT_TIMEOUT_MS if the actual Catalyst Advanced I/O ceiling turns out to need a different value.
 const DEFAULT_TIMEOUT_MS = 280000;
+// The full document text is sent to the agent - nothing is dropped. Set ZIA_MAX_INPUT_CHARS only if
+// you ever need a hard limit; by default there is none.
+const MAX_INPUT_CHARS = Number(process.env.ZIA_MAX_INPUT_CHARS) > 0 ? Number(process.env.ZIA_MAX_INPUT_CHARS) : Infinity;
+
+function limitDocumentText(text) {
+	const body = String(text).trim();
+	if (body.length <= MAX_INPUT_CHARS) return body;
+	const head = Math.floor(MAX_INPUT_CHARS * 0.6);
+	const tail = MAX_INPUT_CHARS - head;
+	return `${body.slice(0, head).trim()}\n\n[... middle of the document omitted for length ...]\n\n${body.slice(body.length - tail).trim()}`;
+}
 
 class ZiaAgentClient {
 	constructor(config = {}) {
@@ -45,20 +56,26 @@ class ZiaAgentClient {
 
 		const instruction = [
 			`Analyze the following technical/business document for "${businessName}" (project: ${projectName}) and generate structured V1 Customer Showcase content.`,
-			"Writing guidelines:\n" +
-			"- Write for a business owner with no technical background, in plain everyday words (layman's terms). Use short sentences.\n" +
-			"- Avoid jargon, product code names, acronyms and technical terms (for example API, webhook, Deluge, Flow, Creator, schema, middleware). If a tool or term cannot be avoided, add a few plain words saying what it does for the business. Spell out any acronym the first time.\n" +
-			"- Say what each item means for the customer: what changes, who benefits and why it matters, not how it is built.\n" +
-			"- Keep it concise and do not repeat the same phrasing.\n" +
-			"- rollout_overview and de_risk_summary cards: label is 2 to 4 plain words, value is a short plain phrase (max 6 words), note is one plain sentence (max 25 words).\n" +
-			"- project_summary: 1 to 2 simple sentences explaining what the solution accomplishes (max 35 words).\n" +
-			"- what_we_deliver: 1 clear sentence describing what Spikra builds/configures (max 30 words).\n" +
-			"- spikra_way: 1 clear sentence describing Spikra's methodology (e.g. requirements-first, structured validation; max 30 words).\n" +
-			"- how_we_support: 1 clear sentence describing hands-on training, integration, and post-go-live Hypercare (max 30 words).\n" +
-			"- capabilities: Array of 5 to 7 interactive items. Each item MUST have: title, subtitle, teaser (short punchy phrase), and description (2-3 complete, informative sentences explaining what this capability does and its direct business value - description MUST NOT be empty or generic).",
-			"Return ONLY a single JSON object (no markdown, no prose) with fields: proposal_title, project_summary, what_we_deliver, spikra_way, how_we_support, deliverable_cards (array of {label,value,note}), customer_benefits (array of strings), capabilities (array of {title,subtitle,teaser,description}), timeline_phases (array of {name,duration,items[],note}), rollout_overview (array of 2 {label,value,note}), de_risk_summary (array of 2 {label,value,note}).",
+			"Coverage (most important):\n" +
+			"- Read the WHOLE document, section by section, however long it is. Every major module, workflow, integration, user group, phase, dependency, assumption and risk the document discusses must appear somewhere in the output. Do not skip parts because the document is long, and do not shrink real content to a one-line summary.\n" +
+			"- Use only what the document says. Never invent facts, numbers, names, systems or timelines.",
+			"Writing style:\n" +
+			"- Write for a business owner with no technical background, in plain everyday words (layman's terms), in short clear sentences.\n" +
+			"- Avoid jargon, product code names, acronyms and technical terms. If a tool or term cannot be avoided, add a few plain words about what it does for the business. Spell out acronyms the first time.\n" +
+			"- Explain what each item means for the customer: what changes, who uses it, how it works step by step in simple words, and what the customer gets. Do not repeat the same phrasing.",
+			"Depth (each field must be as full as the document supports, not one or two lines):\n" +
+			"- project_summary: 3 to 5 sentences. what_we_deliver, spikra_way, how_we_support: 2 to 3 sentences each.\n" +
+			"- deliverable_cards: the main parts of the solution, 3 to 9 cards (use 3, 6 or 9 so the rows are even; usually 6); label 2-4 words, value up to 6 words, note 1 to 2 sentences.\n" +
+			"- customer_benefits: 8 to 12 items, each 1 to 2 sentences.\n" +
+			"- capabilities: 8 to 12 items, one per major area of the document. title, subtitle and teaser are short; description is 4 to 6 sentences naming the real systems, steps, rules and users from the document.\n" +
+			"- timeline_phases: 3 to 6 phases, each with 5 to 8 bullet items and a note of 1 to 2 sentences.\n" +
+			"- rollout_overview: 2 to 4 cards on how the rollout is staged, and de_risk_summary: 2 to 4 cards on how the risks are handled (prefer an even number); label 2-4 words, value up to 6 words, note 1 to 2 sentences. Take the card titles and content from this document; do not reuse fixed titles from other projects.\n" +
+			"- The number of items in every list follows the document: more content means more items. Never invent items to reach a number, and never leave real content out to stay under one.",
+			"Highlighting:\n" +
+			"- In sentences and paragraphs only, wrap the 2 to 4 most important words or short phrases in **double asterisks**: names of systems or modules, key numbers and durations, and key outcomes. Never wrap a whole sentence or ordinary words. Do not use asterisks anywhere else, and never in titles, labels, values, subtitles, teasers, phase names or durations.",
+			"Return ONLY a single JSON object (no markdown, no prose) with fields: proposal_title, project_summary, what_we_deliver, spikra_way, how_we_support, deliverable_cards (array of 3 to 9 {label,value,note}), customer_benefits (array of strings), capabilities (array of {title,subtitle,teaser,description}), timeline_phases (array of {name,duration,items[],note}), rollout_overview (array of 2 to 4 {label,value,note}), de_risk_summary (array of 2 to 4 {label,value,note}).",
 			"Document content:",
-			text.trim()
+			limitDocumentText(text)
 		].join("\n\n");
 
 		// Zia Agents Trigger API request schema: query, systemArgs, reasoning, attachments only -
@@ -296,7 +313,7 @@ class ZiaAgentClient {
 			deliverableCards = data.deliverable_cards
 				.map((c) => ({ label: cleanStr(c && c.label), value: cleanStr(c && c.value), note: cleanStr(c && c.note) }))
 				.filter((c) => c.label || c.value || c.note)
-				.slice(0, 6);
+				.slice(0, 9);
 		}
 
 		let customerBenefits = [];
@@ -304,7 +321,7 @@ class ZiaAgentClient {
 			customerBenefits = data.customer_benefits
 				.map((b) => cleanStr(typeof b === "string" ? b : (b && (b.text || b.title || b.description))))
 				.filter(Boolean)
-				.slice(0, 8);
+				.slice(0, 12);
 		}
 
 		let capabilities = [];
@@ -317,7 +334,7 @@ class ZiaAgentClient {
 					description: cleanStr(cap && cap.description)
 				}))
 				.filter((c) => c.title || c.description)
-				.slice(0, 8);
+				.slice(0, 12);
 		}
 
 		let timelinePhases = [];
@@ -330,21 +347,23 @@ class ZiaAgentClient {
 					note: cleanStr(p && p.note)
 				}))
 				.filter((p) => p.name || p.items.length > 0)
-				.slice(0, 5);
+				.slice(0, 6);
 		}
 
 		let rolloutOverview = [];
-		if (Array.isArray(data.rollout_overview) && data.rollout_overview.length === 2) {
-			rolloutOverview = data.rollout_overview.map((r) => ({
-				label: cleanStr(r && r.label), value: cleanStr(r && r.value), note: cleanStr(r && r.note)
-			}));
+		if (Array.isArray(data.rollout_overview)) {
+			rolloutOverview = data.rollout_overview
+				.map((r) => ({ label: cleanStr(r && r.label), value: cleanStr(r && r.value), note: cleanStr(r && r.note) }))
+				.filter((r) => r.label || r.value || r.note)
+				.slice(0, 4);
 		}
 
 		let deRiskSummary = [];
-		if (Array.isArray(data.de_risk_summary) && data.de_risk_summary.length === 2) {
-			deRiskSummary = data.de_risk_summary.map((d) => ({
-				label: cleanStr(d && d.label), value: cleanStr(d && d.value), note: cleanStr(d && d.note)
-			}));
+		if (Array.isArray(data.de_risk_summary)) {
+			deRiskSummary = data.de_risk_summary
+				.map((d) => ({ label: cleanStr(d && d.label), value: cleanStr(d && d.value), note: cleanStr(d && d.note) }))
+				.filter((d) => d.label || d.value || d.note)
+				.slice(0, 4);
 		}
 
 		return {
@@ -393,7 +412,9 @@ function response_keys_safe(obj, depth = 0) {
 
 function extractJsonFromString(str) {
 	if (!str || typeof str !== "string") return null;
-	const trimmed = str.trim();
+	// Some models print their reasoning first in <think>...</think>; it can contain braces that
+	// would break the brace-matching fallback below, so drop it before looking for the JSON.
+	const trimmed = str.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "").trim();
 
 	if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
 		try {

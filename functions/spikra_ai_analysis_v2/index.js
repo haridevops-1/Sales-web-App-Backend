@@ -326,7 +326,7 @@ const handler = async (req, res) => {
 		});
 
 		console.log(
-			`Zia Agent analysis complete: ${structuredShowcase.capabilities ? structuredShowcase.capabilities.length : 0} capabilities, ${structuredShowcase.deliverable_cards ? structuredShowcase.deliverable_cards.length : 0} deliverable cards, session_id=${agentClient.lastSessionId || "none"}`
+			`Zia Agent analysis complete: ${structuredShowcase.timeline_phases ? structuredShowcase.timeline_phases.length : 0} phases, ${structuredShowcase.rollout_overview ? structuredShowcase.rollout_overview.length : 0} rollout cards, ${structuredShowcase.de_risk_summary ? structuredShowcase.de_risk_summary.length : 0} de-risk cards, ${structuredShowcase.capabilities ? structuredShowcase.capabilities.length : 0} capabilities, ${structuredShowcase.deliverable_cards ? structuredShowcase.deliverable_cards.length : 0} deliverable cards, session_id=${agentClient.lastSessionId || "none"}`
 		);
 
 		const analysisObject = {
