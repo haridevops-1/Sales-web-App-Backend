@@ -77,9 +77,14 @@ function buildAuthorizeUrl({ purpose, regionInput, clientOrigin, extra }) {
 	url.searchParams.set("response_type", "code");
 	url.searchParams.set("redirect_uri", redirectUri);
 	url.searchParams.set("state", state);
-	// Only the WorkDrive connection needs a long-lived grant. No "prompt": once a user has
-	// approved, Zoho does not ask again until the grant is revoked (our Disconnect does that).
-	if (purpose === "workdrive") url.searchParams.set("access_type", "offline");
+	// Only the WorkDrive connection needs a long-lived grant. Zoho issues a refresh token only
+	// on the first consent for a user + client; if the user has approved this client before
+	// (e.g. at sign-in, or an earlier connect attempt) the token reply has no refresh_token and
+	// the connection fails. prompt=consent makes Zoho issue a fresh refresh token every time.
+	if (purpose === "workdrive") {
+		url.searchParams.set("access_type", "offline");
+		url.searchParams.set("prompt", "consent");
+	}
 	return url.toString();
 }
 

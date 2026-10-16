@@ -200,7 +200,8 @@ async function handleConnect(app, user, req, res) {
 	const region = body.accounts_server ? resolveRegion(body.accounts_server) : state.region;
 	const tokens = await auth.exchangeCodeForToken(code, region, "workdrive");
 	if (!tokens.access_token || !tokens.refresh_token) {
-		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Zoho did not return the expected tokens.", 502);
+		console.error("[WorkDrive] Token reply missing:", !tokens.access_token ? "access_token" : "", !tokens.refresh_token ? "refresh_token" : "");
+		throw new WorkdriveError("WORKDRIVE_AUTH_FAILED", "Zoho did not return the expected tokens. Please click Connect WorkDrive again and approve the access screen.", 502);
 	}
 	const account = await auth.fetchZohoUserInfo(tokens.access_token, region);
 
