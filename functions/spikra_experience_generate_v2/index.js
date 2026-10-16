@@ -862,9 +862,8 @@ function renderMasterTemplate(templateString, content, { businessName, projectNa
       </div>`;
 	}).join("\n      ");
 
-	const deRiskCardsHtml = (content.de_risk_summary || []).map((card, idx) => {
-		const hlClass = idx === 0 ? " hl" : "";
-		return `<div class="kpi${hlClass}">
+	const deRiskCardsHtml = (content.de_risk_summary || []).map((card) => {
+		return `<div class="kpi">
         <div class="k-label">${escapeHtml(card.label)}</div>
         <div class="k-value">${escapeHtml(card.value)}</div>
         <div class="k-note">${escapeHtml(card.note)}</div>

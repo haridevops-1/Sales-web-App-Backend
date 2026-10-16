@@ -46,7 +46,11 @@ class ZiaAgentClient {
 		const instruction = [
 			`Analyze the following technical/business document for "${businessName}" (project: ${projectName}) and generate structured V1 Customer Showcase content.`,
 			"Writing guidelines:\n" +
-			"- Use simple, concise, and clear English. Avoid heavy jargon and repetitive phrasing.\n" +
+			"- Write for a business owner with no technical background, in plain everyday words (layman's terms). Use short sentences.\n" +
+			"- Avoid jargon, product code names, acronyms and technical terms (for example API, webhook, Deluge, Flow, Creator, schema, middleware). If a tool or term cannot be avoided, add a few plain words saying what it does for the business. Spell out any acronym the first time.\n" +
+			"- Say what each item means for the customer: what changes, who benefits and why it matters, not how it is built.\n" +
+			"- Keep it concise and do not repeat the same phrasing.\n" +
+			"- rollout_overview and de_risk_summary cards: label is 2 to 4 plain words, value is a short plain phrase (max 6 words), note is one plain sentence (max 25 words).\n" +
 			"- project_summary: 1 to 2 simple sentences explaining what the solution accomplishes (max 35 words).\n" +
 			"- what_we_deliver: 1 clear sentence describing what Spikra builds/configures (max 30 words).\n" +
 			"- spikra_way: 1 clear sentence describing Spikra's methodology (e.g. requirements-first, structured validation; max 30 words).\n" +
