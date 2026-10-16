@@ -35,9 +35,9 @@ function sanitizeErrorMessage(error) {
 /**
  * Format and sanitize a proposal or experience showcase URL.
  * Zoho Slate (onslate.com) hosts static assets and does not rewrite deep subpaths
- * to index.html. A path-based URL like https://spikra-ai-proposal.onslate.com/abc-pvt-ltd_proposal
+ * to index.html. A path-based URL like https://<your-slate-app>.onslate.com/abc-pvt-ltd_proposal
  * returns Slate's 404 "Oops..Page not found".
- * Converting it to query-based format: https://spikra-ai-proposal.onslate.com/?slug=abc-pvt-ltd_proposal
+ * Converting it to query-based format: https://<your-slate-app>.onslate.com/?slug=abc-pvt-ltd_proposal
  * allows Slate's index.html to load with HTTP 200, parse the slug, and fetch the proposal from Catalyst.
  */
 function formatProposalUrl(rawUrl, experienceId = "", projectId = "") {

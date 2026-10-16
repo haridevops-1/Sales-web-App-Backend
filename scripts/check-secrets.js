@@ -19,10 +19,24 @@ const PATTERNS = [
 	[/1000\.[A-Za-z0-9]{20,}/, "Zoho OAuth client id"],
 	[/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "private key"]
 ];
+// Project-identifying values must live only in .env (see scripts/deploy.js).
+const IDENTIFIERS = [
+	[/catalystserverless\.com/, "Catalyst function/API URL"],
+	[/\b698386704\b/, "Catalyst organisation / environment ID"],
+	[/\b822000000\d{6}\b/, "Catalyst project or resource ID"],
+	[/\b7086000000\d{6}\b/, "Catalyst Slate ID"],
+	[/ziaagents\/api\/v1\/agents\/\d+/, "Zia agent endpoint"],
+	[/[a-z0-9-]+\.onslate\.com/, "Slate app URL"]
+];
 const SECRET_KEY = /(SECRET|PASSWORD|PRIVATE|TOKEN|ENCRYPTION_KEY|CLIENT_ID|API_KEY)/i;
 
 const files = execSync("git ls-files -co --exclude-standard", { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
 const problems = [];
+
+// Only the value-free template may be an env file in the repo.
+for (const rel of execSync("git ls-files", { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean)) {
+	if (/(^|\/)\.env(\..*)?$/.test(rel) && !/\.env\.example$/.test(rel)) problems.push(`${rel}: env file is tracked by git`);
+}
 
 for (const rel of files) {
 	if (SKIP.test(rel) || !fs.existsSync(path.join(ROOT, rel))) continue;
@@ -30,11 +44,12 @@ for (const rel of files) {
 	for (const [regex, label] of PATTERNS) {
 		if (regex.test(text)) problems.push(`${rel}: ${label}`);
 	}
+	for (const [regex, label] of IDENTIFIERS) {
+		if (regex.test(text)) problems.push(`${rel}: ${label} - keep it in .env, not in git`);
+	}
 	if (/catalyst-config\.json$/.test(rel)) {
 		const vars = (JSON.parse(text).deployment || {}).env_variables || {};
-		for (const [key, value] of Object.entries(vars)) {
-			if (SECRET_KEY.test(key)) problems.push(`${rel}: ${key} must be set in the Catalyst Console, not in the config`);
-		}
+		for (const key of Object.keys(vars)) problems.push(`${rel}: env_variables.${key} must be empty in git; scripts/deploy.js fills it from .env`);
 	}
 }
 

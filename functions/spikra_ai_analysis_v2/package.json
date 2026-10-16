@@ -4,7 +4,7 @@
 	"description": "Spikra Document Analysis Catalyst Function",
 	"private": true,
 	"main": "index.js",
-	"author": "hariharan@spikra.com",
+	"author": "Spikra",
 	"license": "ISC",
 	"dependencies": {
 		"zcatalyst-sdk-node": "^3.4.0"

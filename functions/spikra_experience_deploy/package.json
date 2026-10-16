@@ -2,7 +2,7 @@
 	"name": "spikra_experience_deploy",
 	"version": "1.0.0",
 	"main": "index.js",
-	"author": "hariharan@spikra.com",
+	"author": "Spikra",
 	"dependencies": {
 		"zcatalyst-sdk-node": "^3.4.0"
 	}
