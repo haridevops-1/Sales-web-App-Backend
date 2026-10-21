@@ -32,7 +32,7 @@ async function findProcessingJob(app, documentId, jobType) {
 	}
 
 	const query = `
-		SELECT ROWID, status, attempt_count, job_type, experience_id, project_id, document_id
+		SELECT ROWID, status, attempt_count, job_type, experience_id, project_id, document_id, started_time
 		FROM PROCESSING_JOBS
 		WHERE document_id = '${escapeQueryValue(documentId)}'
 		AND job_type = '${escapeQueryValue(jobType)}'

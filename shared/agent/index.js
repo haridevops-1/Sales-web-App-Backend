@@ -109,7 +109,7 @@ class ZiaAgentClient {
 			// Diagnostic only (no secrets/document text) - a shallow shape snapshot the caller can
 			// pass to context.log (console.* here is not reliably captured by Catalyst's log
 			// pipeline), so the actual response shape is visible if the schema still doesn't match.
-			schemaErr.rawResponseSnapshot = response_keys_safe(responseData);
+			schemaErr.rawResponseSnapshot = { envelope: response_keys_safe(responseData), text_fields: describeTextFields(responseData) };
 			schemaErr.extractedOutputSnapshot = response_keys_safe(structuredOutput);
 			throw schemaErr;
 		}
@@ -242,12 +242,12 @@ class ZiaAgentClient {
 					return response.data.response;
 				}
 				if (typeof response.data.response === "string") {
-					const inner = extractJsonFromString(response.data.response);
+					const inner = parseReply(response.data.response);
 					if (inner) return inner;
 				}
 			}
 		} else if (typeof response.data === "string") {
-			const inner = extractJsonFromString(response.data);
+			const inner = parseReply(response.data);
 			if (inner) return inner;
 		}
 
@@ -256,7 +256,7 @@ class ZiaAgentClient {
 				return response.output;
 			}
 			if (typeof response.output === "string") {
-				const inner = extractJsonFromString(response.output);
+				const inner = parseReply(response.output);
 				if (inner) return inner;
 			}
 		}
@@ -266,7 +266,7 @@ class ZiaAgentClient {
 				return response.response;
 			}
 			if (typeof response.response === "string") {
-				const inner = extractJsonFromString(response.response);
+				const inner = parseReply(response.response);
 				if (inner) return inner;
 			}
 		}
@@ -276,20 +276,25 @@ class ZiaAgentClient {
 				return response.result;
 			}
 			if (typeof response.result === "string") {
-				const inner = extractJsonFromString(response.result);
+				const inner = parseReply(response.result);
 				if (inner) return inner;
 			}
 		}
 
 		if (response.message && typeof response.message === "string") {
-			const inner = extractJsonFromString(response.message);
+			const inner = parseReply(response.message);
 			if (inner) return inner;
 		}
 
 		if (response.text && typeof response.text === "string") {
-			const inner = extractJsonFromString(response.text);
+			const inner = parseReply(response.text);
 			if (inner) return inner;
 		}
+
+		// The reply is not under any key checked above: look through the rest of the envelope
+		// (never the echoed request or the step list) for text that holds the showcase JSON.
+		const found = findShowcaseInEnvelope(response);
+		if (found) return found;
 
 		return response;
 	}
@@ -398,17 +403,15 @@ class ZiaAgentClient {
 	}
 }
 
-// Shallow, size-bounded snapshot of an object's shape for diagnostic logging - never dumps
-// full document text or large arrays, just enough structure to see what came back.
+// Shallow, size-bounded snapshot of an object's shape for diagnostic logging. Anything nested more
+// than two levels deep is only counted, never printed, so the document text the agent echoes back in
+// the envelope (request.message) can never end up in the logs.
 function response_keys_safe(obj, depth = 0) {
 	if (obj === null || obj === undefined) return obj;
-	if (depth >= 2 || typeof obj !== "object") {
-		if (typeof obj === "string") return obj.length > 120 ? `${obj.slice(0, 120)}...(${obj.length} chars)` : obj;
-		return obj;
-	}
-	if (Array.isArray(obj)) {
-		return `Array(${obj.length})`;
-	}
+	if (typeof obj === "string") return obj.length > 80 ? `String(${obj.length} chars)` : obj;
+	if (typeof obj !== "object") return obj;
+	if (Array.isArray(obj)) return `Array(${obj.length})`;
+	if (depth >= 2) return `Object(${Object.keys(obj).length} keys)`;
 	const snapshot = {};
 	for (const key of Object.keys(obj).slice(0, 20)) {
 		snapshot[key] = response_keys_safe(obj[key], depth + 1);
@@ -416,7 +419,104 @@ function response_keys_safe(obj, depth = 0) {
 	return snapshot;
 }
 
-function extractJsonFromString(str) {
+// Keys whose contents are the request we sent (it contains the whole document) or step metadata.
+const ENVELOPE_SKIP_KEYS = new Set(["request", "steps", "systemArgs"]);
+
+// Lists where long text sits in the agent's envelope and how it ends, so a cut-off or unreadable
+// answer can be told apart from a missing one without printing the answer itself.
+function describeTextFields(obj, path = "", depth = 0, out = []) {
+	if (out.length >= 8 || depth > 5 || obj === null || obj === undefined) return out;
+	if (typeof obj === "string") {
+		if (obj.length > 200) out.push({ path: path || "(root)", chars: obj.length, ends_with: obj.slice(-40).replace(/\s+/g, " ") });
+		return out;
+	}
+	if (typeof obj !== "object") return out;
+	for (const key of Object.keys(obj).slice(0, 30)) {
+		if (ENVELOPE_SKIP_KEYS.has(key)) continue;
+		describeTextFields(obj[key], path ? `${path}.${key}` : key, depth + 1, out);
+	}
+	return out;
+}
+
+const SHOWCASE_KEYS = ["proposal_title", "project_summary", "deliverable_cards", "capabilities", "customer_benefits", "timeline_phases"];
+
+function looksLikeShowcase(value) {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value) && SHOWCASE_KEYS.some((k) => k in value);
+}
+
+// Walks the agent's envelope (skipping the echoed request and the step list) for text that holds
+// the showcase JSON, so the answer is found wherever the agent put it.
+function findShowcaseInEnvelope(obj, depth = 0) {
+	if (obj === null || obj === undefined || depth > 6) return null;
+	if (typeof obj === "string") {
+		if (obj.length < 200) return null;
+		const parsed = parseReply(obj);
+		return looksLikeShowcase(parsed) ? parsed : null;
+	}
+	if (typeof obj !== "object") return null;
+	if (!Array.isArray(obj) && looksLikeShowcase(obj)) return obj;
+	for (const key of Object.keys(obj)) {
+		if (ENVELOPE_SKIP_KEYS.has(key)) continue;
+		const found = findShowcaseInEnvelope(obj[key], depth + 1);
+		if (found) return found;
+	}
+	return null;
+}
+
+// Parses the agent's reply, and if the JSON was cut off (the model ran out of output room) keeps the
+// complete part instead of throwing the whole answer - and the AI cost already spent - away.
+function parseReply(str) {
+	return extractJsonFromString(str, { repair: true });
+}
+
+// Closes a JSON object that stops part-way: cuts back to the last finished value and adds the
+// missing closing brackets. Returns null when the text is not truncated JSON.
+function repairTruncatedJson(text) {
+	const start = text.indexOf("{");
+	if (start === -1) return null;
+	const src = text.slice(start);
+	const stack = [];
+	const cuts = [];
+	let inString = false;
+	let escaped = false;
+	for (let i = 0; i < src.length; i++) {
+		const ch = src[i];
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (ch === "\\") escaped = true;
+			else if (ch === '"') inString = false;
+			continue;
+		}
+		if (ch === '"') inString = true;
+		else if (ch === "{") stack.push("}");
+		else if (ch === "[") stack.push("]");
+		else if (ch === "}" || ch === "]") {
+			stack.pop();
+			if (stack.length === 0) return null; // the object closed normally: not a cut-off answer
+		} else if (ch === ",") {
+			cuts.push({ pos: i, closers: stack.slice().reverse().join("") });
+		}
+	}
+	if (stack.length === 0) return null;
+
+	const attempt = (candidate) => {
+		try {
+			const parsed = JSON.parse(candidate);
+			return parsed && typeof parsed === "object" ? parsed : null;
+		} catch {
+			return null;
+		}
+	};
+
+	let repaired = attempt(src + (inString ? '"' : "") + stack.slice().reverse().join(""));
+	for (let i = cuts.length - 1; !repaired && i >= 0 && i >= cuts.length - 60; i--) {
+		repaired = attempt(src.slice(0, cuts[i].pos) + cuts[i].closers);
+	}
+	if (repaired) console.log("Zia Agent reply was cut off; kept the complete part of it.");
+	return repaired;
+}
+
+function extractJsonFromString(str, options = {}) {
 	if (!str || typeof str !== "string") return null;
 	// Some models print their reasoning first in <think>...</think>; it can contain braces that
 	// would break the brace-matching fallback below, so drop it before looking for the JSON.
@@ -443,6 +543,7 @@ function extractJsonFromString(str) {
 		} catch {}
 	}
 
+	if (options.repair) return repairTruncatedJson(trimmed);
 	return null;
 }
 

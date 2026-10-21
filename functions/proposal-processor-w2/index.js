@@ -26,6 +26,18 @@ const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 // only to impose a cap deliberately.
 const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS) > 0 ? Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS) : Infinity;
 
+const PROJECT_UTC_OFFSET_MINUTES = (() => {
+	const raw = process.env.PROJECT_UTC_OFFSET_MINUTES;
+	return raw !== undefined && String(raw).trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : 330;
+})();
+
+function parseProjectTime(raw) {
+	const text = String(raw || "").trim();
+	if (!text) return null;
+	const asIfUtc = new Date(`${text.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z`);
+	return isNaN(asIfUtc.getTime()) ? null : new Date(asIfUtc.getTime() - PROJECT_UTC_OFFSET_MINUTES * 60 * 1000);
+}
+
 module.exports = async (req, res) => {
 	const requestId = newRequestId();
 	let operation = "unknown";
@@ -126,10 +138,10 @@ module.exports = async (req, res) => {
 
 		// Concurrency guard: if generation already in flight, do not trigger Agent again
 		if (["PROCESSING", "ANALYZING", "GENERATING"].includes(String(packageRow.status || "").toUpperCase())) {
-			const modifiedRaw = String(packageRow.MODIFIEDTIME || "").trim();
-			const modifiedIso = modifiedRaw ? `${modifiedRaw.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z` : "";
-			const modifiedAt = modifiedIso ? new Date(modifiedIso) : null;
-			const elapsedMs = modifiedAt && !isNaN(modifiedAt.getTime()) ? Date.now() - modifiedAt.getTime() : 0;
+			// Row times are in the project time zone (India time), not UTC - read as UTC they sat 5.5
+			// hours in the future, so a crashed run blocked a new one for hours.
+			const modifiedAt = parseProjectTime(packageRow.MODIFIEDTIME);
+			const elapsedMs = modifiedAt ? Math.max(0, Date.now() - modifiedAt.getTime()) : 0;
 			if (elapsedMs < 300000) {
 				sendJson(res, 200, {
 					success: true,

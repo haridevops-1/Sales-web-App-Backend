@@ -76,7 +76,25 @@ function richText(value) {
 	return escapeHtml(value).replace(/\*\*/g, "");
 }
 
+// Catalyst returns row times such as MODIFIEDTIME as "YYYY-MM-DD HH:MM:SS:mmm" in the PROJECT's time zone
+// (India time here), not UTC. Reading them as UTC put them 5.5 hours in the future, which broke every
+// "has this been running too long" check. The offset can be changed with PROJECT_UTC_OFFSET_MINUTES.
+const PROJECT_UTC_OFFSET_MINUTES = (() => {
+	const raw = process.env.PROJECT_UTC_OFFSET_MINUTES;
+	return raw !== undefined && String(raw).trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : 330;
+})();
+
+function parseCatalystTime(raw) {
+	const text = String(raw || "").trim();
+	if (!text) return null;
+	const iso = `${text.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z`;
+	const asIfUtc = new Date(iso);
+	if (isNaN(asIfUtc.getTime())) return null;
+	return new Date(asIfUtc.getTime() - PROJECT_UTC_OFFSET_MINUTES * 60 * 1000);
+}
+
 module.exports = {
+	parseCatalystTime,
 	streamToBuffer,
 	escapeHtml,
 	richText,

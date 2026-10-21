@@ -6,7 +6,7 @@ const { requireAuth } = require("./shared-auth/utils/advanced-adapter");
 
 const { getZiaAgentClient } = require("./shared/agent");
 const { getDocument, getProject, findProcessingJob, getRowId } = require("./shared/datastore/targetedQueries");
-const { streamToBuffer, sanitizeErrorMessage } = require("./shared/utils");
+const { streamToBuffer, sanitizeErrorMessage, parseCatalystTime } = require("./shared/utils");
 
 const PROCESS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
 const GENERATED_BUCKET_NAME = requireEnv("GENERATED_BUCKET_NAME");
@@ -103,14 +103,11 @@ const handler = async (req, res) => {
 		// case immediately, before any Agent call, using a read that is consistent with the write
 		// that set this same status a moment earlier.
 		if (String(documentRow.processing_status || "").toUpperCase() === "PROCESSING") {
-			const modifiedRaw = String(documentRow.MODIFIEDTIME || documentRow.modifiedtime || "").trim();
-			// Catalyst returns "YYYY-MM-DD HH:MM:SS:mmm" (colon before milliseconds), which the
-			// native Date constructor won't parse - normalize to a real ISO string first.
-			const modifiedIso = modifiedRaw ? `${modifiedRaw.replace(" ", "T").replace(/:(\d{3})$/, ".$1")}Z` : "";
-			const modifiedAt = modifiedIso ? new Date(modifiedIso) : null;
-			// If we can't parse it, default to "just started" (0ms elapsed) rather than "stale" -
+			// Catalyst row times are in the project time zone; parseCatalystTime converts them correctly.
+			// If the time can't be read, default to "just started" (0ms elapsed) rather than "stale" -
 			// safer to over-guard against a duplicate Agent call than to under-guard.
-			const elapsedMs = modifiedAt && !isNaN(modifiedAt.getTime()) ? (Date.now() - modifiedAt.getTime()) : 0;
+			const modifiedAt = parseCatalystTime(documentRow.MODIFIEDTIME || documentRow.modifiedtime);
+			const elapsedMs = modifiedAt ? Math.max(0, Date.now() - modifiedAt.getTime()) : 0;
 			const STILL_RUNNING_THRESHOLD_MS = 5 * 60 * 1000;
 
 			if (elapsedMs < STILL_RUNNING_THRESHOLD_MS) {
@@ -223,9 +220,9 @@ const handler = async (req, res) => {
 		// genuinely running server-side even though the earlier HTTP response timed out client-side.
 		// Report "still processing" instead until the job is stale enough to assume it's abandoned.
 		if (wasAlreadyRunning) {
-			const startedTimeRaw = String(aiAnalysisJob.started_time || "").trim();
-			const startedAt = startedTimeRaw ? new Date(`${startedTimeRaw.replace(" ", "T")}Z`) : null;
-			const elapsedMs = startedAt && !isNaN(startedAt.getTime()) ? (Date.now() - startedAt.getTime()) : Infinity;
+			// started_time is a Catalyst date column, returned in the project time zone like MODIFIEDTIME.
+			const startedAt = parseCatalystTime(aiAnalysisJob.started_time);
+			const elapsedMs = startedAt ? Math.max(0, Date.now() - startedAt.getTime()) : 0;
 			const STILL_RUNNING_THRESHOLD_MS = 5 * 60 * 1000;
 
 			if (elapsedMs < STILL_RUNNING_THRESHOLD_MS) {
@@ -425,8 +422,12 @@ const handler = async (req, res) => {
 		// (or a poll) picks up this COMPLETED state via the idempotent check on the next call.
 		console.log(`AI analysis completed successfully in the background for document_id=${documentId}, analysis_object_key=${analysisObjectKey}`);
 	} catch (error) {
-		const safeErrorMessage = sanitizeErrorMessage(error);
-		console.log("document-analysis failed:", safeErrorMessage);
+		const technicalMessage = sanitizeErrorMessage(error);
+		console.log("document-analysis failed:", technicalMessage);
+		// The technical reason stays in the log; the person using the app sees a plain sentence.
+		const safeErrorMessage = error && error.name === "SchemaValidationError"
+			? "The AI's answer for this document could not be read. Please upload the document again."
+			: technicalMessage;
 
 		// SchemaValidationError carries a shallow, size-bounded shape snapshot of the Agent's raw
 		// response (no document text/secrets) - only way to see why hasMeaningfulShowcaseContent
