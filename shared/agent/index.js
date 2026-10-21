@@ -58,21 +58,27 @@ class ZiaAgentClient {
 			`Analyze the following technical/business document for "${businessName}" (project: ${projectName}) and generate structured V1 Customer Showcase content.`,
 			"Coverage (most important):\n" +
 			"- Read the WHOLE document, section by section, however long it is. Every major module, workflow, integration, user group, phase, dependency, assumption and risk the document discusses must appear somewhere in the output. Do not skip parts because the document is long, and do not shrink real content to a one-line summary.\n" +
-			"- Use only what the document says. Never invent facts, numbers, names, systems or timelines.",
+			"- Use only what the document says. Never invent facts, numbers, names, systems or timelines. Titles and content must come from this document; never reuse wording or titles from other projects.",
+			"Voice (very important):\n" +
+			"- Speak directly TO the customer, as the Spikra team writing to them. Use \"you\" and \"your team\" for the customer and \"we\" for Spikra. Never describe the customer in the third person (never \"" + businessName + " wants...\", \"the client needs...\").\n" +
+			"- Do not repeat the customer's name inside the text; the page already shows it. Use \"you\" and \"your\" instead.\n" +
+			"- The page has four tabs: Deliverables, Capabilities, Timeline and Team. In project_summary, say what the solution does for the customer in plain words, then tell the reader what this page is and how to use it (for example: \"This page walks you through what we will build, how it works and the plan to get there. Open each tab to explore.\").\n" +
+			"- proposal_title: what is being built, in 3 to 8 words, WITHOUT the customer's name (the page adds \"for <customer>\" itself), for example \"Sales CRM and Property Management Platform\".\n" +
+			"- Card, capability and phase titles must each name a real purpose from the document. No two titles may repeat the same words.",
 			"Writing style:\n" +
-			"- Write for a business owner with no technical background, in plain everyday words (layman's terms), in short clear sentences.\n" +
-			"- Avoid jargon, product code names, acronyms and technical terms. If a tool or term cannot be avoided, add a few plain words about what it does for the business. Spell out acronyms the first time.\n" +
-			"- Explain what each item means for the customer: what changes, who uses it, how it works step by step in simple words, and what the customer gets. Do not repeat the same phrasing.",
-			"Depth (each field must be as full as the document supports, not one or two lines):\n" +
-			"- project_summary: 3 to 5 sentences. what_we_deliver, spikra_way, how_we_support: 2 to 3 sentences each.\n" +
-			"- deliverable_cards: the main parts of the solution, 3 to 9 cards (use 3, 6 or 9 so the rows are even; usually 6); label 2-4 words, value up to 6 words, note 1 to 2 sentences.\n" +
-			"- customer_benefits: 8 to 12 items, each 1 to 2 sentences.\n" +
-			"- capabilities: 8 to 12 items, one per major area of the document. title, subtitle and teaser are short; description is 4 to 6 sentences naming the real systems, steps, rules and users from the document.\n" +
-			"- timeline_phases: 3 to 6 phases, each with 5 to 8 bullet items and a note of 1 to 2 sentences.\n" +
-			"- rollout_overview: 2 to 4 cards on how the rollout is staged, and de_risk_summary: 2 to 4 cards on how the risks are handled (prefer an even number); label 2-4 words, value up to 6 words, note 1 to 2 sentences. Take the card titles and content from this document; do not reuse fixed titles from other projects.\n" +
+			"- Write for a business owner with no technical background, in plain everyday words, in short clear sentences.\n" +
+			"- Avoid jargon, product code names, acronyms and technical terms. If a tool or term cannot be avoided, add a few plain words about what it does. Spell out acronyms the first time.\n" +
+			"- Say what changes for the customer, who uses it, how it works step by step, and what they get. Do not repeat the same phrasing.\n" +
+			"- Be concrete, like a finished proposal: \"A configured X with A, B and C\" is better than \"a powerful solution\". No buzzwords (seamless, robust, cutting-edge, leverage, empower).\n" +
+			"- Plain text only. Do not use asterisks, bold marks or any markup.",
+			"Depth (as full as the document supports):\n" +
+			"- project_summary: 2 to 4 sentences. what_we_deliver, spikra_way, how_we_support: 2 to 3 sentences each.\n" +
+			"- deliverable_cards: the main parts of the solution, 3 to 9 cards (3, 6 or 9 keeps rows even; usually 6); label 2-4 words, value up to 6 words, note 1 to 2 sentences.\n" +
+			"- customer_benefits: 6 to 12 items, each 1 to 2 sentences.\n" +
+			"- capabilities: 5 to 12 items, one per major area of the document. title, subtitle and teaser are short; description is 4 to 6 sentences naming the real systems, steps, rules and users from the document.\n" +
+			"- timeline_phases: 3 to 6 phases, each with 4 to 8 bullet items and a note of 1 to 2 sentences.\n" +
+			"- rollout_overview: 2 to 4 cards on how the rollout is staged, and de_risk_summary: 2 to 4 cards on how risks and open decisions are handled (prefer an even number); label 2-4 words, value up to 6 words, note 1 to 2 sentences.\n" +
 			"- The number of items in every list follows the document: more content means more items. Never invent items to reach a number, and never leave real content out to stay under one.",
-			"Highlighting:\n" +
-			"- In sentences and paragraphs only, wrap the 2 to 4 most important words or short phrases in **double asterisks**: names of systems or modules, key numbers and durations, and key outcomes. Never wrap a whole sentence or ordinary words. Do not use asterisks anywhere else, and never in titles, labels, values, subtitles, teasers, phase names or durations.",
 			"Return ONLY a single JSON object (no markdown, no prose) with fields: proposal_title, project_summary, what_we_deliver, spikra_way, how_we_support, deliverable_cards (array of 3 to 9 {label,value,note}), customer_benefits (array of strings), capabilities (array of {title,subtitle,teaser,description}), timeline_phases (array of {name,duration,items[],note}), rollout_overview (array of 2 to 4 {label,value,note}), de_risk_summary (array of 2 to 4 {label,value,note}).",
 			"Document content:",
 			limitDocumentText(text)

@@ -8,13 +8,13 @@
 		"ZOHO_OAUTH_CLIENT_ID",
 		"ZOHO_OAUTH_CLIENT_SECRET"
 	],
-	"proposal-api": [
+	"proposal-api-w2": [
 		"ALLOWED_ORIGINS",
 		"PROCESS_BUCKET_NAME",
 		"PROPOSAL_DOCUMENTS_BUCKET_NAME",
 		"PROPOSAL_SLATE_APP_URL"
 	],
-	"proposal-discovery": [
+	"proposal-discovery-w2": [
 		"ALLOWED_ORIGINS",
 		"PROCESS_BUCKET_NAME",
 		"PROPOSAL_DOCUMENTS_BUCKET_NAME",
@@ -22,7 +22,7 @@
 		"ZOHO_OAUTH_CLIENT_ID",
 		"ZOHO_OAUTH_CLIENT_SECRET"
 	],
-	"proposal-processor": [
+	"proposal-processor-w2": [
 		"ALLOWED_ORIGINS",
 		"PROCESS_BUCKET_NAME",
 		"PROPOSAL_DOCUMENTS_BUCKET_NAME",
@@ -30,39 +30,39 @@
 		"PROPOSAL_ZIA_AGENT_ENDPOINT",
 		"PROPOSAL_ZIA_CONNECTION_LINK_NAME"
 	],
-	"spikra_ai_analysis_v2": [
+	"document-analysis": [
 		"ALLOWED_ORIGINS",
 		"GENERATED_BUCKET_NAME",
 		"PROCESS_BUCKET_NAME",
 		"ZIA_AGENT_CONNECTION_LINK_NAME",
 		"ZIA_AGENT_ENDPOINT"
 	],
-	"spikra_document_process_v2": [
+	"document-process": [
 		"ALLOWED_ORIGINS",
 		"PROCESS_BUCKET_NAME"
 	],
-	"spikra_document_upload": [
+	"document-upload": [
 		"ALLOWED_ORIGINS",
 		"PROCESS_BUCKET_NAME",
 		"TOKEN_ENCRYPTION_KEY",
 		"ZOHO_OAUTH_CLIENT_ID",
 		"ZOHO_OAUTH_CLIENT_SECRET"
 	],
-	"spikra_experience_deploy": [
+	"experience-deploy": [
 		"ALLOWED_ORIGINS",
 		"API_BASE_URL",
 		"GENERATED_BUCKET_NAME",
 		"SLATE_APP_URL"
 	],
-	"spikra_experience_generate_v2": [
+	"experience-generate": [
 		"ALLOWED_ORIGINS",
 		"GENERATED_BUCKET_NAME",
 		"PROCESS_BUCKET_NAME"
 	],
-	"spikra_experience_list_v2": [
+	"experience-list": [
 		"ALLOWED_ORIGINS"
 	],
-	"spikra_process_status_v2": [
+	"process-status": [
 		"ALLOWED_ORIGINS"
 	],
 	"workdrive-auth": [

@@ -1,0 +1,9 @@
+{
+	"name": "experience-deploy",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "Spikra",
+	"dependencies": {
+		"zcatalyst-sdk-node": "^3.4.0"
+	}
+}

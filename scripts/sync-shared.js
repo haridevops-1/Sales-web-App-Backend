@@ -23,17 +23,17 @@ const AUTH = [["shared-auth", "shared-auth"]];
 const MANIFEST = {
 	"app-auth": [...AUTH],
 	"workdrive-auth": [...AUTH],
-	"spikra_document_upload": [...AUTH],
-	"spikra_document_process_v2": [...AUTH],
-	"spikra_experience_deploy": [...AUTH],
-	"spikra_process_status_v2": [...AUTH],
-	"spikra_experience_list_v2": [...AUTH],
-	"proposal-discovery": [...AUTH, ...w2(W2_BASE)],
-	"proposal-api": [
+	"document-upload": [...AUTH],
+	"document-process": [...AUTH],
+	"experience-deploy": [...AUTH],
+	"process-status": [...AUTH],
+	"experience-list": [...AUTH],
+	"proposal-discovery-w2": [...AUTH, ...w2(W2_BASE)],
+	"proposal-api-w2": [
 		...AUTH,
 		...w2([...W2_BASE, `${W2}/utils/validation`, `${W2}/services/proposal`, `${W2}/services/document-render`])
 	],
-	"proposal-processor": [
+	"proposal-processor-w2": [
 		...AUTH,
 		...w2([
 			...W2_BASE,
@@ -44,8 +44,8 @@ const MANIFEST = {
 			`${W2}/services/document-render`
 		])
 	],
-	"spikra_ai_analysis_v2": [...AUTH, ["shared/agent", "shared/agent"], ["shared/datastore", "shared/datastore"], ["shared/utils", "shared/utils"]],
-	"spikra_experience_generate_v2": [
+	"document-analysis": [...AUTH, ["shared/agent", "shared/agent"], ["shared/datastore", "shared/datastore"], ["shared/utils", "shared/utils"]],
+	"experience-generate": [
 		...AUTH,
 		["shared/datastore", "shared/datastore"],
 		["shared/utils", "shared/utils"],

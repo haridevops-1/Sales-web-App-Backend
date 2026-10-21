@@ -1,0 +1,12 @@
+{
+	"name": "document-analysis",
+	"version": "1.0.0",
+	"description": "Spikra Document Analysis Catalyst Function",
+	"private": true,
+	"main": "index.js",
+	"author": "Spikra",
+	"license": "ISC",
+	"dependencies": {
+		"zcatalyst-sdk-node": "^3.4.0"
+	}
+}

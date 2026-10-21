@@ -47,7 +47,7 @@ function buildProposalRecord(ziaResponse, { packageId, userId, dealValue = 0 }) 
 
 // Single source of truth for where a proposal's rendered documents live in the
 // spikra-w2-proposal-documents Stratus bucket - defined once and shared by the writer
-// (proposal-processor) and the reader (proposal-api's public view route) so they can
+// (proposal-processor-w2) and the reader (proposal-api-w2's public view route) so they can
 // never drift apart. Supports exactly 3 documents: technical, commercial, tos.
 function buildProposalDocumentKey(userId, packageId, proposalId, docType = "commercial", extension = "html") {
 	const safeDoc = String(docType || "commercial").toLowerCase();

@@ -1,0 +1,1034 @@
+"use strict";
+
+const { asAdvancedIO } = require("./shared-auth/utils/advanced-adapter");
+
+const catalyst = require("zcatalyst-sdk-node");
+const { requireEnv } = require("./shared-auth/utils/config");
+const fs = require("fs");
+const path = require("path");
+
+const { getDocument, getProject, findProcessingJob, findExperience, getRowId } = require("./shared/datastore/targetedQueries");
+const { streamToBuffer, escapeHtml, richText, sanitizeErrorMessage } = require("./shared/utils");
+
+const PROCESS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
+const GENERATED_BUCKET_NAME = requireEnv("GENERATED_BUCKET_NAME");
+
+const PROJECTS_TABLE = "PROJECTS";
+const DOCUMENTS_TABLE = "DOCUMENTS";
+const EXPERIENCES_TABLE = "EXPERIENCES";
+const PROCESSING_JOBS_TABLE = "PROCESSING_JOBS";
+
+const MAX_DOCUMENT_TEXT_SIZE = 15 * 1024 * 1024; // 15 MB
+const MAX_ANALYSIS_SIZE = 10 * 1024 * 1024; // 10 MB
+
+const CURATED_CAPABILITY_SVGS = [
+	'<svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 3V5Z"/><path d="M8 9h8M8 12h5"/></svg>',
+	'<svg viewBox="0 0 24 24"><circle cx="10" cy="8" r="3.1"/><path d="M4.5 20a5.5 5.5 0 0 1 11 0"/><path d="M19 7v6M16 10h6"/></svg>',
+	'<svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 12l9 5 9-5M3 16l9 5 9-5"/></svg>',
+	'<svg viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h2l4 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M15 8a4 4 0 0 1 0 8"/></svg>',
+	'<svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>',
+	'<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/></svg>',
+	'<svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="5"/><path d="M9 13.5 7.5 21 12 18.5 16.5 21 15 13.5"/></svg>',
+	'<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
+];
+
+const EXPERIENCE_CONTENT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"proposal_title",
+		"project_summary",
+		"what_we_deliver",
+		"spikra_way",
+		"how_we_support",
+		"deliverable_cards",
+		"customer_benefits",
+		"capabilities",
+		"timeline_phases",
+		"rollout_overview",
+		"de_risk_summary"
+	],
+	properties: {
+		proposal_title: {
+			type: "string",
+			description: "Short, professional proposal title, e.g. 'Zoho CRM & Marketing Automation'"
+		},
+		project_summary: {
+			type: "string",
+			description: "2-3 concise customer-friendly sentences explaining what Spikra is proposing, platforms involved, and operational outcomes."
+		},
+		what_we_deliver: {
+			type: "string",
+			description: "1-2 concise sentences on what Spikra delivers (configured platform engagement layer and core workflows)."
+		},
+		spikra_way: {
+			type: "string",
+			description: "1-2 concise sentences on Spikra's BRD-aligned delivery approach with explicit assumptions and discovery workshop."
+		},
+		how_we_support: {
+			type: "string",
+			description: "1-2 concise sentences on support approach, integration decisions, user onboarding, and dedicated Hypercare."
+		},
+		deliverable_cards: {
+			type: "array",
+			description: "Exactly 6 concise deliverable cards summarizing platform, scope, phases, core workflows, and outputs.",
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["label", "value", "note"],
+				properties: {
+					label: { type: "string", description: "Short category label, e.g. 'Platform', 'Scope', 'Phase 1', 'Workflow', 'Ecosystem', 'Loyalty / Output'" },
+					value: { type: "string", description: "Short title or value (1-4 words)" },
+					note: { type: "string", description: "ONE concise explanatory sentence (10-18 words). Avoid long paragraphs." }
+				}
+			}
+		},
+		customer_benefits: {
+			type: "array",
+			description: "6 to 8 concise, outcome-oriented customer benefits explaining what the business gets from the solution. Active voice, easy to scan.",
+			items: { type: "string" }
+		},
+		capabilities: {
+			type: "array",
+			description: "5 to 8 important capabilities from the source document.",
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["title", "subtitle", "teaser", "description"],
+				properties: {
+					title: { type: "string", description: "Concise capability title (2-5 words)" },
+					subtitle: { type: "string", description: "Short subtitle (2-6 words)" },
+					teaser: { type: "string", description: "Short teaser (3-7 words)" },
+					description: { type: "string", description: "1-2 concise sentences explaining the value in simple everyday business language." }
+				}
+			}
+		},
+		timeline_phases: {
+			type: "array",
+			description: "3 to 4 implementation stages/phases based on source material.",
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["name", "duration", "items"],
+				properties: {
+					name: { type: "string", description: "Stage name, e.g. 'Discovery Workshop', 'Phase 1 — Core Build'" },
+					duration: { type: "string", description: "Estimated duration, e.g. '2–3 weeks', '4–6 weeks'" },
+					items: {
+						type: "array",
+						description: "2 to 4 concise bullet activities for this stage.",
+						items: { type: "string" }
+					},
+					note: { type: "string", description: "Optional short 1-sentence note or milestone." }
+				}
+			}
+		},
+		rollout_overview: {
+			type: "array",
+			description: "Exactly 2 cards summarizing rollout focus (Phase 1 vs Phase 2).",
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["label", "value", "note"],
+				properties: {
+					label: { type: "string" },
+					value: { type: "string" },
+					note: { type: "string" }
+				}
+			}
+		},
+		de_risk_summary: {
+			type: "array",
+			description: "Exactly 2 cards on how Spikra de-risks delivery (Hypercare and confirmed integration).",
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["label", "value", "note"],
+				properties: {
+					label: { type: "string" },
+					value: { type: "string" },
+					note: { type: "string" }
+				}
+			}
+		}
+	}
+};
+
+// Pure renderer: consumes Function 3's structured Zia Agent JSON and hydrates the FIXED master
+// template below. Zero AI calls happen anywhere in this file.
+const handler = async (context, basicIO) => {
+	let app = null;
+	let projectId = "";
+	let documentId = "";
+	let experienceId = "";
+	let generateJob = null;
+	let generateJobId = "";
+
+	try {
+		let rawProjectId = basicIO.getArgument("project_id");
+		if (!rawProjectId) rawProjectId = basicIO.getArgument("projectId");
+
+		let rawDocumentId = basicIO.getArgument("document_id");
+		if (!rawDocumentId) rawDocumentId = basicIO.getArgument("documentId");
+
+		if (!rawProjectId || !rawDocumentId) {
+			const bodyArg = basicIO.getArgument("req_body") || basicIO.getArgument("body") || basicIO.getArgument("BODY");
+			if (bodyArg) {
+				try {
+					const parsedBody = typeof bodyArg === "string" ? JSON.parse(bodyArg) : bodyArg;
+					if (parsedBody && typeof parsedBody === "object") {
+						if (!rawProjectId) rawProjectId = parsedBody.project_id || parsedBody.projectId;
+						if (!rawDocumentId) rawDocumentId = parsedBody.document_id || parsedBody.documentId;
+					}
+				} catch {}
+			}
+		}
+
+		projectId = String(rawProjectId || "").trim();
+		documentId = String(rawDocumentId || "").trim();
+
+		if (!projectId) {
+			throw new ValidationError("project_id is required.");
+		}
+
+		if (!documentId) {
+			throw new ValidationError("document_id is required.");
+		}
+
+		app = catalyst.initialize(context);
+		const datastore = app.datastore();
+		const stratus = app.stratus();
+
+		const projectsTable = datastore.table(PROJECTS_TABLE);
+		const documentsTable = datastore.table(DOCUMENTS_TABLE);
+		const experiencesTable = datastore.table(EXPERIENCES_TABLE);
+		const processingJobsTable = datastore.table(PROCESSING_JOBS_TABLE);
+
+		let projectRow;
+		try {
+			projectRow = await projectsTable.getRow(projectId);
+		} catch {
+			throw new NotFoundError(`Project ${projectId} was not found.`);
+		}
+
+		if (!projectRow) {
+			throw new NotFoundError(`Project ${projectId} was not found.`);
+		}
+
+		let documentRow;
+		try {
+			documentRow = await documentsTable.getRow(documentId);
+		} catch {
+			throw new NotFoundError(`Document ${documentId} was not found.`);
+		}
+
+		if (!documentRow) {
+			throw new NotFoundError(`Document ${documentId} was not found.`);
+		}
+
+		const docProjectId = String(documentRow.project_id || "").trim();
+		if (docProjectId !== projectId) {
+			throw new ValidationError(`Document ${documentId} does not belong to project ${projectId}.`);
+		}
+
+		const contentObjectKey = String(
+			documentRow.content_object_key ||
+			`projects/${projectId}/documents/${documentId}/extracted-content.txt`
+		).trim();
+
+		const rawBusinessName = String(
+			projectRow.business_name ||
+			documentRow.business_name ||
+			"Spikra Partner"
+		).trim();
+		const businessName = rawBusinessName.replace(/~\d+/g, "").trim() || "Spikra Partner";
+
+		const projectName = String(
+			projectRow.project_name ||
+			documentRow.file_name ||
+			"Customer Proposal"
+		).trim();
+
+		const analysisObjectKey = String(
+			documentRow.analysis_object_key ||
+			`projects/${projectId}/analysis/document-${documentId}-analysis.json`
+		).trim();
+
+		context.log(`Function 4 processing start: project_id=${projectId}, document_id=${documentId}, business=${businessName}`);
+
+		generateJob = await findProcessingJob(app, documentId, "GENERATE");
+		if (generateJob) {
+			generateJobId = getRowId(generateJob);
+			try {
+				await processingJobsTable.updateRow({
+					ROWID: generateJobId,
+					status: "RUNNING",
+					attempt_count: Number(generateJob.attempt_count || 0) + 1,
+					started_time: new Date().toISOString().replace("T", " ").substring(0, 19),
+					error_message: ""
+				});
+				context.log(`GENERATE job ${generateJobId} updated to RUNNING`);
+			} catch (jobErr) {
+				context.log("Notice: Failed to update existing GENERATE job:", jobErr.message);
+			}
+		}
+
+		const existingExperience = await findExperience(app, documentId, projectId);
+
+		if (existingExperience) {
+			experienceId = getRowId(existingExperience);
+			context.log(`Found existing experience record: ${experienceId}, status: ${existingExperience.status}`);
+
+			const isExistingComplete =
+				(existingExperience.status === "GENERATED" || existingExperience.status === "PUBLISHED") &&
+				existingExperience.content_object_key;
+
+			if (isExistingComplete) {
+				const expectedKey = `projects/${projectId}/experiences/${experienceId}/version-1/`;
+				const genBucket = stratus.bucket(GENERATED_BUCKET_NAME);
+				let filesOk = false;
+				try {
+					const testHtml = await genBucket.getObject(`${expectedKey}index.html`);
+					if (testHtml) filesOk = true;
+				} catch {
+					filesOk = false;
+				}
+
+				if (filesOk) {
+					context.log(`Idempotent hit: Experience ${experienceId} already completed with verified files (status: ${existingExperience.status}). Skipping AI generation.`);
+					if (generateJob && generateJobId) {
+						await processingJobsTable.updateRow({
+							ROWID: generateJobId,
+							status: "COMPLETED",
+							completed_time: new Date().toISOString().replace("T", " ").substring(0, 19),
+							error_message: ""
+						}).catch(() => {});
+					}
+
+					basicIO.setStatus(200);
+					basicIO.write(
+						JSON.stringify({
+							success: true,
+							message: "Customer experience generated successfully",
+							project_id: projectId,
+							document_id: documentId,
+							experience_id: experienceId,
+							status: existingExperience.status,
+							content_object_key: expectedKey,
+							files: [
+								"index.html",
+								"styles.css",
+								"script.js",
+								"experience.json"
+							]
+						})
+					);
+					return;
+				}
+			}
+
+			await experiencesTable.updateRow({
+				ROWID: experienceId,
+				status: "GENERATING",
+				error_message: ""
+			});
+		} else {
+			const defaultTitle = `${businessName} - ${projectName}`;
+			const newExpRow = await experiencesTable.insertRow({
+				project_id: projectId,
+				document_id: documentId,
+				business_name: businessName,
+				experience_title: defaultTitle.slice(0, 255),
+				status: "GENERATING",
+				version_number: 1,
+				error_message: ""
+			});
+			experienceId = getRowId(newExpRow);
+			context.log(`Created new experience record: ${experienceId}`);
+		}
+
+		if (!experienceId) {
+			throw new ProcessingError("Could not resolve a valid experience_id from Data Store.");
+		}
+
+		if (!generateJob) {
+			try {
+				generateJob = await processingJobsTable.insertRow({
+					project_id: projectId,
+					document_id: documentId,
+					experience_id: experienceId,
+					job_type: "GENERATE",
+					status: "RUNNING",
+					attempt_count: 1,
+					started_time: new Date().toISOString().replace("T", " ").substring(0, 19),
+					error_message: ""
+				});
+				generateJobId = getRowId(generateJob);
+				context.log(`Created new GENERATE job: ${generateJobId}`);
+			} catch (newJobErr) {
+				context.log("Notice: Failed to insert new GENERATE job:", newJobErr.message);
+			}
+		}
+
+		let extractedTextStream = null;
+		try {
+			const b = stratus.bucket(PROCESS_BUCKET_NAME);
+			extractedTextStream = await b.getObject(contentObjectKey);
+		} catch {}
+
+		if (!extractedTextStream) {
+			throw new NotFoundError("Extracted text object was not found in Stratus.");
+		}
+
+		const extractedTextBuffer = await streamToBuffer(extractedTextStream);
+		if (!extractedTextBuffer || extractedTextBuffer.length === 0) {
+			throw new ProcessingError("Extracted text object in Stratus is empty.");
+		}
+
+		if (extractedTextBuffer.length > MAX_DOCUMENT_TEXT_SIZE) {
+			throw new ProcessingError("Extracted text exceeds the supported size limit.");
+		}
+
+		const extractedText = extractedTextBuffer.toString("utf8").trim();
+		if (!extractedText) {
+			throw new ProcessingError("Extracted text is empty.");
+		}
+
+		context.log(`Extracted text retrieved: length=${extractedText.length} characters`);
+
+		let analysisStream = null;
+		try {
+			const generatedBucket = stratus.bucket(GENERATED_BUCKET_NAME);
+			analysisStream = await generatedBucket.getObject(analysisObjectKey);
+		} catch {}
+
+		if (!analysisStream) {
+			throw new NotFoundError("Analysis JSON was not found in Stratus. Please ensure Function 3 has executed.");
+		}
+
+		const analysisBuffer = await streamToBuffer(analysisStream);
+		if (!analysisBuffer || analysisBuffer.length === 0) {
+			throw new ProcessingError("Analysis JSON object in Stratus is empty.");
+		}
+
+		if (analysisBuffer.length > MAX_ANALYSIS_SIZE) {
+			throw new ProcessingError("Analysis JSON exceeds maximum permitted size.");
+		}
+
+		let analysisJson;
+		try {
+			analysisJson = JSON.parse(analysisBuffer.toString("utf8"));
+		} catch {
+			throw new ProcessingError("Analysis JSON in Stratus is not valid JSON.");
+		}
+
+		if (!analysisJson || typeof analysisJson !== "object") {
+			throw new ProcessingError("Analysis JSON must be a valid JSON object.");
+		}
+
+		context.log(`Analysis JSON retrieved: title=${analysisJson.proposal_title}`);
+
+		let logoRelativePath = null;
+		let generatedLogoObjectKey = null;
+		const rawLogoKey = String(projectRow.business_logo_object_key || "").trim();
+
+		if (rawLogoKey) {
+			try {
+				let logoStream = null;
+				try {
+					const processBucket = stratus.bucket(PROCESS_BUCKET_NAME);
+					logoStream = await processBucket.getObject(rawLogoKey);
+				} catch {}
+
+				if (logoStream) {
+					const logoBuffer = await streamToBuffer(logoStream);
+					if (logoBuffer && logoBuffer.length > 0) {
+						const ext = path.extname(rawLogoKey).toLowerCase() || ".png";
+						const targetLogoKey = `projects/${projectId}/experiences/${experienceId}/version-1/assets/business-logo${ext}`;
+						const targetContentType = getContentTypeByExt(ext);
+
+						const generatedBucket = stratus.bucket(GENERATED_BUCKET_NAME);
+						await generatedBucket.putObject(targetLogoKey, logoBuffer, {
+							overwrite: true,
+							contentType: targetContentType,
+							metaData: {
+								project_id: projectId,
+								experience_id: experienceId,
+								file_type: "business_logo"
+							}
+						});
+
+						logoRelativePath = `assets/business-logo${ext}`;
+						generatedLogoObjectKey = targetLogoKey;
+						context.log(`Business logo copied successfully to: ${targetLogoKey}`);
+					}
+				}
+			} catch (logoErr) {
+				context.log("Notice: Business logo copy failed:", logoErr.message);
+			}
+		}
+
+		const customerContent = prepareCustomerContent({
+			analysisJson,
+			businessName,
+			projectName
+		});
+
+		context.log(`Customer content ready for template rendering: ${customerContent.capabilities.length} capabilities, ${customerContent.timeline_phases.length} timeline phases`);
+
+		const masterTemplate = loadMasterTemplate();
+		const renderedHtml = renderMasterTemplate(masterTemplate, customerContent, {
+			businessName,
+			projectName,
+			logoRelativePath
+		});
+		const templateCss = extractTemplateCss(masterTemplate);
+		// Must read from the original masterTemplate, not renderedHtml: renderMasterTemplate
+		// rewrites the template's inline <script>...</script> into <script src="script.js"> so the
+		// served HTML references the external file - by then the inline content is already gone,
+		// which was producing an empty script.js (Function 5 correctly rejected it as missing).
+		const templateJs = extractTemplateJs(masterTemplate);
+
+		const experienceMetadata = {
+			project_id: projectId,
+			document_id: documentId,
+			experience_id: experienceId,
+			business_name: businessName,
+			experience_title: customerContent.proposal_title,
+			template: {
+				name: "spikra-customer-experience-template",
+				source: "templates/iSteel_Proposal_Site.html",
+				version: "2.0"
+			},
+			branding: {
+				logo_available: Boolean(logoRelativePath),
+				logo_file: logoRelativePath || null
+			},
+			content: customerContent,
+			generated_at: new Date().toISOString(),
+			files: [
+				"index.html",
+				"styles.css",
+				"script.js",
+				"experience.json"
+			]
+		};
+
+		const generatedExperienceJson = JSON.stringify(experienceMetadata, null, 2);
+
+		const experienceBaseKey = `projects/${projectId}/experiences/${experienceId}/version-1`;
+		const generatedObjectPath = `${experienceBaseKey}/`;
+		const generatedBucket = stratus.bucket(GENERATED_BUCKET_NAME);
+
+		await generatedBucket.putObject(
+			`${experienceBaseKey}/index.html`,
+			Buffer.from(renderedHtml, "utf8"),
+			{
+				overwrite: true,
+				contentType: "text/html; charset=utf-8",
+				metaData: {
+					project_id: projectId,
+					document_id: documentId,
+					experience_id: experienceId,
+					file_type: "html"
+				}
+			}
+		);
+
+		await generatedBucket.putObject(
+			`${experienceBaseKey}/styles.css`,
+			Buffer.from(templateCss, "utf8"),
+			{
+				overwrite: true,
+				contentType: "text/css; charset=utf-8",
+				metaData: {
+					project_id: projectId,
+					document_id: documentId,
+					experience_id: experienceId,
+					file_type: "css"
+				}
+			}
+		);
+
+		await generatedBucket.putObject(
+			`${experienceBaseKey}/script.js`,
+			Buffer.from(templateJs, "utf8"),
+			{
+				overwrite: true,
+				contentType: "application/javascript; charset=utf-8",
+				metaData: {
+					project_id: projectId,
+					document_id: documentId,
+					experience_id: experienceId,
+					file_type: "javascript"
+				}
+			}
+		);
+
+		await generatedBucket.putObject(
+			`${experienceBaseKey}/experience.json`,
+			Buffer.from(generatedExperienceJson, "utf8"),
+			{
+				overwrite: true,
+				contentType: "application/json; charset=utf-8",
+				metaData: {
+					project_id: projectId,
+					document_id: documentId,
+					experience_id: experienceId,
+					file_type: "metadata"
+				}
+			}
+		);
+
+		context.log(`Experience files successfully uploaded to: ${generatedObjectPath}`);
+
+		const updateData = {
+			ROWID: experienceId,
+			experience_title: customerContent.proposal_title.slice(0, 255),
+			business_name: businessName,
+			status: "GENERATED",
+			content_object_key: generatedObjectPath,
+			version_number: 1,
+			error_message: ""
+		};
+
+		if (rawLogoKey) {
+			updateData.business_logo_object_key = rawLogoKey;
+		}
+		if (generatedLogoObjectKey) {
+			updateData.generated_logo_object_key = generatedLogoObjectKey;
+		}
+
+		try {
+			await experiencesTable.updateRow(updateData);
+			context.log(`EXPERIENCES record ${experienceId} updated to GENERATED`);
+		} catch (expErr) {
+			context.log("Notice: Retrying EXPERIENCES update without extra logo columns:", expErr.message);
+			await experiencesTable.updateRow({
+				ROWID: experienceId,
+				experience_title: customerContent.proposal_title.slice(0, 255),
+				business_name: businessName,
+				status: "GENERATED",
+				content_object_key: generatedObjectPath,
+				version_number: 1,
+				error_message: ""
+			});
+		}
+
+		if (generateJobId) {
+			try {
+				await processingJobsTable.updateRow({
+					ROWID: generateJobId,
+					status: "COMPLETED",
+					completed_time: new Date().toISOString().replace("T", " ").substring(0, 19),
+					error_message: ""
+				});
+				context.log(`GENERATE job ${generateJobId} marked as COMPLETED`);
+			} catch (jobErr) {
+				context.log("Notice: Failed to mark GENERATE job as COMPLETED:", jobErr.message);
+			}
+		}
+
+		try {
+			await projectsTable.updateRow({
+				ROWID: projectId,
+				status: "GENERATED"
+			});
+			context.log(`PROJECTS record ${projectId} updated to GENERATED`);
+		} catch (projErr) {
+			context.log("Notice: Failed to update PROJECTS record:", projErr.message);
+		}
+
+		basicIO.setStatus(200);
+		basicIO.write(
+			JSON.stringify({
+				success: true,
+				message: "Customer experience generated successfully",
+				project_id: projectId,
+				document_id: documentId,
+				experience_id: experienceId,
+				status: "GENERATED",
+				content_object_key: generatedObjectPath,
+				files: [
+					"index.html",
+					"styles.css",
+					"script.js",
+					"experience.json"
+				]
+			})
+		);
+	} catch (error) {
+		const safeErrorMessage = sanitizeErrorMessage(error);
+		context.log("experience-generate failed:", safeErrorMessage);
+
+		await markGenerateFailure(app, experienceId, generateJobId, safeErrorMessage);
+
+		basicIO.setStatus(200);
+		basicIO.write(
+			JSON.stringify({
+				success: false,
+				message: "Customer experience generation failed",
+				project_id: projectId,
+				document_id: documentId,
+				experience_id: experienceId,
+				status: "FAILED",
+				error: safeErrorMessage
+			})
+		);
+	} finally {
+		context.close();
+	}
+};
+
+// Direct, structural consumption of Function 3's already-normalized analysis.json - no
+// second independent normalization/defaulting layer here. Function 3's
+// normalizeShowcaseContent() is the single source of truth for turning Agent output
+// into Showcase-ready content (real values or null/empty, never fabricated); this just
+// makes the fields render-safe (empty string/array instead of null) so the template's
+// string interpolation never prints the literal word "null" - it does not invent content.
+function prepareCustomerContent({ analysisJson = {}, businessName, projectName }) {
+	const hasAnyContent = analysisJson && (
+		(Array.isArray(analysisJson.deliverable_cards) && analysisJson.deliverable_cards.length > 0) ||
+		(Array.isArray(analysisJson.capabilities) && analysisJson.capabilities.length > 0) ||
+		(Array.isArray(analysisJson.customer_benefits) && analysisJson.customer_benefits.length > 0) ||
+		(Array.isArray(analysisJson.timeline_phases) && analysisJson.timeline_phases.length > 0)
+	);
+
+	if (!hasAnyContent) {
+		throw new ProcessingError(
+			"Analysis data has no recognizable Showcase content (no deliverable cards, capabilities, " +
+			"customer benefits, or timeline phases). Cannot render an experience from this."
+		);
+	}
+
+	const str = (val) => (typeof val === "string" ? val.trim() : "");
+	// Titles, labels and values are plain text; the **highlight** marker is only for sentences.
+	const plain = (val) => str(val).replace(/\*\*/g, "");
+
+	return {
+		proposal_title: titleWithoutCustomer(plain(analysisJson.proposal_title), businessName) || titleWithoutCustomer(projectName, businessName) || "Customer Solution Overview",
+		project_summary: str(analysisJson.project_summary),
+		what_we_deliver: str(analysisJson.what_we_deliver),
+		spikra_way: str(analysisJson.spikra_way),
+		how_we_support: str(analysisJson.how_we_support),
+		deliverable_cards: (Array.isArray(analysisJson.deliverable_cards) ? analysisJson.deliverable_cards : []).map((c) => ({
+			label: plain(c && c.label), value: plain(c && c.value), note: str(c && c.note)
+		})),
+		customer_benefits: (Array.isArray(analysisJson.customer_benefits) ? analysisJson.customer_benefits : []).map(str).filter(Boolean),
+		capabilities: (Array.isArray(analysisJson.capabilities) ? analysisJson.capabilities : []).map((cap) => ({
+			title: plain(cap && cap.title), subtitle: plain(cap && cap.subtitle), teaser: plain(cap && cap.teaser), description: str(cap && cap.description)
+		})),
+		timeline_phases: (Array.isArray(analysisJson.timeline_phases) ? analysisJson.timeline_phases : []).map((p) => ({
+			name: plain(p && p.name), duration: plain(p && p.duration),
+			items: Array.isArray(p && p.items) ? p.items.map(str).filter(Boolean) : [],
+			note: str(p && p.note) || null
+		})),
+		rollout_overview: (Array.isArray(analysisJson.rollout_overview) ? analysisJson.rollout_overview : []).map((r) => ({
+			label: plain(r && r.label), value: plain(r && r.value), note: str(r && r.note)
+		})),
+		de_risk_summary: (Array.isArray(analysisJson.de_risk_summary) ? analysisJson.de_risk_summary : []).map((d) => ({
+			label: plain(d && d.label), value: plain(d && d.value), note: str(d && d.note)
+		}))
+	};
+}
+
+// The page heading is "<what we build> for <customer>", so the title must not already contain the
+// customer's name (otherwise it reads "Acme CRM for Acme"). Strips the name and trailing joiners.
+function titleWithoutCustomer(title, businessName) {
+	let t = String(title || "").replace(/\*\*/g, "").trim();
+	const full = String(businessName || "").trim();
+	const short = full.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\b(pvt\.?|private|ltd\.?|limited|llp|inc\.?|corp\.?|co\.?)\b\.?/gi, " ").replace(/\s+/g, " ").trim();
+	const names = [...new Set([full, short])].filter((n) => n.length >= 2).sort((a, b) => b.length - a.length);
+	for (const name of names) {
+		const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		t = t.replace(new RegExp(`(?<![\\w])${esc}(?:['\u2019]s)?(?![\\w])`, "gi"), " ");
+	}
+	t = t.replace(/\s{2,}/g, " ").replace(/^[\s\-\u2013\u2014:\u00b7,&|]+|[\s\-\u2013\u2014:\u00b7,&|]+$/g, "");
+	t = t.replace(/^(for|of|by|with|to|at)\s+/i, "").replace(/\s+(for|of|by|with|to|at)$/i, "").trim();
+	return t;
+}
+
+function loadMasterTemplate() {
+	const templatePath = path.join(__dirname, "template.html");
+	if (!fs.existsSync(templatePath)) {
+		throw new ProcessingError("template.html is missing from this function. Run `npm run sync:shared` before deploying.");
+	}
+	return fs.readFileSync(templatePath, "utf8");
+}
+
+function renderMasterTemplate(templateString, content, { businessName, projectName, logoRelativePath }) {
+	let html = templateString;
+
+	const safeTitle = escapeHtml(content.proposal_title || `${projectName}`);
+	const safeBusinessName = escapeHtml(businessName);
+	const safeDescription = escapeHtml(content.project_summary || `Technical proposal for ${businessName}, BRD-aligned`);
+
+	html = html.replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${safeBusinessName} · ${safeTitle} | Spikra</title>`);
+	html = html.replace(/<meta\s+name="description"\s+content="[^"]*">/i, () => `<meta name="description" content="Technical proposal — ${safeTitle} for ${safeBusinessName}, BRD-aligned">`);
+
+	if (!html.includes('<link rel="stylesheet" href="styles.css">')) {
+		html = html.replace(
+			/(<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*" rel="stylesheet">)/i,
+			(match) => `${match}\n<link rel="stylesheet" href="styles.css">`
+		);
+	}
+
+	const googleFontsLink = '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">';
+	html = html
+		.replace(/\$1\s*(<link rel="stylesheet")/gi, `${googleFontsLink}\n$1`)
+		.replace(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>\s*\$1/gi, `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n${googleFontsLink}`)
+		.replace(/^\s*\$1\s*$/gm, "")
+		.replace(/>\s*\$1\s*</g, "><");
+
+	html = html.replace(/<h1>[\s\S]*?<\/h1>/i, () => `<h1>${safeTitle} for ${safeBusinessName}</h1>`);
+	html = html.replace(/<p class="hero-sub">[\s\S]*?<\/p>/i, () => `<p class="hero-sub">Prepared for <strong>${safeBusinessName}</strong>. ${richText(content.project_summary)}</p>`);
+
+	const initials = businessName.split(/\s+/).filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "SP";
+	let clientLogoHtml = "";
+	if (logoRelativePath) {
+		clientLogoHtml = `<div class="client-badge"><div class="client-logo"><img src="${escapeHtml(logoRelativePath)}" alt="${safeBusinessName} logo"></div><div class="client-name">${safeBusinessName}</div></div>`;
+	} else {
+		clientLogoHtml = `<div class="client-badge"><div class="client-logo"><div class="client-logo-fallback" style="width:96px;height:96px;border-radius:14px;background:var(--flame-soft);color:var(--flame);display:grid;place-items:center;font-size:28px;font-weight:700;margin:0 auto;">${escapeHtml(initials)}</div></div><div class="client-name">${safeBusinessName}</div></div>`;
+	}
+	if (/<div class="client-badge"/i.test(html)) {
+		html = html.replace(/<div class="client-badge">[\s\S]*?<\/div>\s*<\/div>/i, () => clientLogoHtml);
+	} else {
+		html = html.replace(/<div class="client-logo">[\s\S]*?<\/div>/i, () => clientLogoHtml);
+	}
+
+	const methodHtml = `<div class="method">
+    <div class="mcell">
+      <h3><span class="mi">◆</span>What we deliver</h3>
+      <p>${richText(content.what_we_deliver)}</p>
+    </div>
+    <div class="mcell">
+      <h3><span class="mi">◆</span>The Spikra way</h3>
+      <p>${richText(content.spikra_way)}</p>
+    </div>
+    <div class="mcell">
+      <h3><span class="mi">◆</span>How we support you</h3>
+      <p>${richText(content.how_we_support)}</p>
+    </div>
+  </div>`;
+	html = html.replace(/<div class="method">[\s\S]*?<\/div>\s*<\/section>/i, () => `${methodHtml}\n</section>`);
+
+	const deliverableCardsHtml = (content.deliverable_cards || []).map((card) => {
+		return `<div class="kpi"><div class="k-label">${escapeHtml(card.label)}</div><div class="k-value">${escapeHtml(card.value)}</div><div class="k-note">${richText(card.note)}</div></div>`;
+	}).join("\n      ");
+
+	const benefitsHtml = (content.customer_benefits || []).map(b => `<li>${richText(b)}</li>`).join("\n      ");
+
+	const deliverablesPanelHtml = `<section class="panel active" id="deliverables" role="tabpanel">
+    <div class="plabel">What Spikra will build for ${safeBusinessName}</div>
+    <div class="grid g3">
+      ${deliverableCardsHtml}
+    </div>
+
+    <div class="plabel">What ${safeBusinessName} gets from the move</div>
+    <ul class="check">
+      ${benefitsHtml}
+    </ul>
+  </section>`;
+
+	html = html.replace(/<section class="panel active" id="deliverables" role="tabpanel">[\s\S]*?<\/section>/i, () => deliverablesPanelHtml);
+
+	const capabilitiesHtml = (content.capabilities || []).map((cap, idx) => {
+		const openClass = idx === 0 ? " open" : "";
+		const svgIcon = CURATED_CAPABILITY_SVGS[idx % CURATED_CAPABILITY_SVGS.length];
+		const subtitleHtml = cap.subtitle ? ` <small>${escapeHtml(cap.subtitle)}</small>` : "";
+		const descText = (cap.description && String(cap.description).trim())
+			? String(cap.description).trim()
+			: `${cap.title} delivers structured workflows, seamless integration, and end-to-end automation to ensure consistent operational outcomes.`;
+		return `<button class="acc-item${openClass}" data-i="${idx}">
+        <div class="acc-bar">
+          <span class="acc-ic">${svgIcon}</span>
+          <span class="acc-title">${escapeHtml(cap.title)}${subtitleHtml}</span>
+          <span class="acc-tease">${escapeHtml(cap.teaser)}</span>
+          <span class="acc-chev" aria-hidden="true">›</span>
+        </div>
+        <div class="acc-body"><p>${richText(descText)}</p></div>
+      </button>`;
+	}).join("\n\n      ");
+
+	const capabilitiesPanelHtml = `<section class="panel" id="capabilities" role="tabpanel">
+    <div class="plabel">The core solution capabilities — tap any capability</div>
+    <div class="acc" id="acc">
+      ${capabilitiesHtml}
+    </div>
+  </section>`;
+
+	html = html.replace(/<section class="panel" id="capabilities" role="tabpanel">[\s\S]*?<\/section>/i, () => capabilitiesPanelHtml);
+
+	const phases = content.timeline_phases || [];
+	const chipsHtml = phases.map((phase, idx) => {
+		const onClass = idx === 0 ? " on" : "";
+		return `<button class="tl-chip${onClass}" data-phase="${idx}"><div class="tl-wk">${escapeHtml(phase.duration)}</div><div class="tl-name">${escapeHtml(phase.name)}</div></button>`;
+	}).join("\n      ");
+
+	const phase0 = phases[0] || null;
+	const phase0DetailHtml = phase0
+		? `<h3>${escapeHtml(phase0.name)}</h3><div class="wk">${escapeHtml(phase0.duration)}</div>
+    <ul>${(phase0.items || []).map(it => `<li>${richText(it)}</li>`).join("")}</ul>
+    ${phase0.note ? `<div class="tl-note">${richText(phase0.note)}</div>` : ""}`
+		: "";
+
+	const rolloutCardsHtml = (content.rollout_overview || []).map((card, idx) => {
+		const accentClass = idx === 0 ? " accent" : "";
+		return `<div class="kpi${accentClass}">
+        <div class="k-label">${escapeHtml(card.label)}</div>
+        <div class="k-value">${escapeHtml(card.value)}</div>
+        <div class="k-note">${richText(card.note)}</div>
+      </div>`;
+	}).join("\n      ");
+
+	const deRiskCardsHtml = (content.de_risk_summary || []).map((card) => {
+		return `<div class="kpi">
+        <div class="k-label">${escapeHtml(card.label)}</div>
+        <div class="k-value">${escapeHtml(card.value)}</div>
+        <div class="k-note">${richText(card.note)}</div>
+      </div>`;
+	}).join("\n      ");
+
+	const timelinePanelHtml = `<section class="panel" id="timeline" role="tabpanel">
+    <div class="plabel">Phased delivery — click a stage</div>
+    <div class="tl" id="tlChips">
+      ${chipsHtml}
+    </div>
+    <div class="tl-detail" id="tlDetail">${phase0DetailHtml}</div>
+
+    ${rolloutCardsHtml ? `<div class="plabel">Rollout focus</div>
+    <div class="grid g2">
+      ${rolloutCardsHtml}
+    </div>` : ""}
+
+    ${deRiskCardsHtml ? `<div class="plabel">How we de-risk delivery</div>
+    <div class="grid g2">
+      ${deRiskCardsHtml}
+    </div>` : ""}
+  </section>`;
+
+	html = html.replace(/<section class="panel" id="timeline" role="tabpanel">[\s\S]*?<\/section>/i, () => timelinePanelHtml);
+
+	html = html.replace(
+		/<span>Confidential[\s\S]*?<\/span>/i,
+		() => `<span>Confidential — prepared exclusively for ${safeBusinessName}${[process.env.PROPOSAL_CONTACT_EMAIL, process.env.PROPOSAL_CONTACT_PHONE].filter(Boolean).map((v) => " · " + escapeHtml(v)).join("")}</span>`
+	);
+
+	const scriptPhases = phases.map(p => ({
+		name: escapeHtml(p.name),
+		wk: escapeHtml(p.duration),
+		items: p.items.map(richText),
+		note: p.note ? richText(p.note) : null
+	}));
+
+	const phasesJs = `const PHASES = ${JSON.stringify(scriptPhases, null, 2)};`;
+	html = html.replace(/const PHASES\s*=\s*\[[\s\S]*?\];/i, () => phasesJs);
+
+	const dismissScript = `<script id="spikra-parent-dismiss-script">
+(function() {
+  function dismissParentLoader() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.hideSpikraLoader) {
+        window.parent.hideSpikraLoader();
+      }
+    } catch(e) {}
+  }
+  if (document.readyState === 'complete') {
+    dismissParentLoader();
+  } else {
+    window.addEventListener('load', dismissParentLoader);
+  }
+})();
+</script>`;
+
+	if (!html.includes('<script src="script.js"></script>')) {
+		if (/<script>[\s\S]*?<\/script>/i.test(html)) {
+			html = html.replace(/<script>[\s\S]*?<\/script>/i, `<script src="script.js"></script>`);
+			html = html.replace("</body>", `${dismissScript}\n</body>`);
+		} else {
+			html = html.replace("</body>", `<script src="script.js"></script>\n${dismissScript}\n</body>`);
+		}
+	} else if (!html.includes('spikra-parent-dismiss-script')) {
+		html = html.replace("</body>", `${dismissScript}\n</body>`);
+	}
+
+	html = html.replace(/\biSteel\s*(\(VIPL\))?/gi, safeBusinessName);
+	html = html.replace(/\bVIPL\b/gi, safeBusinessName);
+
+	return html;
+}
+
+function extractTemplateCss(templateString) {
+	const styleMatch = templateString.match(/<style>([\s\S]*?)<\/style>/i);
+	return styleMatch ? styleMatch[1].trim() : "";
+}
+
+function extractTemplateJs(renderedHtml) {
+	const scriptMatch = renderedHtml.match(/<script>([\s\S]*?)<\/script>/i);
+	if (scriptMatch) {
+		return scriptMatch[1].trim();
+	}
+	return "";
+}
+
+function getContentTypeByExt(ext) {
+	switch (ext) {
+		case ".png": return "image/png";
+		case ".jpg":
+		case ".jpeg": return "image/jpeg";
+		case ".webp": return "image/webp";
+		case ".svg": return "image/svg+xml";
+		default: return "image/png";
+	}
+}
+
+async function markGenerateFailure(app, experienceId, generateJobId, errorMessage) {
+	if (!app) return;
+	const safeMsg = String(errorMessage || "Customer experience generation failed.").slice(0, 9000);
+
+	try {
+		const datastore = app.datastore();
+		if (experienceId) {
+			const experiencesTable = datastore.table(EXPERIENCES_TABLE);
+			await experiencesTable.updateRow({
+				ROWID: String(experienceId),
+				status: "FAILED",
+				error_message: safeMsg
+			}).catch(() => {});
+		}
+
+		if (generateJobId) {
+			const processingJobsTable = datastore.table(PROCESSING_JOBS_TABLE);
+			await processingJobsTable.updateRow({
+				ROWID: String(generateJobId),
+				status: "FAILED",
+				completed_time: new Date().toISOString().replace("T", " ").substring(0, 19),
+				error_message: safeMsg
+			}).catch(() => {});
+		}
+	} catch (failureErr) {
+		console.error("Unable to update failure status:", failureErr);
+	}
+}
+
+class ValidationError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = "ValidationError";
+	}
+}
+
+class NotFoundError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = "NotFoundError";
+	}
+}
+
+class ProcessingError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = "ProcessingError";
+	}
+}
+
+module.exports = asAdvancedIO(handler);

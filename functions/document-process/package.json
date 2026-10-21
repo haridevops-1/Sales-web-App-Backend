@@ -1,0 +1,13 @@
+{
+	"name": "document-process",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "Spikra",
+	"dependencies": {
+		"mammoth": "^1.12.2",
+		"pdf-parse": "^1.1.1",
+		"pdf2json": "^4.0.3",
+		"pdfjs-dist": "^6.3.289",
+		"zcatalyst-sdk-node": "^3.4.0"
+	}
+}

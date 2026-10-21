@@ -70,12 +70,10 @@ function formatProposalUrl(rawUrl, experienceId = "", projectId = "") {
 	}
 }
 
-// Escapes text for HTML, then turns **important words** into a highlight. Only this exact marker is
-// honoured (nothing else from the agent is ever treated as HTML); stray ** are removed.
+// Escapes agent text for HTML. Any **markers** the agent still sends are removed, not rendered, so
+// paragraphs stay plain (no highlighted words).
 function richText(value) {
-	return escapeHtml(value)
-		.replace(/\*\*([^*\n]+?)\*\*/g, '<strong class="kw">$1</strong>')
-		.replace(/\*\*/g, "");
+	return escapeHtml(value).replace(/\*\*/g, "");
 }
 
 module.exports = {

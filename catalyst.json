@@ -1,16 +1,16 @@
 {
   "functions": {
     "targets": [
-      "spikra_document_upload",
-      "spikra_document_process_v2",
-      "spikra_ai_analysis_v2",
-      "spikra_experience_generate_v2",
-      "spikra_experience_deploy",
-      "spikra_process_status_v2",
-      "spikra_experience_list_v2",
-      "proposal-api",
-      "proposal-discovery",
-      "proposal-processor",
+      "document-upload",
+      "document-process",
+      "document-analysis",
+      "experience-generate",
+      "experience-deploy",
+      "process-status",
+      "experience-list",
+      "proposal-api-w2",
+      "proposal-discovery-w2",
+      "proposal-processor-w2",
       "workdrive-auth",
       "app-auth"
     ],

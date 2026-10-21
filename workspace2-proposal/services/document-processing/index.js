@@ -10,7 +10,7 @@ if (typeof globalThis.DOMMatrix === "undefined") {
 }
 
 // Extraction + normalization for discovery package files. PDF and DOCX reuse the exact
-// engine chain already proven in functions/spikra_document_process/index.js (Workspace 1) -
+// engine chain already proven in functions/document-process/index.js (Workspace 1) -
 // not reimplemented, just generalized into a router. XLSX is new for Workspace 2.
 //
 // Raw audio/video (meeting recordings) are intentionally NOT transcribed here - see the
