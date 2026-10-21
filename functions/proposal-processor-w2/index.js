@@ -22,7 +22,9 @@ const PROCESS_DOCUMENTS_BUCKET_NAME = requireEnv("PROCESS_BUCKET_NAME");
 const PROPOSAL_ZIA_CONNECTION_LINK_NAME = String(process.env.PROPOSAL_ZIA_CONNECTION_LINK_NAME || "").trim();
 const PROPOSAL_SLATE_APP_URL = String(process.env.PROPOSAL_SLATE_APP_URL || "").trim();
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS || 8000);
+// The full text of every uploaded document is sent - nothing is dropped. Set PROPOSAL_ZIA_MAX_INPUT_CHARS
+// only to impose a cap deliberately.
+const MAX_DISCOVERY_CONTENT_CHARS = Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS) > 0 ? Number(process.env.PROPOSAL_ZIA_MAX_INPUT_CHARS) : Infinity;
 
 module.exports = async (req, res) => {
 	const requestId = newRequestId();

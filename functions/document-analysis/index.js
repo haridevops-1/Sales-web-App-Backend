@@ -201,6 +201,23 @@ const handler = async (req, res) => {
 			}
 		} catch {}
 
+		// A run that already FAILED in the background must not be started again by the next check:
+		// report the stored failure and stop, so a failure never costs a second AI run.
+		if (aiAnalysisJob && String(aiAnalysisJob.status || "").toUpperCase() === "FAILED") {
+			console.log(`AI_ANALYSIS job ${jobId} already FAILED - reporting the failure without re-running the Agent.`);
+			sendJson(res, 200, {
+				success: false,
+				still_processing: false,
+				message: String(documentRow.error_message || "").trim() || "AI analysis failed. Please upload the document again.",
+				document_id: documentId,
+				project_id: projectId,
+				job_id: jobId,
+				processing_status: "FAILED",
+				job_status: "FAILED"
+			});
+			return;
+		}
+
 		// A retry (e.g. after the client gave up waiting on a slow Agent call) must never trigger a
 		// second concurrent Agent call for the same document - the first one is very likely still
 		// genuinely running server-side even though the earlier HTTP response timed out client-side.
